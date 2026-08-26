@@ -10,6 +10,12 @@ layout(std140, binding = 0) uniform buf {
     vec2 resolution;
 };
 
+// ssin() wrapper: GPU range reduction loses precision for large arguments, so
+// reduce the argument modulo 2*pi first (mathematically identical).
+float ssin(float x) {
+    return sin(mod(x, 6.2831853));
+}
+
 float hash21(vec2 p) {
     p = fract(p * vec2(233.34, 851.73));
     p += dot(p, p + 23.45);
@@ -59,7 +65,7 @@ vec3 starLayer(vec2 p, float scale, float density, float t, float glow, vec2 vel
                 float d = length(f - sp);
                 float phase = hash21(id + 7.3) * 6.2831;
                 float speed = 0.8 + 1.6 * hash21(id + 13.1);
-                float tw = 0.5 + 0.5 * sin(t * speed + phase);
+                float tw = 0.5 + 0.5 * ssin(t * speed + phase);
                 tw = pow(tw, 3.0);
                 float size = (1.1 + 3.0 * hash21(id + 5.5)) * scale / resolution.y;
                 float halo = smoothstep(size * (1.0 + 2.5 * tw), 0.0, d);
@@ -86,13 +92,13 @@ vec3 galaxies(vec2 p, float t) {
         vec2 rel = g - pos;
         float ang = hash21(id + 3.3) * 3.14159;
         float ca = cos(ang);
-        float sa = sin(ang);
+        float sa = ssin(ang);
         vec2 r = vec2(rel.x * ca - rel.y * sa, rel.x * sa + rel.y * ca);
         float ell = length(r * vec2(1.0, 2.4));
         float disc = exp(-ell * ell * 14.0);
         float core = exp(-ell * ell * 90.0);
         float shimmer = 0.75 + 0.25 * vnoise(vec2(ell * 7.0, hash21(id + 1.1) * 10.0));
-        float twk = 0.9 + 0.1 * sin(t * 0.2 + hash21(id) * 6.2831);
+        float twk = 0.9 + 0.1 * ssin(t * 0.2 + hash21(id) * 6.2831);
         vec3 tint = mix(vec3(0.80, 0.85, 1.0), vec3(1.0, 0.85, 0.72), hash21(id + 77.7));
         col += tint * (disc * 0.22 * shimmer + core * 0.45) * twk;
     }
@@ -101,13 +107,13 @@ vec3 galaxies(vec2 p, float t) {
 
 // gentle flowing energy ribbon
 vec3 ribbon(vec2 p, float t, float yBase, float amp, float speed, vec3 cA, vec3 cB) {
-    float yc = yBase + amp * sin(p.x * 2.0 + t * 0.15 * speed)
-                    + amp * 0.55 * sin(p.x * 3.7 - t * 0.10 * speed);
+    float yc = yBase + amp * ssin(p.x * 2.0 + t * 0.15 * speed)
+                    + amp * 0.55 * ssin(p.x * 3.7 - t * 0.10 * speed);
     float d = abs(p.y - yc);
     float band = exp(-d * 26.0);
     float pulses = vnoise(vec2(p.x * 3.5 - t * 0.5 * speed, p.y * 9.0 + yBase * 7.0));
     pulses = 0.30 + 0.85 * pulses * pulses;
-    vec3 tint = mix(cA, cB, 0.5 + 0.5 * sin(p.x * 1.4 + t * 0.05));
+    vec3 tint = mix(cA, cB, 0.5 + 0.5 * ssin(p.x * 1.4 + t * 0.05));
     float spark = smoothstep(0.86, 1.0, vnoise(vec2(p.x * 14.0 - t * 1.1 * speed, yBase * 13.0 + p.y * 30.0)));
     return tint * band * pulses * 0.80 + tint * band * spark * 1.3;
 }
@@ -125,7 +131,7 @@ vec3 shootingStar(vec2 p, float t) {
     vec2 rel = p - pos;
     float along = dot(rel, -dir);
     float across = abs(dot(rel, vec2(-dir.y, dir.x)));
-    float fade = sin(3.14159 * u);
+    float fade = ssin(3.14159 * u);
     float trail = smoothstep(0.20, 0.0, along) * step(0.0, along);
     float body = smoothstep(0.0035, 0.0, across + max(along, 0.0) * 0.18);
     float head = smoothstep(0.005, 0.0, length(rel));

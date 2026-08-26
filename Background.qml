@@ -25,6 +25,19 @@ Item {
   property string pendingColorsRaw: ""
   property string pendingShellRaw: ""
   property real revealProgress: 1
+  property real shaderEpoch: Date.now()
+  property real shaderTime: 0
+
+  // Event-loop driven clock for the live shader. Session-relative seconds
+  // wrapped at 600 keeps float32 sin() arguments small enough for GPU range
+  // reduction, and a Timer (unlike NumberAnimation) keeps ticking even when
+  // the compositor would otherwise idle and stall QML's animation driver.
+  Timer {
+    interval: 16
+    running: true
+    repeat: true
+    onTriggered: root.shaderTime = ((Date.now() - root.shaderEpoch) / 1000) % 600
+  }
 
   // GPU-animated backgrounds: a file named "*-live.webp" is rendered by the
   // universe shader at native refresh rate instead of being shown as an image.
@@ -209,10 +222,10 @@ Item {
 
       function maybeStartReveal() {
         if (!root.incomingBackground || root.revealProgress !== 0 || maskReady) return
-        if (incomingFrame.status !== AnimatedImage.Ready) return
+        if (incomingFrame.status !== Image.Ready) return
         Qt.callLater(function() {
           if (!root.incomingBackground || root.revealProgress !== 0 || maskReady) return
-          if (incomingFrame.status !== AnimatedImage.Ready) return
+          if (incomingFrame.status !== Image.Ready) return
           root.startReveal(panel)
         })
       }
@@ -222,17 +235,16 @@ Item {
       WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
       exclusionMode: ExclusionMode.Ignore
 
-      AnimatedImage {
+      Image {
         id: base
         anchors.fill: parent
         source: root.imageUrl(root.displayedBackground)
-        fillMode: AnimatedImage.PreserveAspectCrop
+        fillMode: Image.PreserveAspectCrop
         asynchronous: true
         cache: true
-        playing: !root.liveBackground
         visible: true
         onStatusChanged: {
-          if (status === AnimatedImage.Ready && root.finishingTransition) {
+          if (status === Image.Ready && root.finishingTransition) {
             root.incomingBackground = ""
             root.oldBackground = ""
             root.finishingTransition = false
@@ -240,27 +252,29 @@ Item {
         }
       }
 
-      ShaderEffect {
-        id: liveShader
+      // The live shader is created through a Loader so it is fully destroyed
+      // when showing a static background and freshly recreated when the live
+      // one returns. A long-lived ShaderEffect that has been hidden (either
+      // via `visible` or `opacity`) stops receiving uniform updates for good
+      // on this stack; a freshly created instance always animates.
+      Loader {
         anchors.fill: parent
-        visible: root.liveBackground
-        fragmentShader: Qt.resolvedUrl("universe.qsb")
-        property real time: 0
-        property vector2d resolution: Qt.vector2d(panel.width, panel.height)
-
-        NumberAnimation on time {
-          from: 0
-          to: 1000000
-          duration: 1000000000
-          loops: Animation.Infinite
+        active: root.liveBackground
+        sourceComponent: Component {
+          ShaderEffect {
+            visible: true
+            fragmentShader: Qt.resolvedUrl("universe.qsb")
+            property real time: root.shaderTime
+            property vector2d resolution: Qt.vector2d(panel.width, panel.height)
+          }
         }
       }
 
-      AnimatedImage {
+      Image {
         id: oldFrame
         anchors.fill: parent
         source: root.imageUrl(root.oldBackground)
-        fillMode: AnimatedImage.PreserveAspectCrop
+        fillMode: Image.PreserveAspectCrop
         asynchronous: true
         cache: false
         smooth: true
@@ -272,7 +286,7 @@ Item {
       Item {
         id: incomingLayer
         anchors.fill: parent
-        visible: root.incomingBackground !== "" && incomingFrame.status === AnimatedImage.Ready && (root.revealProgress >= 1 || panel.maskReady)
+        visible: root.incomingBackground !== "" && incomingFrame.status === Image.Ready && (root.revealProgress >= 1 || panel.maskReady)
         layer.enabled: root.incomingBackground !== "" && root.revealProgress < 1
         layer.smooth: true
         layer.effect: MultiEffect {
@@ -282,11 +296,11 @@ Item {
           maskSpreadAtMin: 0.02
         }
 
-        AnimatedImage {
+        Image {
           id: incomingFrame
           anchors.fill: parent
           source: root.imageUrl(root.incomingBackground)
-          fillMode: AnimatedImage.PreserveAspectCrop
+          fillMode: Image.PreserveAspectCrop
           asynchronous: true
           cache: false
           smooth: true
