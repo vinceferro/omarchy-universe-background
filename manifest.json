@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "universe.background",
+  "name": "Universe Background",
+  "version": "1.0.0",
+  "author": "thev",
+  "description": "Animated GPU-shader universe wallpaper (nebula, clustered starfields, galaxies, ribbons) at native refresh rate; falls back to a static image",
+  "kinds": ["service"],
+  "entryPoints": {
+    "service": "Background.qml"
+  }
+}
