@@ -1,5 +1,8 @@
 # Universe Background — an Omarchy shell plugin
 
+![animated universe background](preview.gif)
+
+
 A GPU-rendered animated universe wallpaper for [Omarchy](https://omarchy.org):
 drifting neon nebula, starfields clustered into agglomerates with a milky-way
 band, distant shimmering galaxies, slow energy ribbons and the occasional
