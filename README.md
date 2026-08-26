@@ -1,26 +1,38 @@
-# Universe Background — an Omarchy shell plugin
+# Live Background — shader-animated wallpapers for Omarchy
 
-![animated universe background](preview.gif)
+An [Omarchy](https://omarchy.org) shell plugin that renders certain
+backgrounds on the GPU with a GLSL fragment shader, inside the shell's own
+background layer — no mpv, no swww, no extra processes. Animation runs at
+your display's **native refresh rate** (120 Hz stays 120 Hz) at full native
+resolution.
 
-
-A GPU-rendered animated universe wallpaper for [Omarchy](https://omarchy.org):
-drifting neon nebula, starfields clustered into agglomerates with a milky-way
-band, distant shimmering galaxies, slow energy ribbons and the occasional
-shooting star — all procedural GLSL, animated by a time uniform at your
-display's **native refresh rate** (120 Hz stays 120 Hz), at full native
-resolution, with no video decoding and no loop seam.
-
-![preview](preview.png)
+![bundled example shader: a procedural universe](preview.gif)
 
 ## How it works
 
 - Any background whose filename ends in **`-live.webp`** is rendered by the
-  shader instead of being shown as a static image (the file itself serves as
-  the static fallback and picker preview).
-- Regular images (jpg/png/webp/gif) render exactly as before; animated GIFs
-  and WebPs also animate.
-- Based on Omarchy's stock `background` plugin, so double-click launcher,
-  theme transitions and the reveal animation behave normally.
+  shader instead of being shown as a static image. The file itself still
+  serves as the static fallback and the picker thumbnail.
+- Regular images (jpg/png/webp/gif) render exactly as before.
+- Drop-in fork of Omarchy's stock `background` plugin: the double-click
+  picker, theme transitions and the reveal animation behave unchanged.
+- The shader is created through a `Loader` and driven by a wall-clock
+  `Timer` — details in `Background.qml` comments; both work around
+  Quickshell/Qt quirks where hidden shader effects stop updating.
+
+## Bundled example: universe
+
+The shader this repo ships is a procedural universe — drifting nebula,
+starfields clustered into agglomerates with a milky-way band, shimmering
+galaxies, energy ribbons and the occasional shooting star (gif above, still
+below). Every `-live.webp` background is rendered by it; the image content
+only matters for the fallback.
+
+![universe still](preview.png)
+
+It pairs with the
+[ai-engineer theme](https://github.com/vinceferro/omarchy-ai-engineer-theme),
+which ships a `1-universe-live.webp` background.
 
 ## Install
 
@@ -30,34 +42,39 @@ Whole setup (this plugin + the matching theme + hook):
 curl -sL https://gist.githubusercontent.com/vinceferro/14ca89b1f493986cff81a81721ac8670/raw/install.sh | bash
 ```
 
+Just the plugin:
 
 ```bash
 omarchy plugin add https://github.com/vinceferro/omarchy-universe-background.git --enable
+omarchy plugin disable omarchy.background   # the stock background, replaced by this
 omarchy restart shell
 ```
 
-Then set any `-live.webp` background (double-click the wallpaper to open the
-picker). Pairs beautifully with the
-[ai-engineer theme](https://github.com/vinceferro/omarchy-ai-engineer-theme),
-which ships one.
+Then set any `-live.webp` background (double-click the wallpaper to open
+the picker). Updates: `omarchy plugin update universe.background`.
 
-## Tuning
+## Ship your own shader
 
-`universe.frag` is the readable GLSL source. Tweak star density, nebula
-colors, ribbon speed, the shooting-star period, etc., then recompile:
+The plugin renders all `-live.webp` backgrounds with `universe.qsb`. To ship
+a different look, edit `universe.frag` and recompile:
 
 ```bash
-qsb --glsl 100es,120 --hlsl 50 --msl 12 -o universe.qsb universe.frag
+# qt6-shadertools provides qsb; the default variant set fails to link on
+# Mesa/aarch64, so pin the GLSL versions explicitly
+qsb --glsl "100 es,120,330" universe.frag -o universe.qsb
 omarchy restart shell
 ```
 
-(If your edits don't appear, clear Qt's shader cache: `rm -rf ~/.cache/quickshell`.)
+Useful conventions from the frag: a `time` uniform (seconds, wraps at 600 —
+keep `sin()` arguments small via a mod-2π wrapper for float32 precision) and
+a `resolution` uniform. If your edits don't appear, clear Qt's shader cache:
+`rm -rf ~/.cache/quickshell`.
 
 ## Notes
 
-- ~6–10% CPU for the whole shell on an M-series laptop; rendering is on the GPU.
-- The fragment shader reads `qt_TexCoord0` (the default vertex shader's output
-  name) — renaming it causes name-mismatch linkage bugs on some drivers.
+- ~6–10% CPU for the whole shell on an ARM laptop; rendering itself is GPU-side.
+- The fragment shader must read `qt_TexCoord0` (the default vertex shader's
+  output name) — renaming it causes linkage failures on some drivers.
 
 ## License
 
