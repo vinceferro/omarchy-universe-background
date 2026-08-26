@@ -24,6 +24,13 @@ resolution, with no video decoding and no loop seam.
 
 ## Install
 
+Whole setup (this plugin + the matching theme + hook):
+
+```bash
+curl -sL https://gist.githubusercontent.com/vinceferro/14ca89b1f493986cff81a81721ac8670/raw/install.sh | bash
+```
+
+
 ```bash
 omarchy plugin add https://github.com/vinceferro/omarchy-universe-background.git --enable
 omarchy restart shell
