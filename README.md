@@ -22,13 +22,13 @@ resolution, with no video decoding and no loop seam.
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/thev/omarchy-universe-background.git --enable
+omarchy plugin add https://github.com/vinceferro/omarchy-universe-background.git --enable
 omarchy restart shell
 ```
 
 Then set any `-live.webp` background (double-click the wallpaper to open the
 picker). Pairs beautifully with the
-[ai-engineer theme](https://github.com/thev/omarchy-ai-engineer-theme),
+[ai-engineer theme](https://github.com/vinceferro/omarchy-ai-engineer-theme),
 which ships one.
 
 ## Tuning
