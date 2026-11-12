@@ -752,18 +752,52 @@ Item {
   }
   // a pick starts a timed flight: eased, always the same length, the camera
   // pulling back mid-way on long hops so the target never leaves the view
+  // A pick is two calm steps: first a timed flight at the current scale (the
+  // camera glides over and zooms in, pulling back on long hops just enough
+  // to keep the target in view), then, once there, the blend to true scale
+  // with the target held in the centre while everything else recedes.
+  // The flight follows van Wijk & Nuij's smooth zoom-and-pan path (2003):
+  // the camera rises (zooms out) and descends along the curve that keeps the
+  // perceived speed constant, so a long hop never rushes its zoom at the end.
   property real sysFlyT: -1
   property vector2d sysFlyFrom: Qt.vector2d(0, 0)
+  property vector2d sysFlyTo: Qt.vector2d(0, 0)   // target where the flight was planned
   property real sysFlyZoomFrom: 1
-  readonly property real sysFlyTime: 1.1
+  property real sysFlyTime: 1.1
+  property var sysFlyPath: null                   // { w0, r0, S, rho, u1 } or { w0, S, k } for a pure zoom
+  function planFlight(c0, c1, z0, z1) {
+    const rho = 1.6 // a little more rise than the paper's 1.42: the destination shows sooner
+    const w0 = 1 / z0, w1 = 1 / z1
+    const u1 = c1.minus(c0).length()
+    if (u1 < 1e-9) {
+      const S = Math.abs(Math.log(w1 / w0)) / rho
+      return { pure: true, w0: w0, k: w1 > w0 ? 1 : -1, S: S, rho: rho }
+    }
+    const b = (i, wi) => (w1 * w1 - w0 * w0 + (i ? -1 : 1) * rho * rho * rho * rho * u1 * u1) / (2 * wi * rho * rho * u1)
+    const r = (bb) => Math.log(-bb + Math.sqrt(bb * bb + 1))
+    const r0 = r(b(0, w0)), r1 = r(b(1, w1))
+    return { pure: false, w0: w0, r0: r0, S: (r1 - r0) / rho, rho: rho, u1: u1 }
+  }
+  function flightAt(P, s) {
+    if (P.pure) return { u: 0, w: P.w0 * Math.exp(P.k * P.rho * s) }
+    const c = Math.cosh(P.r0), rr = P.rho * P.rho
+    return { u: P.w0 / rr * (c * Math.tanh(P.rho * s + P.r0) - Math.sinh(P.r0)), w: P.w0 * c / Math.cosh(P.rho * s + P.r0) }
+  }
+  property var planetK: planetInfo.map(() => 1) // display scale of each orbit (grows with true scale)
+  function bodyScale(i) { return i >= 1 && i <= 6 ? planetK[i - 1] : i === 7 ? planetK[2] : 1 }
   function focusBody(i) {
-    follow = i
-    sysZoomTarget = i === 0 ? 3.2 : Math.max(3.6, Math.min(150, 0.06 / trueRadius(i)))
     if (explore === "system") {
       sysFlyT = 0
       sysFlyFrom = sysCam
       sysFlyZoomFrom = sysZoom
+      sysFlyTo = bodyPos(i)
+      const z1 = i === 0 ? 3.2 : Math.max(3.6, Math.min(150, 0.06 / trueRadius(i)))
+      sysFlyPath = planFlight(sysCam, sysFlyTo, sysZoom, z1)
+      // longer hops take a little longer: 0.8 s up to 2.2 s
+      sysFlyTime = Math.max(0.8, Math.min(2.2, 0.55 + 0.3 * Math.abs(sysFlyPath.S)))
     }
+    follow = i
+    sysZoomTarget = i === 0 ? 3.2 : Math.max(3.6, Math.min(150, 0.06 / trueRadius(i)))
   }
   // screen pixel -> shader p coordinates
   function toP(x, y, w, h) { return Qt.vector2d((x / w - 0.5) * aspect, y / h - 0.5) }
@@ -867,8 +901,10 @@ Item {
     {
       if (follow > 0) trueLatch = true
       if (follow === 0 || sysZoomTarget <= 3.4 || explore !== "system") trueLatch = false
+      // true scale waits for the pick's flight to land (sysFlyT < 0)
       const goal = explore === "system" && trueLatch && sysZoomTarget > 3.4 && !galactic ? 1 : 0
-      trueMix += (goal - trueMix) * Math.min(1, dt * 2.6) // done within the pick's flight
+      const blendNow = sysFlyT < 0
+      if (blendNow) trueMix += (goal - trueMix) * Math.min(1, dt * 2.2)
       if (Math.abs(goal - trueMix) < 0.0005) trueMix = goal
     }
     const tm = trueMix * trueMix * (3 - 2 * trueMix)
@@ -881,6 +917,7 @@ Item {
       return Qt.vector4d(p[0], p[1], p[2], Math.pow(planetInfo[i].r, 1 - tm) * Math.pow(trueRadius(i + 1), tm))
     })
     orbitParams = orbits.map((o, i) => [dispA[i], o[4], -o[5]])
+    planetK = orbits.map((o, i) => dispA[i] / o[3])
     sunR = Math.pow(0.006, 1 - tm) * Math.pow(trueRadius(0), tm)
     sysSpan = dispA[5] / planetInfo[5].a
     spins = planetInfo.map(pl => (2 * Math.PI * days / pl.day) % (2 * Math.PI))
@@ -1192,7 +1229,7 @@ Item {
     // system camera: ease in and out of the view, zoom and follow
     const goal = explore === "system" ? 1 : 0
     sys += (goal - sys) * Math.min(1, dt * 1.6)
-    if (Math.abs(goal - sys) < 0.0005) sys = goal
+    if (Math.abs(goal - sys) < 0.01) sys = goal // the last 1% would leave a large camera offset at true scale
     if (explore === "system" && !galactic) {
       const move = Qt.vector2d(key("d") - key("a"), key("s") - key("w"))
       if (move.length() > 0) {
@@ -1205,18 +1242,20 @@ Item {
       if (tiltKey !== 0) viewTiltTarget = Math.max(0.12, Math.min(0.95, viewTiltTarget + tiltKey * dt * 0.5))
       const zk = key("e") - key("q")
       if (zk !== 0) sysZoomTarget = Math.max(1.3, Math.min(80, sysZoomTarget * Math.pow(2.5, zk * dt)))
-      const before = sysCamTarget
+      // a copy: reading a vector2d property gives a live reference, which would
+      // follow the update below and leave the carry-along step at zero
+      const before = Qt.vector2d(sysCamTarget.x, sysCamTarget.y)
       if (follow >= 0) sysCamTarget = bodyPos(follow)
       if (sysFlyT >= 0 && follow >= 0) {
-        // timed flight toward the target's live position
+        // along the smooth zoom-and-pan path, eased in and out; the target's
+        // own motion since the plan is carried along
         sysFlyT = Math.min(1, sysFlyT + dt / sysFlyTime)
         const e = sysFlyT * sysFlyT * (3 - 2 * sysFlyT)
-        sysCam = sysFlyFrom.plus(sysCamTarget.minus(sysFlyFrom).times(e))
-        const zl = Math.log(sysFlyZoomFrom) + (Math.log(sysZoomTarget) - Math.log(sysFlyZoomFrom)) * e
-        // zoom that fits the whole hop in the view, reached at the midpoint
-        const span = sysCamTarget.minus(sysFlyFrom).length()
-        const zfit = Math.log(Math.max(1, 0.35 / Math.max(span, 1e-9)))
-        sysZoom = Math.exp(zfit < zl ? zl - (zl - zfit) * Math.sin(Math.PI * e) : zl)
+        const P = sysFlyPath
+        const f = flightAt(P, e * P.S)
+        const dir = P.pure ? Qt.vector2d(0, 0) : sysFlyTo.minus(sysFlyFrom).times(1 / P.u1)
+        sysCam = sysFlyFrom.plus(dir.times(f.u)).plus(sysCamTarget.minus(sysFlyTo).times(e))
+        sysZoom = 1 / f.w
         if (sysFlyT >= 1) { sysFlyT = -1; sysCam = sysCamTarget; sysZoom = sysZoomTarget }
       } else {
         sysFlyT = -1
