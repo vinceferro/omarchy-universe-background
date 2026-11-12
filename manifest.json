@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "id": "universe.background",
   "name": "Universe Background",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "author": "thev",
-  "description": "Animated GPU-shader universe wallpaper (nebula, clustered starfields, galaxies, ribbons) at native refresh rate; falls back to a static image",
+  "description": "Live GPU wallpaper of the real universe: the solar system from live ephemerides, a true-scale Milky Way with real photos of its places, a ray-traced Sagittarius A* and the NASA/Gaia sky, all on true black for OLED",
   "kinds": ["service"],
   "entryPoints": {
     "service": "Background.qml"

@@ -1,0 +1,77 @@
+[
+ {
+  "name": "Orion Nebula",
+  "tile": 0,
+  "fovArcmin": 35.49
+ },
+ {
+  "name": "Carina Nebula",
+  "tile": 1,
+  "fovArcmin": 66.336
+ },
+ {
+  "name": "Eagle Nebula",
+  "tile": 2,
+  "fovArcmin": 32.08
+ },
+ {
+  "name": "Lagoon Nebula",
+  "tile": 3,
+  "fovArcmin": 93.49
+ },
+ {
+  "name": "Rosette Nebula",
+  "tile": 4,
+  "fovArcmin": 94.75
+ },
+ {
+  "name": "Crab Nebula",
+  "tile": 5,
+  "fovArcmin": 6.41
+ },
+ {
+  "name": "Ring Nebula",
+  "tile": 6,
+  "fovArcmin": 2.483
+ },
+ {
+  "name": "Helix Nebula",
+  "tile": 7,
+  "fovArcmin": 26.845
+ },
+ {
+  "name": "Pleiades",
+  "tile": 8,
+  "fovArcmin": 69.314
+ },
+ {
+  "name": "Omega Centauri",
+  "tile": 9,
+  "fovArcmin": 31.88
+ },
+ {
+  "name": "47 Tucanae",
+  "tile": 10,
+  "fovArcmin": 42.067
+ },
+ {
+  "name": "Westerlund 1",
+  "tile": 11,
+  "fovArcmin": 6.513
+ },
+ {
+  "name": "Large Magellanic Cloud",
+  "tile": 12,
+  "fovArcmin": 266.136
+ },
+ {
+  "name": "Small Magellanic Cloud",
+  "tile": 13,
+  "fovArcmin": 409.149
+ },
+ {
+  "name": "Andromeda Galaxy",
+  "tile": 14,
+  "fovArcmin": 169.915
+ }
+]
