@@ -524,12 +524,25 @@ Item {
   property real chasePitchTarget: 0.18
   property real chaseDist: 7
   property real chaseDistTarget: 7
-  property var bodies: planetInfo.map(() => Qt.vector4d(0, 0, 0, 0))
+  property var bodies: planetInfo.map(() => Qt.vector4d(0, 0, 0, 0)) // relative to the chase camera (markers)
+  // the one scene for universe.frag's systemScene: every body relative to a
+  // reference point near what is looked at, in display units
+  property var sceneBodies: planetInfo.map(() => Qt.vector4d(0, 0, 0, 0))
+  property vector4d sceneMoon: Qt.vector4d(0, 0, 0, 0)
+  property vector4d sceneSun: Qt.vector4d(0, 0, 0, 0.006)
+  property vector3d sceneCam: Qt.vector3d(0, 0, 1)
+  property vector3d orthoC: Qt.vector3d(0, 0, 0)
+  property vector3d orthoRight: Qt.vector3d(1, 0, 0)
+  property vector3d orthoDown: Qt.vector3d(0, 0.3, 0.95)
+  property vector3d orthoView: Qt.vector3d(0, -0.3, -0.95)
+  property real scenePlaneY: 0
+  property real sceneBack: 1
   property vector3d camPos: Qt.vector3d(0, 0.05, 0.3)
   property vector3d camFwd: Qt.vector3d(0, 0, -1)
   property vector3d camRight: Qt.vector3d(1, 0, 0)
   property vector3d camUp: Qt.vector3d(0, 1, 0)
   readonly property real focal: 1.0
+  property var chaseCam: [0, 0.05, 0.3] // chase camera, display units, doubles
   onFollowChanged: if (follow <= 0) chasing = false
 
   function toggleChase() {
@@ -633,7 +646,7 @@ Item {
       var v = kind === "moon" ? Qt.vector3d(moonBody.x, moonBody.y, moonBody.z)
             : kind === "earth" ? Qt.vector3d(bodies[2].x, bodies[2].y, bodies[2].z)
             : camPos.times(-1)
-      var rad = kind === "moon" ? moonBody.w : kind === "earth" ? bodies[2].w : sunRadiusAu
+      var rad = kind === "moon" ? moonBody.w : kind === "earth" ? bodies[2].w : sunR
       var zc = v.dotProduct(camFwd)
       var sx = v.dotProduct(camRight) / Math.max(Math.abs(zc), 1e-12) * focal
       var sy = -v.dotProduct(camUp) / Math.max(Math.abs(zc), 1e-12) * focal
@@ -676,6 +689,7 @@ Item {
   }
   function markerWanted(kind, w, h) {
     if (!root.liveBackground || root.sys < 0.5 || root.galMix > 0.5) return false
+    if (chaseMix > 0.02 && chaseMix < 0.98) return false // mid-morph neither projection is right
     const pr = markerProj(kind, w, h)
     const m = 70
     const off = pr.x < m || pr.x > w - m || pr.y < m || pr.y > h - m
@@ -708,8 +722,9 @@ Item {
     if (kind === "moon") return "MOON  ·  " + fmt(moonDistanceKm) + " km from Earth"
     if (chaseMix > 0.5) {
       var d = markerProj(kind, 1, 1).dist
-      return kind === "earth" ? "EARTH  ·  " + fmt(d * auKm) + " km"
-                              : "SUN  ·  " + d.toFixed(2) + " AU"
+      // display units: at true scale, trueAu per AU
+      return kind === "earth" ? "EARTH  ·  " + fmt(d / trueAu * auKm) + " km"
+                              : "SUN  ·  " + (d / trueAu).toFixed(2) + " AU"
     }
     return kind === "earth" ? "EARTH" : "SUN"
   }
@@ -737,7 +752,7 @@ Item {
   function trueRadius(i) { return i === 7 ? 0.0045 * 1737.4 / 6371 : i <= 0 ? 0.0045 * 695700 / 6371 : 0.0045 * planetInfo[i - 1].km / 6371 }
   function orbitUniform(i) {
     const o = orbitParams[i]
-    return Qt.vector4d(o[0], o[1], o[2] + viewYaw, 0)
+    return Qt.vector4d(o[0], o[1], -o[2], 0) // a, e, longitude of perihelion: world frame
   }
 
   function enterSystem() {
@@ -892,17 +907,19 @@ Item {
     // ellipse shape, distance scaled to the display orbit `a`
     const orbits = planetInfo.map(pl => planetPos(pl, T))
     const real = orbits.map((o, i) => [o[0], o[1], o[2], planetInfo[i].km / auKm])
-    const project = (x, z) => {
+    // y (height above the ecliptic) moves a point up the screen, as the 3D
+    // overview camera sees it (only the Moon leaves the plane)
+    const project = (x, z, y) => {
       const ox = x * Math.cos(viewYaw) - z * Math.sin(viewYaw)
       const oy = x * Math.sin(viewYaw) + z * Math.cos(viewYaw)
-      const ey = oy * viewTilt
+      const ey = oy * viewTilt - (y || 0) * Math.sqrt(Math.max(0, 1 - viewTilt * viewTilt))
       return [ox * cs - ey * sn, ox * sn + ey * cs, oy]
     }
     {
       if (follow > 0) trueLatch = true
       if (follow === 0 || sysZoomTarget <= 3.4 || explore !== "system") trueLatch = false
       // true scale waits for the pick's flight to land (sysFlyT < 0)
-      const goal = explore === "system" && trueLatch && sysZoomTarget > 3.4 && !galactic ? 1 : 0
+      const goal = explore === "system" && !galactic && (chasing || (trueLatch && sysZoomTarget > 3.4)) ? 1 : 0
       const blendNow = sysFlyT < 0
       if (blendNow) trueMix += (goal - trueMix) * Math.min(1, dt * 2.2)
       if (Math.abs(goal - trueMix) < 0.0005) trueMix = goal
@@ -925,9 +942,10 @@ Item {
     // Earth's rotation (Greenwich sidereal angle) and our spot on the globe
     earthTheta = ((280.46061837 + 360.98564736629 * days) % 360) * deg
     {
-      const n = Qt.vector3d(0, Math.cos(obliquity), Math.sin(obliquity))
+      // celestial pole and equatorial axes in this frame (x, ecliptic north, -ecliptic y)
+      const n = Qt.vector3d(0, Math.cos(obliquity), -Math.sin(obliquity))
       const xe = Qt.vector3d(1, 0, 0)
-      const ye = Qt.vector3d(0, Math.sin(obliquity), -Math.cos(obliquity))
+      const ye = Qt.vector3d(0, -Math.sin(obliquity), -Math.cos(obliquity))
       const lat = homeLat * deg
       const lon = homeLon * deg + earthTheta
       homeDir = xe.times(Math.cos(lat) * Math.cos(lon)).plus(ye.times(Math.cos(lat) * Math.sin(lon))).plus(n.times(Math.sin(lat)))
@@ -953,9 +971,20 @@ Item {
       moonDistanceKm = Math.hypot(mg[0], mg[1], mg[2]) * auKm
       const trueDist = earthR * moonDistanceKm / 6371
       moonOrbit = 0.024 + (trueDist - 0.024) * tm
-      const mp = project(earth[0] * ek + mg[0] / mlen * moonOrbit, earth[2] * ek + mg[2] / mlen * moonOrbit)
+      const mp = project(earth[0] * ek + mg[0] / mlen * moonOrbit, earth[2] * ek + mg[2] / mlen * moonOrbit, mg[1] / mlen * moonOrbit)
       moon2d = Qt.vector4d(mp[0], mp[1], mp[2], earthR * 1737.4 / 6371)
     }
+    // display positions in 3D (true directions, the overview's distances or
+    // true scale as blended), shared by the overview and chase cameras
+    const disp = orbits.map((o, i) => {
+      const kk = dispA[i] / o[3]
+      return [real[i][0] * kk, real[i][1] * kk, real[i][2] * kk, planets[i].w]
+    })
+    const moonD = (() => {
+      const ml = Math.max(1e-12, Math.hypot(mg[0], mg[2]))
+      const e2 = disp[2]
+      return [e2[0] + mg[0] / ml * moonOrbit, e2[1] + mg[1] / ml * moonOrbit, e2[2] + mg[2] / ml * moonOrbit, moon2d.w]
+    })()
     chaseMix += ((chasing ? 1 : 0) - chaseMix) * Math.min(1, dt * 1.8)
     if (Math.abs((chasing ? 1 : 0) - chaseMix) < 0.0005) chaseMix = chasing ? 1 : 0
     if (follow > 0 && (chasing || chaseMix > 0)) {
@@ -966,8 +995,8 @@ Item {
       // behind the body as seen from what we look toward (the Sun, or Earth),
       // swung by yaw and pitch, looking between the body and that target so
       // both are in frame
-      const B = follow === 7 ? moonReal : real[follow - 1]
-      const Tg = chaseLookNow === "earth" ? real[2] : [0, 0, 0]
+      const B = follow === 7 ? moonD : disp[follow - 1]
+      const Tg = chaseLookNow === "earth" ? disp[2] : [0, 0, 0]
       const P = Qt.vector3d(B[0], B[1], B[2])
       const d = Qt.vector3d(B[0] - Tg[0], B[1] - Tg[1], B[2] - Tg[2]).normalized()
       const up = Qt.vector3d(0, 1, 0)
@@ -982,11 +1011,46 @@ Item {
       const fwd = toPlanet.times(0.45).plus(toTarget.times(0.55)).normalized()
       const right = fwd.crossProduct(up).normalized()
       camPos = Qt.vector3d(C[0], C[1], C[2])
-      bodies = real.map(b => Qt.vector4d(b[0] - C[0], b[1] - C[1], b[2] - C[2], b[3]))
-      moonBody = Qt.vector4d(moonReal[0] - C[0], moonReal[1] - C[1], moonReal[2] - C[2], moonReal[3])
+      chaseCam = C
+      bodies = disp.map(b => Qt.vector4d(b[0] - C[0], b[1] - C[1], b[2] - C[2], b[3]))
+      moonBody = Qt.vector4d(moonD[0] - C[0], moonD[1] - C[1], moonD[2] - C[2], moonD[3])
       camFwd = fwd
       camRight = right
       camUp = right.crossProduct(fwd)
+    }
+    {
+      // The overview as a real orthographic camera: the same yaw, tilt and
+      // screen spin as the 2D layout (`project` above), so a body drawn at a
+      // screen point is exactly where picks and labels expect it.
+      const sY = Math.sin(viewYaw), cY = Math.cos(viewYaw)
+      const st = viewTilt, ct = Math.sqrt(Math.max(0, 1 - st * st))
+      const eox = [cY, 0, -sY], eoy = [sY, 0, cY]
+      const right = eox
+      const down = [eoy[0] * st, -ct, eoy[2] * st]
+      const toward = [eoy[0] * ct, st, eoy[2] * ct]
+      const Rs = [right[0] * cs - down[0] * sn, right[1] * cs - down[1] * sn, right[2] * cs - down[2] * sn]
+      const Ds = [right[0] * sn + down[0] * cs, right[1] * sn + down[1] * cs, right[2] * sn + down[2] * cs]
+      // the screen centre's point on the ecliptic (system coords back to the world)
+      const qc = sysCamNow
+      const sx = qc.x * cs + qc.y * sn, sy = -qc.x * sn + qc.y * cs
+      const ox = sx, oy = sy / Math.max(st, 1e-6)
+      const Oc = [eox[0] * ox + eoy[0] * oy, 0, eox[2] * ox + eoy[2] * oy]
+      // reference point: the chase camera when it leads, else the overview centre
+      const Rw = chaseMix > 0.5 ? chaseCam : Oc
+      const rel = (a) => Qt.vector3d(a[0] - Rw[0], a[1] - Rw[1], a[2] - Rw[2])
+      sceneBodies = disp.map(b => Qt.vector4d(b[0] - Rw[0], b[1] - Rw[1], b[2] - Rw[2], b[3]))
+      sceneMoon = Qt.vector4d(moonD[0] - Rw[0], moonD[1] - Rw[1], moonD[2] - Rw[2], moonD[3])
+      sceneSun = Qt.vector4d(-Rw[0], -Rw[1], -Rw[2], sunR)
+      sceneCam = rel(chaseCam)
+      orthoC = rel(Oc)
+      orthoRight = Qt.vector3d(Rs[0], Rs[1], Rs[2])
+      orthoDown = Qt.vector3d(Ds[0], Ds[1], Ds[2])
+      orthoView = Qt.vector3d(-toward[0], -toward[1], -toward[2])
+      scenePlaneY = -Rw[1]
+      // behind every body as seen by the overview camera, for the morph
+      let back = 0.1
+      for (const b of disp.concat([moonD, [0, 0, 0, sunR]])) back = Math.max(back, (b[0] - Oc[0]) * toward[0] + (b[1] - Oc[1]) * toward[1] + (b[2] - Oc[2]) * toward[2] + 2 * b[3])
+      sceneBack = back * 1.2
     }
     galMix += ((galactic ? 1 : 0) - galMix) * Math.min(1, dt * 1.6)
     if (Math.abs((galactic ? 1 : 0) - galMix) < 0.0005) galMix = galactic ? 1 : 0
@@ -1768,21 +1832,21 @@ Item {
               property real tilt: root.viewTilt
               property real yaw: root.viewYaw
               property real chase: root.chaseMix
-              property vector3d camPos: root.camPos
+              property vector3d camPos: root.sceneCam
               property vector3d camFwd: root.camFwd
               property vector3d camRight: root.camRight
               property vector3d camUp: root.camUp
               property real focal: root.focal
-              property vector4d body0: root.bodies[0]
-              property vector4d body1: root.bodies[1]
-              property vector4d body2: root.bodies[2]
-              property vector4d body3: root.bodies[3]
-              property vector4d body4: root.bodies[4]
-              property vector4d body5: root.bodies[5]
+              property vector4d body0: root.sceneBodies[0]
+              property vector4d body1: root.sceneBodies[1]
+              property vector4d body2: root.sceneBodies[2]
+              property vector4d body3: root.sceneBodies[3]
+              property vector4d body4: root.sceneBodies[4]
+              property vector4d body5: root.sceneBodies[5]
               property real pinned: root.explore === "system" && !root.chasing && root.follow > 0 ? root.follow : 0
               property real sunRadius: root.sunRadiusAu
               property real earthTheta: root.earthTheta
-              property vector3d earthPole: Qt.vector3d(0, Math.cos(root.obliquity), Math.sin(root.obliquity))
+              property vector3d earthPole: Qt.vector3d(0, Math.cos(root.obliquity), -Math.sin(root.obliquity))
               property vector3d home: root.homeDir
               property vector4d moon2d: root.moon2d
               property real moonOrbit: root.moonOrbit
@@ -1813,7 +1877,14 @@ Item {
               property real skyStaticMix: root.skyStaticMix
               property var skyStatic: skyStaticTex
               property vector4d galFlow: root.galFlow
-              property vector4d moonBody: root.moonBody
+              property vector4d moonBody: root.sceneMoon
+              property vector4d sunBody: root.sceneSun
+              property vector3d orthoC: root.orthoC
+              property vector3d orthoRight: root.orthoRight
+              property vector3d orthoDown: root.orthoDown
+              property vector3d orthoView: root.orthoView
+              property real planeY: root.scenePlaneY
+              property real orthoBack: root.sceneBack
               property vector3d moonFace: root.moonFace
               property var earthDay: earthDayTex
               property var earthNight: earthNightTex
@@ -2436,7 +2507,7 @@ Item {
           required property int index
           readonly property var pl: root.planets[index]
           readonly property vector2d at: Qt.vector2d(pl.x, pl.y).minus(root.sysCamNow).times(root.sysScale).plus(root.sysOrigin)
-          visible: root.liveBackground && root.sys > 0.5 && root.chaseMix < 0.99 && root.galMix < 0.5 && root.planetLabelShown(index, panel.width, panel.height)
+          visible: root.liveBackground && root.sys > 0.5 && root.chaseMix < 0.02 && root.galMix < 0.5 && root.planetLabelShown(index, panel.width, panel.height)
           opacity: (root.sys - 0.5) * 1.4 * (1 - root.chaseMix)
           x: (at.x / root.aspect + 0.5) * panel.width + pl.w * root.sysScale * panel.height + 10
           y: (at.y + 0.5) * panel.height - height / 2

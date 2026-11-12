@@ -47,13 +47,14 @@ layout(std140, binding = 0) uniform buf {
     float sysHover;  // pointer over the solar system in the universe view, 0..1
     float tilt;      // view elevation: orbit-plane squash, 0.12 edge-on .. 0.95 top-down
     float yaw;       // camera yaw of the system view (already in orbitN.z)
-    float chase;     // 0 system view .. 1 chase view (3D camera near a planet)
-    vec3 camPos;     // chase camera relative to the sun, in AU (orbit plane y = 0)
+    float chase;     // 0 overview camera (orthographic) .. 1 chase camera (perspective)
+    vec3 camPos;     // perspective camera, relative to the scene reference point
     vec3 camFwd;
     vec3 camRight;
     vec3 camUp;
-    float focal;     // chase camera focal length, screen heights
-    vec4 body0;      // per planet: centre relative to the camera, radius (AU)
+    float focal;     // perspective focal length, screen heights
+    vec4 body0;      // per body: centre relative to the scene reference point, radius
+                     // (display units: the overview's squeezed scale, or true scale)
     vec4 body1;
     vec4 body2;
     vec4 body3;
@@ -68,7 +69,14 @@ layout(std140, binding = 0) uniform buf {
     vec3 home;       // direction of our spot on Earth, from its centre
     vec4 moon2d;     // Moon in the overview: position, near-side depth, radius
     float moonOrbit; // Earth-Moon distance in the overview (true scale when zoomed in)
-    vec4 moonBody;   // Moon at true scale relative to the chase camera, radius
+    vec4 moonBody;   // the Moon, like body0..5
+    vec4 sunBody;    // the Sun, like body0..5
+    vec3 orthoC;     // overview camera: the screen centre's point, relative to the reference
+    vec3 orthoRight; // overview camera: world step per screen unit right (yaw, tilt, screen spin)
+    vec3 orthoDown;  //   and down
+    vec3 orthoView;  //   and the direction it looks (into the scene)
+    float planeY;    // the ecliptic (y = 0), relative to the reference
+    float orthoBack; // how far behind the scene the morphing overview rays start
     vec3 moonFace;   // direction from the Moon to Earth (it keeps one face to us)
     float galactic;  // 0..1: galactic view on, the flat overview fades out
     float sunR;      // Sun radius in the overview (true size when at true scale)
@@ -397,34 +405,8 @@ vec3 planetSurface(int i, vec3 n, float fp, out float glow) {
     return mix(vec3(0.80, 0.70, 0.50), vec3(0.92, 0.85, 0.64), 0.5 + 0.5 * clamp(b, -1.0, 1.0));
 }
 
-// lit sphere of radius R at rel (from its centre); alpha in .a
-vec4 planetBody(int i, vec2 rel, float R, vec2 toSun, float px, float t) {
-    float d = length(rel);
-    float edge = 1.0 - smoothstep(R - px, R + px, d);
-    if (edge <= 0.0) return vec4(0.0);
-    vec2 u = rel / R;
-    vec3 n = vec3(u, sqrt(max(0.0, 1.0 - dot(u, u))));
-    vec3 L = normalize(vec3(toSun, 0.35));
-    float lit = smoothstep(-0.08, 0.30, dot(n, L));
-    // pixel size in radians of surface, larger toward the limb
-    float fp = px / (R * max(n.z, 0.2));
-    float glow;
-    // the maps of Earth and the Moon want a world normal (y up)
-    vec3 nw = (i == 2 || i == 6) ? vec3(n.x, -n.y, n.z) : n;
-    vec3 c = planetSurface(i, nw, fp, glow);
-    vec3 air = i == 2 ? vec3(0.35, 0.60, 1.0) : i == 1 ? vec3(0.9, 0.8, 0.6) : vec3(0.0);
-    float rim = pow(1.0 - n.z, 3.0);
-    vec3 night = vec3(1.0, 0.72, 0.40) * glow * (1.0 - smoothstep(0.0, 0.25, lit));
-    vec3 mark = i == 2 ? accent.rgb * homeMarker(nw, fp, t) : vec3(0.0);
-    return vec4((c * (0.015 + 0.985 * lit) + air * rim * 0.5 * lit + night + mark) * edge, edge);
-}
-
 vec4 orbitAt(int i) {
     return i == 0 ? orbit0 : i == 1 ? orbit1 : i == 2 ? orbit2 : i == 3 ? orbit3 : i == 4 ? orbit4 : orbit5;
-}
-
-vec4 planetAt(int i) {
-    return i == 0 ? planet0 : i == 1 ? planet1 : i == 2 ? planet2 : i == 3 ? planet3 : i == 4 ? planet4 : planet5;
 }
 
 const vec3 SUN_COL = vec3(1.0, 0.94, 0.82);
@@ -435,117 +417,6 @@ vec3 sunSurface(vec2 d, float mu, float fp, float t) {
     float gran = 1.0 + 0.025 * snoise(d * 9.0 + vec2(W * 3.0 * t, 0.0)) * lod(9.0, fp)
                      + 0.015 * snoise(d * 37.0 - vec2(0.0, W * 5.0 * t)) * lod(37.0, fp);
     return SUN_COL * (0.72 + 0.28 * mu) * gran;
-}
-
-// Returns the system's colour and, in .a, how much it covers what is behind
-// (planet and sun discs hide the stars; glows and orbit lines add light).
-vec4 solarSystem(vec2 p, float t, vec3 orbitTint) {
-    vec2 q = (p - sysOrigin) / sysScale + sysCam;
-    // outside the planets' area only the Earth-Moon pair can still reach
-    if ((abs(q.x) > 0.36 * sysSpan || abs(q.y) > 0.16 * sysSpan) && length(q - planet2.xy) > moonOrbit * 1.05 + 0.01)
-        return vec4(0.0);
-    float px = 1.0 / (resolution.y * sysScale);
-
-    vec3 col = vec3(0.0);
-    float cov = 0.0;
-
-    // sun: disc and a soft corona
-    float ds = length(q);
-    if (ds < SUN_R + px) {
-        float mu = sqrt(max(0.0, 1.0 - (ds * ds) / (SUN_R * SUN_R)));
-        float edge = 1.0 - smoothstep(SUN_R - px, SUN_R + px, ds);
-        col = sunSurface(q / SUN_R, mu, px / SUN_R, t) * edge;
-        cov = edge;
-    }
-    col += SUN_COL * (exp(-max(ds - SUN_R, 0.0) / (SUN_R * 1.5)) * 0.18 + exp(-ds / (SUN_R * 10.0)) * 0.025);
-
-    // orbit plane back to circle coordinates for the faint orbit lines
-    float c = cos(-SPIN);
-    float s = sin(-SPIN);
-    vec2 o = vec2(q.x * c - q.y * s, q.x * s + q.y * c);
-    o.y /= TILT;
-    float ro = length(o);
-    float lineW = 0.6 * px / TILT;
-
-    // the pinned planet's vector to the sun: a dashed line, marching sunward
-    if (pinned > 0.5) {
-        vec2 P = planetAt(int(pinned) - 1).xy;
-        float L = length(P);
-        float s = clamp(dot(q, P) / (L * L), 0.0, 1.0);
-        float d = length(q - P * s);
-        float dash = step(0.5, fract(s * L / 0.006 + W * 30.0 * t));
-        col += guides * orbitTint * 0.35 * (1.0 - smoothstep(0.7 * px, 1.8 * px, d)) * dash
-             * smoothstep(0.0, 0.08, s) * (1.0 - smoothstep(0.9, 1.0, s));
-    }
-
-    // the Moon's orbit around Earth, faint, in the orbit plane
-    {
-        vec2 eq = q - planet2.xy;
-        float c0 = cos(-SPIN);
-        float s0 = sin(-SPIN);
-        vec2 oe = vec2(eq.x * c0 - eq.y * s0, eq.x * s0 + eq.y * c0);
-        oe.y /= TILT;
-        float w = 0.6 * px / TILT;
-        col += guides * orbitTint * 0.06 * (1.0 - smoothstep(w, w + 1.5 * px / TILT, abs(length(oe) - moonOrbit)));
-    }
-
-    // the Moon, drawn behind or in front of Earth
-    vec2 mrel = q - moon2d.xy;
-    vec4 moonC = dot(mrel, mrel) < moon2d.w * moon2d.w * 4.0
-               ? planetBody(6, mrel, moon2d.w, -moon2d.xy / max(length(moon2d.xy), 1e-5), px, t) : vec4(0.0);
-    bool moonBehind = moon2d.z < planet2.z;
-    if (moonBehind) { col = col * (1.0 - moonC.a) + moonC.rgb; cov = max(cov, moonC.a); }
-
-    float orbitLevel = 0.04 + 0.10 * sysHover;
-    for (int i = 0; i < 6; i++) {
-        vec4 pl = planetAt(i);
-        // orbit ellipse with the sun at a focus: rotate into the perihelion
-        // frame, move to the ellipse centre, then normalise by the axes
-        vec4 ob = orbitAt(i);
-        float cw = cos(-ob.z);
-        float sw = sin(-ob.z);
-        vec2 pf = vec2(o.x * cw - o.y * sw, o.x * sw + o.y * cw) + vec2(ob.x * ob.y, 0.0);
-        float bAxis = ob.x * sqrt(1.0 - ob.y * ob.y);
-        float od = abs(length(vec2(pf.x / ob.x, pf.y / bAxis)) - 1.0) * ob.x;
-        col += guides * orbitTint * orbitLevel * (1.0 - smoothstep(lineW, lineW + 1.5 * px / TILT, od))
-             * smoothstep(SUN_R * 2.0, SUN_R * 6.0, ds);
-
-        vec2 P = pl.xy;
-        float R = pl.w;
-        vec2 rel = q - P;
-        if (dot(rel, rel) > R * R * 6.0) continue;
-        // a planet on the far side is hidden where the sun is in front of it
-        if (pl.z < 0.0 && ds < SUN_R) continue;
-        vec2 toSun = -P / max(length(P), 1e-5);
-        vec4 body = planetBody(i, rel, R, toSun, px, t);
-
-        if (i == 5) {
-            // rings with the Cassini gap; the far half passes behind the planet
-            vec2 rr = vec2(rel.x * c - rel.y * s, rel.x * s + rel.y * c);
-            float re = length(vec2(rr.x, rr.y / (TILT * 0.9))) / R;
-            float ring = smoothstep(1.32, 1.40, re) * (1.0 - smoothstep(2.20, 2.30, re))
-                       * (1.0 - 0.85 * smoothstep(1.80, 1.83, re) * (1.0 - smoothstep(1.90, 1.93, re)))
-                       * (0.80 + 0.20 * sin(re * 40.0) * lod(40.0 / 6.283, px / R)
-                               + 0.10 * sin(re * 170.0) * lod(170.0 / 6.283, px / R)
-                               + 0.06 * sin(re * 530.0) * lod(530.0 / 6.283, px / R));
-            float lit = 0.25 + 0.75 * smoothstep(-0.3, 0.6, dot(normalize(rel + 1e-6), toSun) + 0.5);
-            vec3 ringCol = vec3(0.78, 0.70, 0.54) * lit * 0.8;
-            float ringA = clamp(ring, 0.0, 1.0) * 0.9;
-            if (rr.y > 0.0) { // near half: in front of the planet
-                col = col * (1.0 - body.a) + body.rgb;
-                col = mix(col, ringCol, ringA);
-            } else {
-                col = mix(col, ringCol, ringA);
-                col = col * (1.0 - body.a) + body.rgb;
-            }
-            cov = max(cov, max(body.a, ringA));
-        } else {
-            col = col * (1.0 - body.a) + body.rgb;
-            cov = max(cov, body.a);
-        }
-    }
-    if (!moonBehind) { col = col * (1.0 - moonC.a) + moonC.rgb; cov = max(cov, moonC.a); }
-    return vec4(col, cov);
 }
 
 // ---- chase view -------------------------------------------------------------
@@ -563,145 +434,190 @@ float ringPattern(float re, float fp) {
                  + 0.06 * sin(re * 530.0) * lod(530.0 / 6.283, fp));
 }
 
-// The solar system at true scale through a perspective camera that
-// Background.qml locks behind the pinned planet, looking toward the sun:
-// ray-traced spheres with real radii and distances (AU), the sun's glow,
-// backlit atmospheres, rings and orbits in the plane. Positions are relative
-// to the camera (computed in double precision) so close-ups stay steady.
-vec4 chaseView(vec2 p, float t, vec3 orbitTint) {
-    vec3 ro = vec3(0.0);
-    vec3 sunPos = -camPos;
-    vec3 rd = normalize(camFwd * focal + camRight * p.x - camUp * p.y);
-    float pa = 1.0 / (resolution.y * focal); // pixel angle
+// The solar system: one ray-traced scene seen through one camera. The
+// overview is an orthographic camera (yaw, tilt and screen spin as before, so
+// what you click is where it is drawn); the chase view is a perspective
+// camera; between them the rays morph. Everything is a real sphere lit by the
+// Sun, and detail follows each pixel's footprint on the surface (`fp`): maps,
+// bands, craters and ring structure appear as you come closer and settle to
+// their averages from afar, down to a point of light. Positions come in
+// relative to a reference point near what is being looked at (computed in
+// double precision), so close-ups stay steady at true scale.
+
+// Saturn's north pole (IAU: RA 40.589, Dec 83.537), this frame: the rings sit
+// on its equator, tilted 26.7 degrees to its orbit
+const vec3 SATURN_POLE = vec3(0.08548, 0.88252, -0.46244);
+
+vec4 systemScene(vec2 p, float t, vec3 orbitTint) {
+    float c = chase;
+    vec2 dq = (p - sysOrigin) / sysScale;
+    // in the universe view the system is small: skip pixels far from it
+    if (c < 0.001) {
+        vec2 q = dq + sysCam;
+        if ((abs(q.x) > 0.36 * sysSpan || abs(q.y) > 0.16 * sysSpan) && length(q - moon2d.xy) > moonOrbit * 1.05 + 0.01)
+            return vec4(0.0);
+    }
+    // at c = 0 the orthographic rays look both ways from their plane (exact,
+    // no large offsets); once the morph starts they start behind the scene
+    // (orthoBack) and only look forward, so nothing behind the camera shows
+    vec3 ro = mix(orthoC + orthoRight * dq.x + orthoDown * dq.y - orthoView * (c > 0.001 ? orthoBack : 0.0), camPos, c);
+    vec3 rd = normalize(mix(orthoView, normalize(camFwd * focal + camRight * p.x - camUp * p.y), c));
+    // a pixel's size at distance t along the ray: fixed for the orthographic
+    // camera, growing with distance for the perspective one
+    float pxW = (1.0 - c) / (resolution.y * sysScale);
+    float pa = c / (resolution.y * focal);
+    float tMin = c > 0.001 ? 0.0 : -1e20;
     vec3 col = vec3(0.0);
     float cov = 0.0;
-    float nearest = 1e9;
+    float nearest = 1e20;
 
-    // sun: glow around it, then the disc
-    vec3 toSun = sunPos;
-    float dSun = length(toSun);
-    float cosSun = dot(rd, toSun / dSun);
-    float ang = sqrt(max(0.0, 2.0 * (1.0 - cosSun)));          // ~angle from the sun
-    float sunAng = sunRadius / dSun;                            // its angular radius
-    col += SUN_COL * (exp(-max(ang - sunAng, 0.0) / (sunAng * 1.5)) * 0.35
-                    + exp(-ang / 0.04) * 0.10 + exp(-ang / 0.25) * 0.04) * step(0.0, cosSun);
-    float tSun = dot(toSun, rd);
-    if (tSun > 0.0) {
-        float dp = length(toSun - rd * tSun);
-        float edge = 1.0 - smoothstep(sunRadius - pa * tSun, sunRadius + pa * tSun, dp);
+    // the Sun: a glow sized by its own radius, then the disc
+    vec3 S = sunBody.xyz;
+    float SR = sunBody.w;
+    float ts = dot(S - ro, rd);
+    if (ts > tMin) {
+        float ds = length(S - ro - rd * ts);
+        float fpS = pxW + pa * abs(ts);
+        col += SUN_COL * (exp(-max(ds - SR, 0.0) / (SR * 1.5)) * 0.25 + exp(-ds / (SR * 10.0)) * 0.03 + exp(-ds / (SR * 60.0)) * 0.012);
+        float edge = 1.0 - smoothstep(SR - fpS, SR + fpS, ds);
         if (edge > 0.0) {
-            float mu = sqrt(max(0.0, 1.0 - dp * dp / (sunRadius * sunRadius)));
-            col = mix(col, sunSurface((rd * tSun - sunPos).xz / sunRadius, mu, pa * tSun / sunRadius, t), edge);
+            vec3 hp = ro + rd * ts - S;
+            float mu = sqrt(max(0.0, 1.0 - ds * ds / (SR * SR)));
+            vec3 bx = normalize(mix(orthoRight, camRight, c));
+            vec3 by = normalize(mix(orthoDown, -camUp, c));
+            col = mix(col, sunSurface(vec2(dot(hp, bx), dot(hp, by)) / SR, mu, fpS / SR, t), edge);
             cov = edge;
-            nearest = tSun;
+            nearest = ts;
         }
     }
 
-    // orbits where the ray crosses the orbit plane
-    float tPlane = abs(rd.y) > 1e-6 ? sunPos.y / rd.y : -1.0;
-    vec2 Hc = (rd * max(tPlane, 0.0)).xz;   // plane hit, relative to the camera
-    vec2 H = Hc - sunPos.xz;                 // and relative to the sun
-    if (tPlane > 0.0) {
-        for (int i = 0; i < 6; i++) {
-            vec4 ob = orbitAt(i);
-            ob.x = i == 0 ? auA.x : i == 1 ? auA.y : i == 2 ? auA.z : i == 3 ? auA.w : i == 4 ? auB.x : auB.y;
-            float pr = ob.z - yaw;
-            vec2 pf = vec2(H.x * cos(-pr) - H.y * sin(-pr), H.x * sin(-pr) + H.y * cos(-pr)) + vec2(ob.x * ob.y, 0.0);
-            float bAxis = ob.x * sqrt(1.0 - ob.y * ob.y);
-            float od = abs(length(vec2(pf.x / ob.x, pf.y / bAxis)) - 1.0) * ob.x;
-            float w = pa * tPlane;
-            col += guides * orbitTint * 0.05 * (1.0 - smoothstep(w, w * 2.5, od)) * step(tPlane, nearest);
+    // guide lines (L): the orbits on the ecliptic, the Moon's around Earth
+    if (guides > 0.0 && abs(rd.y) > 1e-6) {
+        float tP = (planeY - ro.y) / rd.y;
+        if (tP > tMin && tP < nearest) {
+            vec3 H = ro + rd * tP - S;
+            vec2 he = vec2(H.x, -H.z); // ecliptic x, y
+            float w = 0.7 * (pxW + pa * abs(tP)) / max(abs(rd.y), 0.12);
+            for (int i = 0; i < 6; i++) {
+                vec4 ob = orbitAt(i);
+                vec2 pf = vec2(he.x * cos(-ob.z) - he.y * sin(-ob.z), he.x * sin(-ob.z) + he.y * cos(-ob.z)) + vec2(ob.x * ob.y, 0.0);
+                float bAxis = ob.x * sqrt(1.0 - ob.y * ob.y);
+                float od = abs(length(vec2(pf.x / ob.x, pf.y / bAxis)) - 1.0) * ob.x;
+                col += guides * orbitTint * (0.04 + 0.10 * sysHover) * (1.0 - smoothstep(w, w * 2.5, od));
+            }
+            float dm = abs(length((ro + rd * tP - body2.xyz).xz) - moonOrbit);
+            col += guides * orbitTint * 0.06 * (1.0 - smoothstep(w, w * 2.5, dm));
         }
     }
 
     for (int i = 0; i < 7; i++) {
         vec4 B = bodyAt(i);
+        float R = B.w;
         vec3 oc = B.xyz - ro;
         float tc = dot(oc, rd);
-        if (tc <= 0.0) continue;
-        float R = B.w;
+        if (tc <= tMin) continue;
         float dp = length(oc - rd * tc);
-        vec3 sunDir = normalize(sunPos - B.xyz);
+        float fpc = pxW + pa * abs(tc);
+        vec3 sunDir = normalize(S - B.xyz);
 
-        // backlit atmosphere: a thin glow just outside the limb, strongest
-        // when looking toward the sun
+        // backlit atmosphere: a thin glow just outside the limb
         if (i == 1 || i == 2 || i == 3) {
-            float halo = (1.0 - smoothstep(R, R * 1.06, dp)) * smoothstep(R * 0.97, R, dp);
+            float halo = (1.0 - smoothstep(R, R * 1.06 + fpc, dp)) * smoothstep(R * 0.97, R, dp);
             float fwd = pow(max(dot(rd, sunDir), 0.0), 6.0);
             vec3 air = i == 2 ? vec3(0.35, 0.60, 1.0) : i == 1 ? vec3(0.95, 0.85, 0.6) : vec3(0.9, 0.6, 0.45);
             if (tc - R < nearest) col += air * halo * (0.06 + 1.2 * fwd);
         }
 
-        // rings in the orbit plane
-        if (i == 5 && tPlane > 0.0 && tPlane < nearest) {
-            float re = length(Hc - B.xz) / R;
-            float ringA = clamp(ringPattern(re, pa * tPlane / R), 0.0, 1.0) * 0.9;
-            // shadow of the planet on the far side of the rings
-            vec3 hp = rd * tPlane;
-            float sh = length(cross(sunDir, hp - B.xyz)) < R && dot(hp - B.xyz, sunDir) < 0.0 ? 0.15 : 1.0;
-            if (ringA > 0.0) {
-                vec3 ringCol = vec3(0.78, 0.70, 0.54) * 0.8 * sh;
-                if (tPlane < tc) { // in front of the planet: draw after it below
-                } else {
-                    col = mix(col, ringCol, ringA);
-                    cov = max(cov, ringA);
+        // Saturn's rings: on its equator; the globe shadows them, they shadow
+        // the globe, and from the unlit side only light seeping through shows
+        float tRing = 1e20;
+        float ringA = 0.0;
+        vec3 ringCol = vec3(0.0);
+        if (i == 5) {
+            float dn = dot(rd, SATURN_POLE);
+            if (abs(dn) > 1e-6) {
+                float tr = dot(B.xyz - ro, SATURN_POLE) / dn;
+                if (tr > tMin && tr < nearest) {
+                    vec3 hp = ro + rd * tr - B.xyz;
+                    float re = length(hp) / R;
+                    // a pixel spans more ring radius the more edge-on we look
+                    ringA = clamp(ringPattern(re, (pxW + pa * abs(tr)) / (R * max(abs(dn), 0.02))), 0.0, 1.0) * 0.9;
+                    if (ringA > 0.0) {
+                        float inShadow = length(cross(sunDir, hp)) < R && dot(hp, sunDir) < 0.0 ? 1.0 : 0.0;
+                        float sunSide = dot(SATURN_POLE, sunDir);
+                        float litFace = sign(sunSide) == sign(-dn) ? 1.0 : 0.3; // seen from the dark face: dim
+                        float light = mix(1.0, 0.06, inShadow) * litFace * (0.35 + 0.65 * min(1.0, abs(sunSide) * 4.0));
+                        ringCol = vec3(0.80, 0.71, 0.55) * 0.85 * light;
+                        tRing = tr;
+                    }
                 }
             }
         }
 
-        if (dp < R + pa * tc) {
+        // the globe
+        float tHit = 1e20;
+        vec3 globe = vec3(0.0);
+        float globeA = 0.0;
+        if (dp < R + fpc) {
             float h = sqrt(max(R * R - dp * dp, 0.0));
             float th = tc - h;
             if (th < nearest) {
-                vec3 hit = ro + rd * th;
-                vec3 N = normalize(hit - B.xyz);
+                vec3 X = ro + rd * th - B.xyz;
+                vec3 N = normalize(X);
                 float lit = smoothstep(-0.08, 0.30, dot(N, sunDir));
-                float fp = pa * th / (R * max(dot(N, -rd), 0.2));
+                if (i == 5) {
+                    // the rings' shadow across the globe
+                    float k = -dot(X, SATURN_POLE) / dot(sunDir, SATURN_POLE);
+                    if (k > 0.0) lit *= 1.0 - 0.85 * clamp(ringPattern(length(X + sunDir * k) / R, fpc / (R * max(abs(dot(sunDir, SATURN_POLE)), 0.02))), 0.0, 1.0);
+                }
+                float fp = fpc / (R * max(dot(N, -rd), 0.2));
                 float glow;
-                vec3 surf = planetSurface(i, N, fp, glow);
+                vec3 Ns = N;
+                if (i == 5) {
+                    // Saturn's bands run around its own pole, like its rings
+                    vec3 ex = normalize(cross(vec3(0.0, 0.0, 1.0), SATURN_POLE));
+                    vec3 ez = cross(ex, SATURN_POLE);
+                    Ns = vec3(dot(N, ex), dot(N, SATURN_POLE), dot(N, ez));
+                }
+                vec3 surf = planetSurface(i, Ns, fp, glow);
                 vec3 night = vec3(1.0, 0.72, 0.40) * glow * (1.0 - smoothstep(0.0, 0.25, lit));
                 if (i == 2) night += accent.rgb * homeMarker(N, fp, t);
-                float edge = 1.0 - smoothstep(R - pa * tc, R + pa * tc, dp);
-                col = mix(col, surf * (0.012 + 0.988 * lit) + night, edge);
-                cov = max(cov, edge);
-                nearest = th;
+                globe = surf * (0.012 + 0.988 * lit) + night;
+                globeA = 1.0 - smoothstep(R - fpc, R + fpc, dp);
+                tHit = th;
             }
         }
 
-        // planets smaller than a pixel still show, as star-like points
-        float pxR = pa * tc;
-        if (R < pxR && dp < pxR * 4.0 && tc < nearest) {
+        // composite back to front: rings behind the globe, the globe, rings in front
+        if (ringA > 0.0 && tRing > tHit) { col = mix(col, ringCol, ringA); cov = max(cov, ringA); }
+        if (globeA > 0.0) { col = mix(col, globe, globeA); cov = max(cov, globeA); nearest = min(nearest, tHit); }
+        if (ringA > 0.0 && tRing <= tHit) { col = mix(col, ringCol, ringA); cov = max(cov, ringA); }
+
+        // a body smaller than a pixel still shows, as a point of its colour
+        if (R < fpc && dp < fpc * 4.0 && tc < nearest) {
             float g;
-            vec3 avg = planetSurface(i, vec3(0.0, 0.0, 1.0), 1e3, g);
-            col += avg * exp(-dp * dp / (pxR * pxR * 1.4)) * 0.8;
-        }
-
-        if (i == 5 && tPlane > 0.0 && tPlane < nearest) {
-            float re = length(Hc - B.xz) / R;
-            float ringA = clamp(ringPattern(re, pa * tPlane / R), 0.0, 1.0) * 0.9;
-            if (ringA > 0.0 && tPlane < tc) {
-                col = mix(col, vec3(0.78, 0.70, 0.54) * 0.8, ringA);
-                cov = max(cov, ringA);
-            }
+            vec3 avg = planetSurface(i, normalize(sunDir + vec3(0.0, 0.3, 0.0)), 1e3, g);
+            col += avg * exp(-dp * dp / (fpc * fpc * 1.4)) * 0.8;
+            cov = max(cov, 0.5 * exp(-dp * dp / (fpc * fpc)));
         }
     }
 
-    // the pinned planet's vector to the sun, hidden where something is nearer
-    if (pinned > 0.5) {
-        vec3 B = bodyAt(int(pinned) - 1).xyz;
-        vec3 v = sunPos - B;           // planet -> sun
-        vec3 w0 = ro - B;
+    // the pinned body's line to the Sun (a guide line), hidden behind bodies
+    if (pinned > 0.5 && guides > 0.0) {
+        vec3 Bp = bodyAt(int(pinned) - 1).xyz;
+        vec3 v = S - Bp;
+        vec3 w0 = ro - Bp;
         float b = dot(rd, v);
-        float c = dot(v, v);
+        float cc = dot(v, v);
         float d = dot(rd, w0);
         float e = dot(v, w0);
-        float den = c - b * b;
-        float sg = clamp(den > 1e-9 ? (e - b * d) / den : 0.0, 0.0, 1.0);
-        float tr = dot(B + v * sg - ro, rd);
-        if (tr > 0.0 && tr < nearest) {
-            float dist = length(ro + rd * tr - (B + v * sg));
-            float wpx = pa * tr;
-            float dash = step(0.5, fract(sg * sqrt(c) / 0.006 - W * 30.0 * t)); // marching sunward
+        float den = cc - b * b;
+        float sg = clamp(den > 1e-12 ? (e - b * d) / den : 0.0, 0.0, 1.0);
+        float tr = dot(Bp + v * sg - ro, rd);
+        if (tr > tMin && tr < nearest) {
+            float dist = length(ro + rd * tr - (Bp + v * sg));
+            float wpx = pxW + pa * abs(tr);
+            float dash = step(0.5, fract(sg * sqrt(cc) / (40.0 * wpx + 1e-9) - W * 30.0 * t));
             col += guides * orbitTint * 0.35 * (1.0 - smoothstep(0.7 * wpx, 1.8 * wpx, dist)) * dash
                  * smoothstep(0.0, 0.05, sg) * (1.0 - smoothstep(0.9, 1.0, sg));
         }
@@ -1074,8 +990,7 @@ void main() {
     col += starfield(p, t, sky.a) * (0.85 + 0.15 * exposure);
     col += brightStars(p, t);
     // the solar system: flat view, chase view, or a cross-fade between them
-    vec4 sys = chase < 1.0 && galactic < 1.0 && galaxyMix < 1.0 ? solarSystem(p, t, accent.rgb) * (1.0 - galactic) : vec4(0.0);
-    if (chase > 0.0) sys = mix(sys, chaseView(p, t, accent.rgb), chase);
+    vec4 sys = galactic < 1.0 && galaxyMix < 1.0 ? systemScene(p, t, accent.rgb) * (1.0 - galactic) : vec4(0.0);
     col = col * (1.0 - sys.a) + sys.rgb;
     col += shootingStar(p, t);
     col += satellite(p, t);
