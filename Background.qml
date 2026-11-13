@@ -748,7 +748,7 @@ Item {
   property real guideMix: 0
   readonly property real trueAu: 0.0045 * auKm / 6371 // display units per AU at true scale
   property real sunR: 0.006
-  property real sysSpan: 1
+  property vector2d sysBound: Qt.vector2d(0.4, 0.2)
   function trueRadius(i) { return i === 7 ? 0.0045 * 1737.4 / 6371 : i <= 0 ? 0.0045 * 695700 / 6371 : 0.0045 * planetInfo[i - 1].km / 6371 }
   function orbitUniform(i) {
     const o = orbitParams[i]
@@ -936,7 +936,15 @@ Item {
     orbitParams = orbits.map((o, i) => [dispA[i], o[4], -o[5]])
     planetK = orbits.map((o, i) => dispA[i] / o[3])
     sunR = Math.pow(0.006, 1 - tm) * Math.pow(trueRadius(0), tm)
-    sysSpan = dispA[5] / planetInfo[5].a
+    {
+      // the skip-box for the idle view: Saturn's whole orbit at the current
+      // tilt, the bodies' sizes, the Sun's glow, turned by the screen spin;
+      // computed each frame so tilting or true scale never slices a planet
+      const reach = dispA[5] * 1.06
+      const pad = 3 * Math.max(...planets.map(pl => pl.w)) + sunR * 12 + 0.01
+      const bx = reach + pad, by = reach * viewTilt + Math.sqrt(Math.max(0, 1 - viewTilt * viewTilt)) * moonOrbit + pad
+      sysBound = Qt.vector2d(bx + 0.1 * by, by + 0.1 * bx)
+    }
     spins = planetInfo.map(pl => (2 * Math.PI * days / pl.day) % (2 * Math.PI))
 
     // Earth's rotation (Greenwich sidereal angle) and our spot on the globe
@@ -1861,7 +1869,7 @@ Item {
               property real moonOrbit: root.moonOrbit
               property real galactic: root.galMix
               property real sunR: root.sunR
-              property real sysSpan: root.sysSpan
+              property vector2d sysBound: root.sysBound
               property real guides: root.guideMix
               property real galaxyMix: root.galaxyMix
               property var galaxyTex: galaxyPass

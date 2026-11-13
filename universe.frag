@@ -80,7 +80,7 @@ layout(std140, binding = 0) uniform buf {
     vec3 moonFace;   // direction from the Moon to Earth (it keeps one face to us)
     float galactic;  // 0..1: galactic view on, the flat overview fades out
     float sunR;      // Sun radius in the overview (true size when at true scale)
-    float sysSpan;   // how far the orbits reach, relative to the squeezed overview
+    vec2 sysBound;   // half-size of the box (system coords) that holds every body, orbit and glow
     float guides;    // 0..1: orbit rings and the Sun vector (off by default: space has no lines)
     float galaxyMix; // 0..1: the Milky Way view (galaxy.frag volume + stars + the chosen hotspot)
     vec3 gxCam;      // its camera, kpc (Galactocentric, Z north)
@@ -454,7 +454,7 @@ vec4 systemScene(vec2 p, float t, vec3 orbitTint) {
     // in the universe view the system is small: skip pixels far from it
     if (c < 0.001) {
         vec2 q = dq + sysCam;
-        if ((abs(q.x) > 0.36 * sysSpan || abs(q.y) > 0.16 * sysSpan) && length(q - moon2d.xy) > moonOrbit * 1.05 + 0.01)
+        if (abs(q.x) > sysBound.x || abs(q.y) > sysBound.y)
             return vec4(0.0);
     }
     // at c = 0 the orthographic rays look both ways from their plane (exact,
