@@ -99,6 +99,7 @@ layout(std140, binding = 0) uniform buf {
     vec3 skyUp;
     float skyFocal;
     float skyStaticMix; // 0..1: exactly on a named view: its native 5K render
+    float photoHiReady; // 1 once the chosen place's close-up photo has loaded
     vec4 galFlow;    // galactic view: interstellar dust drift (xy offset), direction it streams (zw)
 };
 
@@ -113,7 +114,8 @@ layout(binding = 6) uniform sampler2D holeTex;
 // galaxy view near the Sun
 layout(binding = 8) uniform sampler2D skyFull;
 layout(binding = 9) uniform sampler2D skyStatic;  // Sky mode: the 5K render of the named view
-layout(binding = 10) uniform sampler2D photoAtlas; // real photos of the places, 4 x 4 tiles   // hole.frag: rgb flow light, a = ray bending (-1: fell in)
+layout(binding = 10) uniform sampler2D photoAtlas; // real photos of the places, 4 x 4 tiles
+layout(binding = 11) uniform sampler2D photoHi;    // the chosen place's own 2048 px photo   // hole.frag: rgb flow light, a = ray bending (-1: fell in)
 
 // rgb: soft sky, a: star density (see nebula.frag), rendered OVERSCAN times
 // larger than the screen
@@ -883,11 +885,39 @@ vec3 hotspotDrawn(vec3 rd, float t) {
 
 // the photo where there is one and we see the place from Earth's side; the
 // drawn version elsewhere
+// bicubic (Catmull-Rom, 9 taps via bilinear) sampling: magnified photos stay
+// smooth instead of turning into visible texel squares
+vec3 sampleBicubic(sampler2D tex, vec2 uv, vec2 size) {
+    vec2 sp = uv * size - 0.5;
+    vec2 tc = floor(sp) + 0.5;
+    vec2 f = sp - tc + 0.5;
+    vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
+    vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+    vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
+    vec2 w3 = f * f * (-0.5 + 0.5 * f);
+    vec2 w12 = w1 + w2;
+    vec2 o12 = w2 / w12;
+    vec2 t0 = (tc - 1.0) / size;
+    vec2 t3 = (tc + 2.0) / size;
+    vec2 t12 = (tc + o12) / size;
+    vec3 r = texture(tex, vec2(t12.x, t0.y)).rgb * w12.x * w0.y
+           + texture(tex, vec2(t0.x, t12.y)).rgb * w0.x * w12.y
+           + texture(tex, t12).rgb * w12.x * w12.y
+           + texture(tex, vec2(t3.x, t12.y)).rgb * w3.x * w12.y
+           + texture(tex, vec2(t12.x, t3.y)).rgb * w12.x * w3.y;
+    float ws = w12.x * w0.y + w0.x * w12.y + w12.x * w12.y + w3.x * w12.y + w12.x * w3.y;
+    return max(r / ws, 0.0);
+}
+
 vec3 photoSample(vec2 tuv) {
     if (any(lessThan(tuv, vec2(0.0))) || any(greaterThan(tuv, vec2(1.0)))) return vec3(0.0);
-    vec2 tile = vec2(mod(gxPhoto.x, 4.0), floor(gxPhoto.x / 4.0));
-    vec3 c = texture(photoAtlas, (tile + tuv) / 4.0).rgb;
-    return c * c * 1.15; // gamma-encoded atlas, light adds linearly
+    vec3 c;
+    if (photoHiReady > 0.5) c = sampleBicubic(photoHi, tuv, vec2(2048.0));
+    else {
+        vec2 tile = vec2(mod(gxPhoto.x, 4.0), floor(gxPhoto.x / 4.0));
+        c = texture(photoAtlas, (tile + tuv) / 4.0).rgb;
+    }
+    return c * c * 1.15; // gamma-encoded photos, light adds linearly
 }
 
 // The place's real photo, always facing us. Glowing gas is see-through, so

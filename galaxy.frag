@@ -40,6 +40,7 @@ layout(std140, binding = 0) uniform buf {
     vec4 smc;
     float exposure;
     float spin;       // time-lapse: the disk turned this far (radians, with Galactic rotation)
+    vec2 cloudFade;   // LMC, SMC: 1 drawn here, 0 when their real photo has taken over
 };
 
 layout(binding = 1) uniform sampler2D youngTex;
@@ -184,7 +185,7 @@ void main() {
     float T = mw.a;
 
     // the Magellanic Clouds sit outside the disk: in front of or behind it
-    vec3 clouds = cloud(camPos, rd, lmc, vec3(0.92, 0.90, 1.0)) + cloud(camPos, rd, smc, vec3(0.90, 0.90, 1.0));
+    vec3 clouds = cloud(camPos, rd, lmc, vec3(0.92, 0.90, 1.0)) * cloudFade.x + cloud(camPos, rd, smc, vec3(0.90, 0.90, 1.0)) * cloudFade.y;
     bool cloudsFront = length(camPos - lmc.xyz) < length(camPos);
     col = cloudsFront ? clouds + col : col + T * clouds;
 

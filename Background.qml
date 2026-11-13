@@ -395,7 +395,10 @@ Item {
   property vector3d gxCamRs: Qt.vector3d(0, 1e6, 0)   // camera from Sgr A*, in Schwarzschild radii
   property bool gxHoleNear: false
   function gxMinDist() {
-    return gxSel >= 0 && hotspots[gxSel].kind === "blackhole" ? 6 * rsKpc : 0.0002
+    if (gxSel >= 0 && hotspots[gxSel].kind === "blackhole") return 6 * rsKpc
+    // a place with a photo: no closer than where its 2048 px fill ~1.4 screen heights
+    if (gxSel >= 0 && photoOf(gxSel)) return photoWidthKpc(gxSel) * 0.7
+    return 0.0002
   }
   function gxFlyTo(i) {
     if (i >= 0 && photoOf(i)) {
@@ -406,7 +409,7 @@ Item {
       gxYawTarget = Math.atan2(o[0], o[1]) + Math.round((gxYawTarget - Math.atan2(o[0], o[1])) / (2 * Math.PI)) * 2 * Math.PI
       gxPitchTarget = Math.max(-1.45, Math.min(1.45, Math.asin(o[2] / ol)))
       gxSel = i
-      gxDistGoal = photoWidthKpc(i) / 0.85
+      gxDistGoal = Math.max(photoWidthKpc(i) / 0.85, gxMinDist())
       return
     }
     // B again at the centre: dive to the event horizon (20 Rs)
@@ -498,7 +501,7 @@ Item {
 
   // real photos of the places (textures/photos.jpg, tools/make_atlas.py):
   // tile and width on the sky in arcminutes
-  readonly property var photoTiles: {"Orion Nebula": [0, 35.49], "Carina Nebula": [1, 66.336], "Eagle Nebula": [2, 32.08], "Lagoon Nebula": [3, 93.49], "Rosette Nebula": [4, 94.75], "Crab Nebula": [5, 6.41], "Ring Nebula": [6, 2.483], "Helix Nebula": [7, 26.845], "Pleiades": [8, 69.314], "Omega Centauri": [9, 31.88], "47 Tucanae": [10, 42.067], "Westerlund 1": [11, 6.513], "Large Magellanic Cloud": [12, 266.136], "Small Magellanic Cloud": [13, 409.149], "Andromeda Galaxy": [14, 169.915]}
+  readonly property var photoTiles: {"Orion Nebula": [0, 35.49, "photos/orion-nebula.jpg"], "Carina Nebula": [1, 66.354, "photos/carina-nebula.jpg"], "Eagle Nebula": [2, 32.08, "photos/eagle-nebula.jpg"], "Lagoon Nebula": [3, 93.49, "photos/lagoon-nebula.jpg"], "Rosette Nebula": [4, 94.75, "photos/rosette-nebula.jpg"], "Crab Nebula": [5, 6.41, "photos/crab-nebula.jpg"], "Ring Nebula": [6, 2.484, "photos/ring-nebula.jpg"], "Helix Nebula": [7, 26.835, "photos/helix-nebula.jpg"], "Pleiades": [8, 69.321, "photos/pleiades.jpg"], "Omega Centauri": [9, 31.88, "photos/omega-centauri.jpg"], "47 Tucanae": [10, 42.067, "photos/47-tucanae.jpg"], "Westerlund 1": [11, 6.511, "photos/westerlund-1.jpg"], "Large Magellanic Cloud": [12, 266.122, "photos/large-magellanic-cloud.jpg"], "Small Magellanic Cloud": [13, 408.986, "photos/small-magellanic-cloud.jpg"], "Andromeda Galaxy": [14, 169.919, "photos/andromeda-galaxy.jpg"]} // tile, width (arcmin), 2048 px close-up
   property vector4d gxPhoto: Qt.vector4d(0, 0, 0, 0)
   readonly property var ncpDir: [0.74698, 0.48383, 0.45599] // celestial north pole (l 122.932, b 27.128), this frame
   function photoOf(i) {
@@ -1747,6 +1750,12 @@ Item {
               property vector4d smc: root.smcPos
               property real exposure: root.gxExposure
               property real spin: root.sunOmega * root.gxMyr
+              // a Magellanic Cloud's soft volume gives way to its photo as we close in
+              property vector2d cloudFade: {
+                const h = root.gxSel >= 0 ? root.hotspots[root.gxSel] : null
+                const near = h ? Math.min(1, Math.max(0, (Math.log(root.gxDist / (h.size / 1000)) - Math.log(3)) / Math.log(4))) : 1
+                return Qt.vector2d(h && h.name.startsWith("Large Magellanic") ? near : 1, h && h.name.startsWith("Small Magellanic") ? near : 1)
+              }
               property var youngTex: mwYoungTex
               property var dustTex: mwDustTex
             }
@@ -1802,6 +1811,13 @@ Item {
             Image { id: skyStaticTex; source: root.skyMix > 0 ? root.skyDir + root.skyViews[root.skyView].file : ""; visible: false; smooth: true; asynchronous: true }
             // real photos of the places (tools/make_atlas.py; credits in textures/CREDITS.md)
             Image { id: photoAtlasTex; source: "textures/photos.jpg"; visible: false; smooth: true; mipmap: true }
+            // the chosen place's own 2048 px photo, for close-ups (the atlas tile is 1024)
+            Image {
+              id: photoHiTex
+              readonly property var ph: root.galaxyMix > 0 ? root.photoOf(root.gxSel) : null
+              source: ph ? "textures/" + ph[2] : ""
+              visible: false; smooth: true; mipmap: true; asynchronous: true
+            }
 
             // NASA maps (public domain): Blue Marble, Black Marble, LRO Moon
             Image { id: earthDayTex; source: "textures/earth-day.jpg"; visible: false; mipmap: true; smooth: true }
@@ -1886,6 +1902,8 @@ Item {
               property var skyFull: skyFullTex
               property vector4d gxPhoto: root.gxPhoto
               property var photoAtlas: photoAtlasTex
+              property var photoHi: photoHiTex
+              property real photoHiReady: photoHiTex.status === Image.Ready ? 1 : 0
               property real skyMix: root.skyMix
               property vector3d skyFwd: root.skyFwd
               property vector3d skyRight: root.skyRight

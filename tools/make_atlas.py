@@ -17,6 +17,7 @@ SRC = sys.argv[1]
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "textures")
 TILE = 1024
 GRID = 4
+HI = 2048  # each place also gets its own 2048 px image for close-ups (textures/photos/)
 
 # file, hotspot name, image width on the sky (arcmin), north's angle
 # (degrees, clockwise from up; negative = left of vertical)
@@ -44,7 +45,7 @@ for k, (fn, name, fov, north) in enumerate(PHOTOS):
     im = Image.open(os.path.join(SRC, fn)).convert("RGB")
     w0 = im.width
     # shrink first (fast), keeping enough pixels for the rotation
-    scale = min(1.0, 2600 / max(im.size))
+    scale = min(1.0, 3000 / max(im.size))
     if scale < 1:
         im = im.resize((round(im.width * scale), round(im.height * scale)), Image.LANCZOS)
     arcmin_per_px = fov / im.width
@@ -65,19 +66,25 @@ for k, (fn, name, fov, north) in enumerate(PHOTOS):
     sq[y0:y0 + a.shape[0], x0:x0 + a.shape[1]] = a
     cv = Image.new("L", (side, side), 0)
     cv.paste(cover, (x0, y0))
-    tile = np.asarray(Image.fromarray((sq * 255).astype(np.uint8)).resize((TILE, TILE), Image.LANCZOS)).astype(np.float32) / 255
-    # the photo's own edges fade out too (rotated or non-square frames)
-    m = np.asarray(cv.resize((TILE, TILE), Image.BILINEAR).filter(ImageFilter.GaussianBlur(TILE * 0.03))).astype(np.float32) / 255
-    m = np.clip(m * 2 - 1, 0, 1)
-    tile *= (m * m * (3 - 2 * m))[..., None]
-    # soft round edge, so the photo melts into the sky around it
-    yy, xx = np.mgrid[0:TILE, 0:TILE]
-    r = np.hypot(xx - TILE / 2 + 0.5, yy - TILE / 2 + 0.5) / (TILE / 2)
-    t = np.clip((r - 0.80) / 0.20, 0, 1)
-    tile *= (1 - t * t * (3 - 2 * t))[..., None]
+    def finish(size):
+        out = np.asarray(Image.fromarray((sq * 255).astype(np.uint8)).resize((size, size), Image.LANCZOS)).astype(np.float32) / 255
+        # the photo's own edges fade out too (rotated or non-square frames)
+        m = np.asarray(cv.resize((size, size), Image.BILINEAR).filter(ImageFilter.GaussianBlur(size * 0.03))).astype(np.float32) / 255
+        m = np.clip(m * 2 - 1, 0, 1)
+        out *= (m * m * (3 - 2 * m))[..., None]
+        # soft round edge, so the photo melts into the sky around it
+        yy, xx = np.mgrid[0:size, 0:size]
+        r = np.hypot(xx - size / 2 + 0.5, yy - size / 2 + 0.5) / (size / 2)
+        t = np.clip((r - 0.80) / 0.20, 0, 1)
+        return out * (1 - t * t * (3 - 2 * t))[..., None]
+    tile = finish(TILE)
+    slug = name.lower().replace(" ", "-")
+    hi = finish(HI) if sq.shape[0] >= HI * 0.9 else finish(min(HI, sq.shape[0]))
+    os.makedirs(os.path.join(OUT, "photos"), exist_ok=True)
+    Image.fromarray((hi * 255 + 0.5).astype(np.uint8)).save(os.path.join(OUT, "photos", slug + ".jpg"), quality=90, optimize=True)
     gx, gy = k % GRID, k // GRID
     atlas[gy * TILE:(gy + 1) * TILE, gx * TILE:(gx + 1) * TILE] = tile
-    meta.append({"name": name, "tile": k, "fovArcmin": round(side * arcmin_per_px, 3)})
+    meta.append({"name": name, "tile": k, "fovArcmin": round(side * arcmin_per_px, 3), "file": "photos/" + slug + ".jpg", "hiPx": hi.shape[0]})
     print(name, "tile", k, "fov", round(side * arcmin_per_px, 2), "arcmin")
 
 Image.fromarray((atlas * 255 + 0.5).astype(np.uint8)).save(os.path.join(OUT, "photos.jpg"), quality=90, optimize=True)

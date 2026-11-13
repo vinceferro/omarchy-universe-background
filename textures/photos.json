@@ -2,76 +2,106 @@
  {
   "name": "Orion Nebula",
   "tile": 0,
-  "fovArcmin": 35.49
+  "fovArcmin": 35.49,
+  "file": "photos/orion-nebula.jpg",
+  "hiPx": 2048
  },
  {
   "name": "Carina Nebula",
   "tile": 1,
-  "fovArcmin": 66.336
+  "fovArcmin": 66.354,
+  "file": "photos/carina-nebula.jpg",
+  "hiPx": 2048
  },
  {
   "name": "Eagle Nebula",
   "tile": 2,
-  "fovArcmin": 32.08
+  "fovArcmin": 32.08,
+  "file": "photos/eagle-nebula.jpg",
+  "hiPx": 2048
  },
  {
   "name": "Lagoon Nebula",
   "tile": 3,
-  "fovArcmin": 93.49
+  "fovArcmin": 93.49,
+  "file": "photos/lagoon-nebula.jpg",
+  "hiPx": 2048
  },
  {
   "name": "Rosette Nebula",
   "tile": 4,
-  "fovArcmin": 94.75
+  "fovArcmin": 94.75,
+  "file": "photos/rosette-nebula.jpg",
+  "hiPx": 2048
  },
  {
   "name": "Crab Nebula",
   "tile": 5,
-  "fovArcmin": 6.41
+  "fovArcmin": 6.41,
+  "file": "photos/crab-nebula.jpg",
+  "hiPx": 2048
  },
  {
   "name": "Ring Nebula",
   "tile": 6,
-  "fovArcmin": 2.483
+  "fovArcmin": 2.484,
+  "file": "photos/ring-nebula.jpg",
+  "hiPx": 2048
  },
  {
   "name": "Helix Nebula",
   "tile": 7,
-  "fovArcmin": 26.845
+  "fovArcmin": 26.835,
+  "file": "photos/helix-nebula.jpg",
+  "hiPx": 2048
  },
  {
   "name": "Pleiades",
   "tile": 8,
-  "fovArcmin": 69.314
+  "fovArcmin": 69.321,
+  "file": "photos/pleiades.jpg",
+  "hiPx": 2048
  },
  {
   "name": "Omega Centauri",
   "tile": 9,
-  "fovArcmin": 31.88
+  "fovArcmin": 31.88,
+  "file": "photos/omega-centauri.jpg",
+  "hiPx": 2048
  },
  {
   "name": "47 Tucanae",
   "tile": 10,
-  "fovArcmin": 42.067
+  "fovArcmin": 42.067,
+  "file": "photos/47-tucanae.jpg",
+  "hiPx": 2048
  },
  {
   "name": "Westerlund 1",
   "tile": 11,
-  "fovArcmin": 6.513
+  "fovArcmin": 6.511,
+  "file": "photos/westerlund-1.jpg",
+  "hiPx": 2048
  },
  {
   "name": "Large Magellanic Cloud",
   "tile": 12,
-  "fovArcmin": 266.136
+  "fovArcmin": 266.122,
+  "file": "photos/large-magellanic-cloud.jpg",
+  "hiPx": 2048
  },
  {
   "name": "Small Magellanic Cloud",
   "tile": 13,
-  "fovArcmin": 409.149
+  "fovArcmin": 408.986,
+  "file": "photos/small-magellanic-cloud.jpg",
+  "hiPx": 2048
  },
  {
   "name": "Andromeda Galaxy",
   "tile": 14,
-  "fovArcmin": 169.915
+  "fovArcmin": 169.919,
+  "file": "photos/andromeda-galaxy.jpg",
+  "hiPx": 2048
  }
 ]
