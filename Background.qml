@@ -36,7 +36,11 @@ Item {
   // the compositor would otherwise idle and stall QML's animation driver.
   // Animate unless a visible workspace has a fullscreen window (a game, a video):
   // then the shader freezes on its current frame so the GPU goes to the game.
-  readonly property bool animate: !Hyprland.monitors.values.some(m => m.activeWorkspace && m.activeWorkspace.hasFullscreen)
+  // It also sleeps while the screen is locked or off (`omarchy-shell
+  // background sleep true`, sent by ~/.local/bin/desk-idle-guard), keeping
+  // whatever view you were exploring for when you come back.
+  property bool sleeping: false
+  readonly property bool animate: !sleeping && !Hyprland.monitors.values.some(m => m.activeWorkspace && m.activeWorkspace.hasFullscreen)
 
   // While exploring, the clock is the display itself: one tick per rendered
   // frame (165 Hz here), so camera motion never steps in an uneven 2-3-2-3
@@ -184,7 +188,8 @@ Item {
     exposure: new Cam.Spring(1, 1.3)           // the sky brightens slowly on an empty workspace
   })
 
-  onAnimateChanged: if (!animate) explore = "universe"
+  onAnimateChanged: if (!animate && !sleeping) explore = "universe"
+  onSleepingChanged: if (!animate && !sleeping) explore = "universe"
   // Flight and system grab the keyboard, so leave them as soon as the user
   // is on a workspace with windows (or switches away).
   onEmptyWorkspaceChanged: if (!emptyWorkspace) explore = "universe"
@@ -1649,6 +1654,10 @@ Item {
   IpcHandler {
     target: "background"
 
+    function sleep(on: bool): void {
+      root.sleeping = on
+    }
+
     function refresh(): void {
       root.refreshBackground()
     }
@@ -1924,7 +1933,7 @@ Item {
               id: holeClock
               interval: 25
               repeat: true
-              running: holePass.near
+              running: holePass.near && root.animate
               triggeredOnStart: true
               onTriggered: {
                 holePass.camPos = root.gxCamRs
