@@ -37,11 +37,65 @@ Item {
   // then the shader freezes on its current frame so the GPU goes to the game.
   readonly property bool animate: !Hyprland.monitors.values.some(m => m.activeWorkspace && m.activeWorkspace.hasFullscreen)
 
+  // While exploring, the clock is the display itself: one tick per rendered
+  // frame (165 Hz here), so camera motion never steps in an uneven 2-3-2-3
+  // cadence. The idle wallpaper moves slowly and keeps the cheaper 60 Hz
+  // timer, which also stands in as a watchdog if the compositor stops asking
+  // for frames.
+  property real lastFrameAt: 0
+
+  // ---- JARVIS navigation ----
+  // While exploring, the HUD's readout column becomes navigation telemetry for
+  // where you are (refreshed 5 times a second), and beacons around its ring
+  // point toward the Sun, Earth, the target and the Galactic Centre, on or off
+  // screen, like a compass. The system stats shrink to one line.
+  property var navRows: []
+  property var navBeacons: [null, null, null, null] // { name, ang (radians, screen), dist (text), color, behind }
+  property real navNextAt: 0
+  property var gxPrevCam: null
+  property real gxSpeed: 0                           // kpc per second, eased
+  function fmtNum(n, d) { return n.toLocaleString(Qt.locale("en_US"), "f", d === undefined ? 0 : d) }
+  function fmtLy(ly) {
+    return ly >= 1e6 ? fmtNum(ly / 1e6, 2) + " MLY" : ly >= 1000 ? fmtNum(ly) + " LY" : ly >= 1 ? fmtNum(ly, 1) + " LY" : fmtNum(ly * 63241, 0) + " AU"
+  }
+  function fmtAu(au) {
+    return au < 0.02 ? fmtNum(au * auKm) + " KM" : fmtNum(au, au < 10 ? 3 : 2) + " AU"
+  }
+  // galactic (l, b) to equatorial (RA hours, Dec degrees), J2000
+  function galToEq(lDeg, bDeg) {
+    const l = lDeg * Math.PI / 180, b = bDeg * Math.PI / 180
+    const g = [Math.cos(b) * Math.cos(l), Math.cos(b) * Math.sin(l), Math.sin(b)]
+    const T = [[-0.0548755604, 0.4941094279, -0.8676661490], [-0.8734370902, -0.4448296300, -0.1980763734], [-0.4838350155, 0.7469822445, 0.4559837762]]
+    // rows of T are the equatorial axes in galactic coordinates: eq = T g
+    const e = [0, 1, 2].map(j => T[j][0] * g[0] + T[j][1] * g[1] + T[j][2] * g[2])
+    let ra = Math.atan2(e[1], e[0]) * 12 / Math.PI
+    if (ra < 0) ra += 24
+    return [ra, Math.asin(Math.max(-1, Math.min(1, e[2]))) * 180 / Math.PI]
+  }
+  function fmtRa(h) { const hh = Math.floor(h), mm = Math.floor((h - hh) * 60); return hh + "H " + (mm < 10 ? "0" : "") + mm + "M" }
+  // screen angle of a direction v given a camera basis (works behind the camera too)
+  // `ortho`: the overview camera (no perspective). Things already on screen
+  // are labelled there, so they get no beacon (null)
+  function beaconOf(v, right, up, fwd, name, dist, color, ortho) {
+    const x = v[0] * right[0] + v[1] * right[1] + v[2] * right[2]
+    const y = -(v[0] * up[0] + v[1] * up[1] + v[2] * up[2])
+    const z = v[0] * fwd[0] + v[1] * fwd[1] + v[2] * fwd[2]
+    const sx = ortho ? x * ortho : x / Math.max(z, 1e-12), sy = ortho ? y * ortho : y / Math.max(z, 1e-12)
+    if ((ortho || z > 0) && Math.abs(sx) < aspect * 0.5 && Math.abs(sy) < 0.5) return null
+    return { name: name, ang: Math.atan2(y, x), dist: dist, color: color, behind: !ortho && z < 0, shift: 0 }
+  }
+  FrameAnimation {
+    running: root.animate && root.explore !== "universe"
+    onTriggered: {
+      root.lastFrameAt = Date.now()
+      root.tick()
+    }
+  }
   Timer {
     interval: 16
     running: root.animate
     repeat: true
-    onTriggered: root.tick()
+    onTriggered: if (root.explore === "universe" || Date.now() - root.lastFrameAt > 120) root.tick()
   }
 
   // The soft nebula layer drifts slowly, so it re-renders ~10 times a second.
@@ -566,7 +620,7 @@ Item {
       ["ESC", "back to the universe"]
     ] : explore === "sky" ? [
       ["1 - 7  /  TAB", "the named views"],
-      ["DRAG / ARROWS / WASD", "look around"],
+      ["DRAG / ARROWS", "look around (WASD too)"],
       ["SCROLL / Q E", "zoom"],
       ["H", "hide / show the HUD"],
       ["ESC", "back to the universe"]
@@ -1353,6 +1407,117 @@ Item {
       sceneBack = back * 1.2
     }
 
+    // JARVIS: beacons every frame, telemetry 5 times a second
+    {
+      const nb = [null, null, null, null]
+      let rows = null
+      const refresh = now >= navNextAt
+      if (refresh) navNextAt = now + 200
+      if (explore === "system" && !galactic) {
+        // camera basis: the overview's (spin applied) or the chase camera's
+        const useChase = chaseMix > 0.5
+        const oz = useChase ? 0 : sysScale
+        const R = useChase ? [camRight.x, camRight.y, camRight.z] : [orthoRight.x, orthoRight.y, orthoRight.z]
+        const U = useChase ? [camUp.x, camUp.y, camUp.z] : [-orthoDown.x, -orthoDown.y, -orthoDown.z]
+        const F = useChase ? [camFwd.x, camFwd.y, camFwd.z] : [orthoView.x, orthoView.y, orthoView.z]
+        const fi = follow === 7 ? -2 : follow - 1          // index into real[], -1 the Sun, -2 the Moon
+        const at = fi === -1 ? [0, 0, 0] : fi === -2 ? [real[2][0] + mg[0], real[2][1] + mg[1], real[2][2] + mg[2]] : follow < 0 ? null : real[fi]
+        const from = at || [0, 0, 0]
+        const d = (a) => Math.hypot(a[0] - from[0], a[1] - from[1], a[2] - from[2])
+        const sub = (a) => [a[0] - from[0], a[1] - from[1], a[2] - from[2]]
+        // directions in display space (what is drawn), distances in real AU
+        const fromD = fi === -1 || !at ? [0, 0, 0] : fi === -2 ? moonD : disp[fi]
+        const subD = (a) => [a[0] - fromD[0], a[1] - fromD[1], a[2] - fromD[2]]
+        if (fi !== -1) nb[0] = beaconOf(subD([0, 0, 0]), R, U, F, "SUN", fmtAu(d([0, 0, 0])), "#ffd27a", oz)
+        if (fi !== 2) nb[1] = beaconOf(subD(disp[2]), R, U, F, "EARTH", fmtAu(d(real[2])), "#6ab7ff", oz)
+        if (fi === 2 || fi === -2) {
+          const mw = [real[2][0] + mg[0], real[2][1] + mg[1], real[2][2] + mg[2]]
+          nb[2] = beaconOf(fi === 2 ? subD(moonD) : subD(disp[2]), R, U, F, fi === 2 ? "MOON" : "EARTH", fmtNum(moonDistanceKm) + " KM", "#cfd6e6", oz)
+        }
+
+        if (refresh) {
+          rows = []
+          if (at) {
+            const rSun = Math.hypot(at[0], at[1], at[2])
+            const rEarth = d(real[2])
+            rows.push({ label: "TARGET", value: (follow === 7 ? "MOON" : follow === 0 ? "SUN" : planetInfo[follow - 1].name.toUpperCase()) })
+            if (follow !== 0) rows.push({ label: "FROM SUN", value: fmtAu(rSun) + "  ·  LIGHT " + fmtNum(rSun * 8.317, 1) + " MIN" })
+            if (follow !== 3) rows.push({ label: "FROM EARTH", value: fmtAu(rEarth) + "  ·  LIGHT " + (rEarth * 8.317 < 1 ? fmtNum(rEarth * 499.0, 1) + " S" : fmtNum(rEarth * 8.317, 1) + " MIN") })
+            if (follow >= 1 && follow <= 6) {
+              const pl = planetInfo[follow - 1], a = orbits[follow - 1][3]
+              const v = 29.7847 * Math.sqrt(Math.max(0, 2 / rSun - 1 / a))
+              rows.push({ label: "ORBIT", value: fmtNum(v, 1) + " KM/S  ·  YEAR " + (a < 1.5 ? fmtNum(Math.pow(a, 1.5) * 365.25) + " D" : fmtNum(Math.pow(a, 1.5), 1) + " Y") })
+              rows.push({ label: "DAY", value: fmtNum(Math.abs(pl.day) * 24, 1) + " H" + (pl.day < 0 ? "  ·  TURNS BACKWARD" : "") + "  ·  " + fmtNum(pl.km * 2) + " KM WIDE" })
+            }
+            if (follow === 3 || follow === 7) {
+              // the Moon's phase: the Sun-Earth-Moon angle
+              const s = [-real[2][0], -real[2][1], -real[2][2]]
+              const c = (s[0] * mg[0] + s[1] * mg[1] + s[2] * mg[2]) / (Math.hypot(...s) * Math.hypot(...mg))
+              rows.push({ label: "MOON", value: fmtNum((1 - c) / 2 * 100) + "% LIT  ·  " + fmtNum(moonDistanceKm) + " KM" })
+            }
+          } else rows.push({ label: "VIEW", value: "FREE  ·  PIN A BODY FOR ITS TELEMETRY" })
+          rows.push({ label: "TIME", value: Qt.formatDateTime(new Date(simMs), "d MMM yyyy HH:mm").toUpperCase() + "  ·  " + simRateNames[simRateIndex] + (autoOrbit ? "  ·  AUTO ORBIT" : "") })
+        }
+      } else if (explore === "galaxy") {
+        const cam = [gxCamPos.x, gxCamPos.y, gxCamPos.z]
+        const R = [gxRight.x, gxRight.y, gxRight.z], U = [gxUp.x, gxUp.y, gxUp.z], F = [gxFwd.x, gxFwd.y, gxFwd.z]
+        const sp = sunPosAt(gxMyr)
+        const ly = 3261.56
+        const vec = (P) => [P[0] - cam[0], P[1] - cam[1], P[2] - cam[2]]
+        const len = (v) => Math.hypot(v[0], v[1], v[2])
+        nb[0] = beaconOf(vec(sp), R, U, F, "SUN", fmtLy(len(vec(sp)) * ly), "#ffd27a")
+        nb[1] = beaconOf(vec([0, 0, 0]), R, U, F, "CENTRE", fmtLy(len(vec([0, 0, 0])) * ly), "#ffb070")
+        if (gxSel >= 0 && !hotspots[gxSel].name.startsWith("Sagittarius A")) {
+          const P = hotspotPos(gxSel)
+          nb[2] = beaconOf(vec(P), R, U, F, hotspots[gxSel].name.toUpperCase(), fmtLy(len(vec(P)) * ly), root.hudHighlight)
+        }
+        const m31 = hotspots[gxIndex("Andromeda")].pos
+        if (gxSel < 0 || !hotspots[gxSel].name.startsWith("Andromeda")) nb[3] = beaconOf(vec(m31), R, U, F, "ANDROMEDA", fmtLy(len(vec(m31)) * ly), "#fff0d8")
+        // speed: how fast the camera moves, eased
+        if (gxPrevCam) {
+          const v = Math.hypot(cam[0] - gxPrevCam[0], cam[1] - gxPrevCam[1], cam[2] - gxPrevCam[2]) / Math.max(dt, 1e-3)
+          gxSpeed += (v - gxSpeed) * Math.min(1, dt * 4)
+        }
+        gxPrevCam = cam
+        if (refresh) {
+          const h = vec(sp).map(x => -x)                     // camera from the Sun
+          const hl = Math.max(len(h), 1e-12)
+          const l = (Math.atan2(h[0], -h[1]) * 180 / Math.PI + 360) % 360
+          const b = Math.asin(Math.max(-1, Math.min(1, h[2] / hl))) * 180 / Math.PI
+          let near = -1, nd = 1e9
+          for (let i = 0; i < hotspots.length; i++) { const dd = len(vec(hotspotPos(i))); if (dd < nd) { nd = dd; near = i } }
+          const lyPerS = gxSpeed * ly
+          rows = [
+            { label: "HERE", value: fmtLy(hl * ly) + " FROM THE SUN  ·  l " + fmtNum(l, 1) + "°  b " + fmtNum(b, 1) + "°" },
+            { label: "CENTRE", value: fmtLy(len(cam) * ly) + "  ·  " + (Math.abs(cam[2]) < 1 ? fmtNum(Math.abs(cam[2]) * ly) + " LY " + (cam[2] >= 0 ? "ABOVE" : "BELOW") + " THE DISK" : "OUTSIDE THE DISK") },
+            { label: "SPEED", value: lyPerS < 0.01 ? "HOLDING" : fmtLy(lyPerS) + "/S  ·  " + (lyPerS * 31557600 >= 1e6 ? fmtNum(lyPerS * 31557600 / 1e6, 1) + " MILLION" : fmtNum(lyPerS * 31557600)) + " × LIGHT" },
+            { label: "NEAREST", value: near >= 0 ? hotspots[near].name.toUpperCase() + "  ·  " + fmtLy(nd * ly) : "—" }
+          ]
+          if (gxSel >= 0) rows.splice(0, 0, { label: "TARGET", value: hotspots[gxSel].name.toUpperCase() + "  ·  " + fmtLy(len(vec(hotspotPos(gxSel))) * ly) + " AWAY" })
+        }
+      } else if (explore === "sky") {
+        const R = [skyRight.x, skyRight.y, skyRight.z], U = [skyUp.x, skyUp.y, skyUp.z], F = [skyFwd.x, skyFwd.y, skyFwd.z]
+        nb[1] = beaconOf([0, -1, 0], R, U, F, "GALACTIC CENTRE", "26,000 LY", "#ffb070")
+        nb[2] = beaconOf([0, 0, 1], R, U, F, "GALACTIC NORTH", "", "#9fc3ff")
+        if (refresh) {
+          const l = ((skyL % 360) + 360) % 360
+          const eq = galToEq(l, skyB)
+          rows = [
+            { label: "POINTING", value: "l " + fmtNum(l, 1) + "°  b " + fmtNum(skyB, 1) + "°" },
+            { label: "SKY", value: "RA " + fmtRa(eq[0]) + "  DEC " + (eq[1] >= 0 ? "+" : "") + fmtNum(eq[1], 1) + "°" },
+            { label: "FIELD", value: fmtNum(skyVfov, 0) + "° TALL" + (skyStaticMix > 0.5 ? "  ·  " + skyViews[skyView].name : "") }
+          ]
+        }
+      } else if (refresh) rows = []
+      // beacons pointing nearly the same way stack their labels
+      for (let i = 0; i < nb.length; i++) {
+        if (!nb[i]) continue
+        for (let j = 0; j < i; j++) if (nb[j] && Math.abs(Math.atan2(Math.sin(nb[i].ang - nb[j].ang), Math.cos(nb[i].ang - nb[j].ang))) < 0.22) nb[i].shift = Math.max(nb[i].shift, nb[j].shift + 1)
+      }
+      navBeacons = nb
+      if (rows !== null) navRows = rows
+    }
+
     exposure += ((emptyWorkspace && explore === "universe" ? 1.9 : 1) - exposure) * Math.min(1, dt * 0.8)
   }
 
@@ -1968,6 +2133,40 @@ Item {
                 }
               }
 
+              // beacons on the ring: where the Sun, Earth, the target and the
+              // Galactic Centre lie from here (hollow when behind you)
+              Repeater {
+                model: 4
+                Item {
+                  id: beacon
+                  required property int index
+                  readonly property var b: root.navBeacons[index]
+                  readonly property real ringR: readout.unit * 0.248
+                  visible: !!b && root.hudLevel > 0 && root.explore !== "universe"
+                  opacity: readout.hudOpacity * (b && b.behind ? 0.55 : 1)
+                  x: readout.cx + Math.cos(b ? b.ang : 0) * ringR
+                  y: readout.cy + Math.sin(b ? b.ang : 0) * ringR
+                  Text {
+                    x: -width / 2; y: -height / 2
+                    text: beacon.b && beacon.b.behind ? "△" : "▲"
+                    rotation: (beacon.b ? beacon.b.ang : 0) * 180 / Math.PI + 90
+                    color: beacon.b ? beacon.b.color : "white"
+                    font.pixelSize: Math.round(readout.unit * 0.009)
+                  }
+                  Text {
+                    // left half: label outside the ring; right half: inside, clear of the readout column
+                    readonly property bool onLeft: true
+                    x: onLeft ? -width - readout.unit * 0.01 : readout.unit * 0.01
+                    y: -height / 2 + (beacon.b ? beacon.b.shift : 0) * height * 1.3
+                    text: beacon.b ? beacon.b.name + (beacon.b.dist ? "  " + beacon.b.dist : "") : ""
+                    color: beacon.b ? beacon.b.color : "white"
+                    font.family: Style.resolvedFontFamily
+                    font.pixelSize: Math.round(readout.unit * 0.0072)
+                    font.letterSpacing: 1.5
+                  }
+                }
+              }
+
               Column {
                 visible: root.hudLevel > 0
                 opacity: readout.hudOpacity
@@ -1977,7 +2176,11 @@ Item {
                 spacing: Math.round(readout.unit * 0.004)
 
                 Repeater {
-                  model: [
+                  model: root.explore !== "universe" && root.explore !== "flight" && root.navRows.length > 0
+                    ? [{ label: "SYS", color: Color.accent,
+                         value: "CPU " + Math.round(root.stats.cpu * 100) + "%  ·  GPU " + Math.round(root.stats.gpu * 100) + "% " + Math.round(root.stats.gpuWatts) + " W  ·  MEM " + root.stats.memUsed.toFixed(1) + " GB" }]
+                      .concat(root.navRows.map(r => ({ label: r.label, color: root.hudHighlight, value: r.value })))
+                    : [
                     { label: "CPU", color: Color.accent,
                       value: Math.round(root.stats.cpu * 100) + "%  " + Math.round(root.stats.cpuTemp) + "°C" },
                     { label: "GPU", color: root.hudHighlight,
