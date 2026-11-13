@@ -520,8 +520,11 @@ Item {
       gxPitchTarget = 0.05
     }
   }
+  // entered the Milky Way from the solar system: stepping back returns there
+  property bool gxFromSystem: false
   function enterGalaxy() {
     if (!emptyWorkspace) return
+    gxFromSystem = explore === "system"
     explore = "galaxy"
     gxMyr = 0
     gxRateIndex = 0
@@ -695,16 +698,16 @@ Item {
       ["A / D", "strafe left / right"],
       ["R / F", "up / down"],
       ["H", "hide / show the HUD"],
-      ["ESC", "back to the universe"]
+      ["ESC / RIGHT-CLICK", "back to the universe"]
     ] : explore === "sky" ? [
       ["1 - 7  /  TAB", "the named views"],
       ["DRAG / ARROWS", "look around (WASD too)"],
       ["SCROLL / Q E", "zoom"],
       ["H", "hide / show the HUD"],
-      ["ESC", "back to the universe"]
+      ["ESC / RIGHT-CLICK", "back to the universe"]
     ] : explore === "galaxy" ? [
       ["TAB", "next place (shift: previous)"],
-      ["0", "back to the Sun"],
+      ["0", "back to the Sun (scroll in: the solar system)"],
       ["B", "fall into the black hole at the centre"],
       ["CLICK", "fly to a place"],
       ["DRAG / ARROWS", "orbit the camera"],
@@ -712,8 +715,9 @@ Item {
       ["WASD", "fly freely"],
       ["[  ]", "time-lapse: the Galaxy turns (" + gxRateNames[gxRateIndex].toLowerCase() + ")"],
       ["N", "back to now"],
+      ["X", "the solar system"],
       ["H", "hide / show the HUD"],
-      ["ESC", "back to the universe"]
+      ["ESC / RIGHT-CLICK", gxFromSystem ? "back to the solar system" : "back to the universe"]
     ] : explore !== "system" ? [] : galactic ? [
       ["-  =", galSlow === 1 ? "slow the Sun to see the coils" : "slower / faster Sun (now 1/" + galSlow + ")"],
       ["L", root.guides ? "hide the trails" : "show 2-year trails (guide lines)"],
@@ -723,7 +727,7 @@ Item {
       ["[  ]", "slower / faster time"],
       ["N", "back to now"],
       ["H", "hide / show the HUD"],
-      ["G / ESC", "back to the system"]
+      ["G / ESC / RIGHT-CLICK", "back to the system"]
     ] : chasing ? [
       ["X", chaseLocked ? "angled view" : "lock on the " + chaseTargetName.toUpperCase() + " vector"],
       ["E / CLICK", "look toward another body (now " + chaseTargetName.toUpperCase() + ")"],
@@ -734,7 +738,7 @@ Item {
       ["[  ]", "slower / faster time"],
       ["N", "back to now"],
       ["H", "hide / show the HUD"],
-      ["V / ESC", "back to the system"]
+      ["V / ESC / RIGHT-CLICK", "back to the system"]
     ] : [
       ["CLICK / 1-6", "pin a planet"],
       ["M", "pin the Moon"],
@@ -752,7 +756,7 @@ Item {
       ["[  ]", "slower / faster time"],
       ["N", "back to now"],
       ["H", "hide / show the HUD"],
-      ["ESC", "back to the universe"]
+      ["ESC / RIGHT-CLICK", "back to the universe"]
     ]
 
   // pointer over the solar system in the universe view, eased 0..1
@@ -864,6 +868,7 @@ Item {
 
   function enterSystem() {
     if (!emptyWorkspace) return
+    gxFromSystem = false
     explore = "system"
     camPose = "system"
     follow = 0
@@ -923,6 +928,14 @@ Item {
   }
   property var planetK: planetInfo.map(() => 1) // display scale of each orbit (grows with true scale)
   // screen pixel -> shader p coordinates (x in +-aspect/2, y in +-0.5)
+  // one level back (Esc, or a right-click on empty space): out of the
+  // galactic or chase view, from the Milky Way to the solar system, else home
+  function back() {
+    if (galactic) toggleGalactic()
+    else if (chasing) leaveChase()
+    else if (explore === "galaxy" && gxFromSystem) enterSystem()
+    else explore = "universe"
+  }
   function toP(x, y, w, h) { return [(x / w - 0.5) * aspect, y / h - 0.5] }
   function overSystem(pt) {
     const qx = pt[0] - sunScreen.x, qy = pt[1] - sunScreen.y
@@ -2167,19 +2180,21 @@ Item {
                 }
               }
 
-              // what each key does in the current mode, one per row
+              // what each key does in the current mode, one per row: the
+              // visor's edge (bottom left), clear of the view, gone with the HUD
               Column {
-                x: statsColumn.x
-                y: statsColumn.y + statsColumn.height + readout.rowSize * 1.2
+                visible: root.hudLevel > 0
+                opacity: readout.hudOpacity * 0.9
+                x: Math.round(readout.unit * 0.03)
+                y: panel.height - height - Math.round(readout.unit * 0.03)
                 spacing: Math.round(readout.unit * 0.003)
-                opacity: 0.7
 
                 Repeater {
                   model: root.controlHints
                   Row {
                     required property var modelData
                     Text {
-                      width: readout.rowSize * 8.5
+                      width: readout.rowSize * 11
                       text: modelData[0]
                       color: Color.accent
                       font.family: Style.resolvedFontFamily
@@ -2716,9 +2731,7 @@ Item {
         focus: root.explore !== "universe"
         Keys.onPressed: function(event) {
           if (event.key === Qt.Key_Escape) {
-            if (root.galactic) root.toggleGalactic()
-            else if (root.chasing) root.leaveChase()
-            else root.explore = "universe"
+            root.back()
             event.accepted = true
             return
           }
@@ -2760,6 +2773,7 @@ Item {
               return
             }
             if (k === "n") { root.gxMyr = 0; root.gxRateIndex = 0; event.accepted = true; return }
+            if (k === "x") { root.enterSystem(); event.accepted = true; return }
           }
           if (root.explore === "system") {
             const arrows = { [Qt.Key_Left]: "left", [Qt.Key_Right]: "right", [Qt.Key_Up]: "up", [Qt.Key_Down]: "down" }
@@ -2841,6 +2855,7 @@ Item {
         onPositionChanged: function(mouse) {
           if (root.explore === "sky" && pressed) {
             root.skyDragging = true
+            if (Math.hypot(mouse.x - pressAt.x, mouse.y - pressAt.y) > 4) dragged = true
             // drag the sky: it follows the pointer
             const degPerPx = root.skyVfov / height
             root.skyLTarget += (mouse.x - lastAt.x) * degPerPx
@@ -2889,7 +2904,9 @@ Item {
           root.hoverSystem = false
         }
         onClicked: function(mouse) {
-          if (dragged || mouse.button !== Qt.LeftButton) return
+          if (dragged) return
+          if (mouse.button === Qt.RightButton) { if (root.explore !== "universe") root.back(); return }
+          if (mouse.button !== Qt.LeftButton) return
           const pt = root.toP(mouse.x, mouse.y, width, height)
           if (root.explore === "galaxy") {
             // fly to the nearest marked place under the pointer
@@ -2912,7 +2929,11 @@ Item {
           const pt = root.toP(wheel.x, wheel.y, width, height)
           const steps = wheel.angleDelta.y / 120
           if (root.explore === "sky") root.skyVfovTarget = Math.max(8, Math.min(130, root.skyVfovTarget * Math.pow(1.12, -steps)))
-          else if (root.explore === "galaxy") root.gxDistGoal = Math.max(root.gxMinDist(), Math.min(2500, root.gxDistGoal * Math.pow(1.2, -steps)))
+          else if (root.explore === "galaxy") {
+            // scrolling in on the Sun, already at the closest approach, lands in the solar system
+            if (steps > 0 && root.gxSel === -1 && root.gxDistGoal <= root.gxMinDist() * 1.001) root.enterSystem()
+            else root.gxDistGoal = Math.max(root.gxMinDist(), Math.min(2500, root.gxDistGoal * Math.pow(1.2, -steps)))
+          }
           else if (root.galactic || root.chasing) root.sysCam.zoomBy(-steps * Math.log(1.15))
           else if (root.explore === "system") {
             // zoom about the point under the pointer (on the ecliptic), exact at
