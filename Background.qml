@@ -7,6 +7,7 @@ import QtQuick.Effects
 import QtQuick.Shapes
 import qs.Commons
 import qs.Ui
+import "lib/camera.js" as Cam
 
 Item {
   id: root
@@ -164,6 +165,22 @@ Item {
   property vector2d panVelocity: Qt.vector2d(0, 0)
   property var keysDown: ({})
   property real lastTick: Date.now()
+  // One motion law for every fade (lib/camera.js): a critically damped spring,
+  // exact for any frame time, settled (and snapped) 4.75/w seconds after its
+  // goal last moved. Opacity and mode mixes only; the cameras come next.
+  readonly property var mix: ({
+    nav: new Cam.Spring(0, Cam.W_MODE),        // flight mode, for the shader
+    speed: new Cam.Spring(0, 2),               // flight: cruise speed ramps slowly
+    strafeX: new Cam.Spring(0, 4), strafeY: new Cam.Spring(0, 4),
+    viewX: new Cam.Spring(0, 5), viewY: new Cam.Spring(0, 5),   // pointer parallax
+    guide: new Cam.Spring(0, Cam.W_MODE),
+    gal: new Cam.Spring(0, Cam.W_MODE),
+    sky: new Cam.Spring(0, Cam.W_MODE),
+    skyStatic: new Cam.Spring(0, Cam.W_MODE),
+    galaxy: new Cam.Spring(0, Cam.W_MODE),
+    hover: new Cam.Spring(0, Cam.W_MODE),
+    exposure: new Cam.Spring(1, 1.3)           // the sky brightens slowly on an empty workspace
+  })
 
   onAnimateChanged: if (!animate) explore = "universe"
   // Flight and system grab the keyboard, so leave them as soon as the user
@@ -919,18 +936,19 @@ Item {
     shaderTime = ((now - shaderEpoch) / 1000) % 600
 
     const thrust = navigating ? key("w") - key("s") : 0
-    const cruise = navigating ? 0.25 + thrust * 0.9 : 0
-    flightSpeed += (cruise - flightSpeed) * Math.min(1, dt * 1.2)
-    navMix += ((navigating ? 1 : 0) - navMix) * Math.min(1, dt * 1.5)
-    if (Math.abs((navigating ? 1 : 0) - navMix) < 0.001) navMix = navigating ? 1 : 0
-    if (Math.abs(flightSpeed) > 0.0005) flight = ((flight + flightSpeed * dt) % 64 + 64) % 64
+    mix.speed.g = navigating ? 0.25 + thrust * 0.9 : 0
+    flightSpeed = mix.speed.step(dt)
+    mix.nav.g = navigating ? 1 : 0
+    navMix = mix.nav.step(dt)
+    if (flightSpeed !== 0) flight = ((flight + flightSpeed * dt) % 64 + 64) % 64
 
-    const strafe = navigating ? Qt.vector2d(key("d") - key("a"), key("f") - key("r")).times(0.35) : Qt.vector2d(0, 0)
-    panVelocity = panVelocity.plus(strafe.minus(panVelocity).times(Math.min(1, dt * 2.5)))
-    if (panVelocity.length() > 0.0005) pan = pan.plus(panVelocity.times(dt))
+    mix.strafeX.g = navigating ? (key("d") - key("a")) * 0.35 : 0
+    mix.strafeY.g = navigating ? (key("f") - key("r")) * 0.35 : 0
+    panVelocity = Qt.vector2d(mix.strafeX.step(dt), mix.strafeY.step(dt))
+    if (panVelocity.length() > 0) pan = pan.plus(panVelocity.times(dt))
 
-    const k = Math.min(1, dt * 3)
-    view = Qt.vector2d(view.x + (viewTarget.x - view.x) * k, view.y + (viewTarget.y - view.y) * k)
+    mix.viewX.g = viewTarget.x; mix.viewY.g = viewTarget.y
+    view = Qt.vector2d(mix.viewX.step(dt), mix.viewY.step(dt))
 
     // Same one-cycle-per-600 s rates as the shader, so the wrap never jumps.
     const w = 2 * Math.PI / 600
@@ -980,7 +998,8 @@ Item {
       if (Math.abs(goal - trueMix) < 0.0005) trueMix = goal
     }
     const tm = trueMix * trueMix * (3 - 2 * trueMix)
-    guideMix += ((guides ? 1 : 0) - guideMix) * Math.min(1, dt * 3)
+    mix.guide.g = guides ? 1 : 0
+    guideMix = mix.guide.step(dt)
     // display distance and radius: geometric blend from the overview to true scale
     const dispA = orbits.map((o, i) => Math.pow(planetInfo[i].a, 1 - tm) * Math.pow(o[3] * trueAu, tm))
     planets = orbits.map((o, i) => {
@@ -1081,8 +1100,8 @@ Item {
       camRight = right
       camUp = right.crossProduct(fwd)
     }
-    galMix += ((galactic ? 1 : 0) - galMix) * Math.min(1, dt * 1.6)
-    if (Math.abs((galactic ? 1 : 0) - galMix) < 0.0005) galMix = galactic ? 1 : 0
+    mix.gal.g = galactic ? 1 : 0
+    galMix = mix.gal.step(dt)
     if (galMix > 0) {
       const gk = Math.min(1, dt * 3)
       if (galactic && explore === "system") {
@@ -1145,8 +1164,8 @@ Item {
       galFlow = Qt.vector4d(galFlow.x - hx / hl * flow * dt, galFlow.y - hy / hl * flow * dt, -hx / hl, -hy / hl)
     }
 
-    skyMix += ((explore === "sky" ? 1 : 0) - skyMix) * Math.min(1, dt * 1.5)
-    if (Math.abs((explore === "sky" ? 1 : 0) - skyMix) < 0.0005) skyMix = explore === "sky" ? 1 : 0
+    mix.sky.g = explore === "sky" ? 1 : 0
+    skyMix = mix.sky.step(dt)
     if (skyMix > 0) {
       if (explore === "sky") {
         const pan = skyVfov / 46
@@ -1176,12 +1195,11 @@ Item {
         skyBTarget = v.b
         skyVfovTarget = 46
       }
-      const on = Math.abs(dl) < 0.05 && Math.abs(skyB - v.b) < 0.05 && Math.abs(skyVfov - 46) < 0.1 ? 1 : 0
-      skyStaticMix += (on - skyStaticMix) * Math.min(1, dt * 3)
-      if (Math.abs(on - skyStaticMix) < 0.002) skyStaticMix = on
+      mix.skyStatic.g = Math.abs(dl) < 0.05 && Math.abs(skyB - v.b) < 0.05 && Math.abs(skyVfov - 46) < 0.1 ? 1 : 0
+      skyStaticMix = mix.skyStatic.step(dt)
     }
-    galaxyMix += ((explore === "galaxy" ? 1 : 0) - galaxyMix) * Math.min(1, dt * 1.5)
-    if (Math.abs((explore === "galaxy" ? 1 : 0) - galaxyMix) < 0.0005) galaxyMix = explore === "galaxy" ? 1 : 0
+    mix.galaxy.g = explore === "galaxy" ? 1 : 0
+    galaxyMix = mix.galaxy.step(dt)
     if (galaxyMix > 0) {
       gxMyr += dt * gxRates[gxRateIndex]
       const inView = explore === "galaxy"
@@ -1326,7 +1344,8 @@ Item {
       gxScreen = pts
     }
 
-    sysHover += ((hoverSystem && explore === "universe" ? 1 : 0) - sysHover) * Math.min(1, dt * 4)
+    mix.hover.g = hoverSystem && explore === "universe" ? 1 : 0
+    sysHover = mix.hover.step(dt)
 
     // system camera: ease in and out of the view, zoom and follow
     const goal = explore === "system" ? 1 : 0
@@ -1518,7 +1537,8 @@ Item {
       if (rows !== null) navRows = rows
     }
 
-    exposure += ((emptyWorkspace && explore === "universe" ? 1.9 : 1) - exposure) * Math.min(1, dt * 0.8)
+    mix.exposure.g = emptyWorkspace && explore === "universe" ? 1.9 : 1
+    exposure = mix.exposure.step(dt)
   }
 
   // Live system stats for the HUD gauges, read every 2 s while it animates.
