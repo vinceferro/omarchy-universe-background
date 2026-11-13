@@ -74,16 +74,16 @@ Item {
     return [ra, Math.asin(Math.max(-1, Math.min(1, e[2]))) * 180 / Math.PI]
   }
   function fmtRa(h) { const hh = Math.floor(h), mm = Math.floor((h - hh) * 60); return hh + "H " + (mm < 10 ? "0" : "") + mm + "M" }
-  // screen angle of a direction v given a camera basis (works behind the camera too)
-  // `ortho`: the overview camera (no perspective). Things already on screen
-  // are labelled there, so they get no beacon (null)
-  function beaconOf(v, right, up, fwd, name, dist, color, ortho) {
+  // screen angle of a direction v from the eye, given a camera basis and focal
+  // length (works behind the camera too). Things already on screen are
+  // labelled there, so they get no beacon (null)
+  function beaconOf(v, right, up, fwd, name, dist, color, focal) {
     const x = v[0] * right[0] + v[1] * right[1] + v[2] * right[2]
     const y = -(v[0] * up[0] + v[1] * up[1] + v[2] * up[2])
     const z = v[0] * fwd[0] + v[1] * fwd[1] + v[2] * fwd[2]
-    const sx = ortho ? x * ortho : x / Math.max(z, 1e-12), sy = ortho ? y * ortho : y / Math.max(z, 1e-12)
-    if ((ortho || z > 0) && Math.abs(sx) < aspect * 0.5 && Math.abs(sy) < 0.5) return null
-    return { name: name, ang: Math.atan2(y, x), dist: dist, color: color, behind: !ortho && z < 0, shift: 0 }
+    const k = (focal || 1) / Math.max(z, 1e-12)
+    if (z > 0 && Math.abs(x * k) < aspect * 0.5 && Math.abs(y * k) < 0.5) return null
+    return { name: name, ang: Math.atan2(y, x), dist: dist, color: color, behind: z < 0, shift: 0 }
   }
   FrameAnimation {
     running: root.animate && root.explore !== "universe"
@@ -180,6 +180,7 @@ Item {
     galaxy: new Cam.Spring(0, Cam.W_MODE),
     hover: new Cam.Spring(0, Cam.W_MODE),
     sys: new Cam.Spring(0, Cam.W_MODE),        // overlays fade in with the system view
+    chase: new Cam.Spring(0, Cam.W_MODE),      // labels give way to markers in the chase view
     exposure: new Cam.Spring(1, 1.3)           // the sky brightens slowly on an empty workspace
   })
 
@@ -198,6 +199,7 @@ Item {
       simRateIndex = 0
       if (camPose !== "universe") universePose(!animate)
     }
+    setLimits()
   }
 
   readonly property real aspect: Quickshell.screens.length > 0
@@ -248,7 +250,6 @@ Item {
   // Moon clears Earth, true (60 Earth radii) once zoomed in; and the real one
   property real moonOrbit: 0.024
   property real moonDistanceKm: 384400
-  property vector4d moonBody: Qt.vector4d(0, 0, 0, 0)
   property vector3d moonFace: Qt.vector3d(1, 0, 0)
 
   // heliocentric ecliptic position (AU) of planet i at Julian date jd, in the
@@ -299,8 +300,6 @@ Item {
   property bool autoOrbit: false
   property string camPose: "universe"   // where the camera is or is heading: "universe" | "system"
   property int scaleAnchor: -1          // the body whose rescale the camera rides while sigma moves
-  // chase view: 3D camera near the pinned planet (see universe.frag)
-  property bool chasing: false
   // Galactic view (G in the system view): the Solar System moving through the
   // Milky Way, drawn in the Galactic rest frame. The Sun moves at 248.9 km/s
   // (52.5 AU per year) toward ecliptic longitude 341.4, latitude +60.9 (Cygnus):
@@ -314,12 +313,14 @@ Item {
   property int galSlowIndex: 0
   readonly property var galSlows: [1, 2, 5, 10, 20, 50, 100, 200]
   readonly property real galSlow: galSlows[galSlowIndex]
-  property real galYaw: -0.7
-  property real galYawTarget: -0.7
-  property real galPitch: 0.35
-  property real galPitchTarget: 0.35
-  property real galDist: 1.3
-  property real galDistTarget: 1.3
+  onGalacticChanged: setLimits()
+  onGalBackChanged: setLimits()
+  // a galactic-view pose as the eye's direction from the Sun, in the Sun's
+  // velocity frame (yaw around the velocity's vertical, pitch above the plane)
+  function galDir(yaw, pitch) {
+    const f0 = sunVelocity, s0 = Cam.norm(Cam.cross(f0, [0, 1, 0])), u0 = Cam.norm(Cam.cross(s0, f0))
+    return Cam.add(Cam.mul(Cam.add(Cam.mul(s0, Math.cos(yaw)), Cam.mul(f0, Math.sin(yaw))), Math.cos(pitch)), Cam.mul(u0, Math.sin(pitch)))
+  }
   readonly property real galTrailYears: 2
   readonly property var sunVelocity: [0.46129, 0.87358, 0.15514] // shader frame: x, ecliptic north, -y
   readonly property real sunAuPerYear: 52.5
@@ -356,23 +357,29 @@ Item {
   property bool galBack: false
   function toggleGalBack() {
     galBack = !galBack
-    if (galBack) {
-      galYawTarget = Math.PI / 2   // camera on the velocity line, ahead of the Sun
-      galPitchTarget = 0.12
-      galDistTarget = 0.06
-      if (!guides) guides = true   // the paths are the point of this view
-    } else {
-      galYawTarget = -0.7
-      galPitchTarget = 0.35
-      galDistTarget = 1.3
-    }
+    if (galBack && !guides) guides = true   // the paths are the point of this view
+    const a = sysCam.anglesOf(galDir(galBack ? Math.PI / 2 : -0.7, galBack ? 0.12 : 0.35))
+    sysCam.flyTo({ focus: [0, 0, 0], ell: Math.log(galBack ? 0.06 : 1.3), yaw: a.yaw, pitch: a.pitch })
   }
+  // the same camera flies to the galactic pose (the Sun in focus, perspective,
+  // the squeezed world) and back to the overview, re-pinning the body it had
   function toggleGalactic() {
     if (explore !== "system") return
     galactic = !galactic
+    galBack = false
     if (galactic) {
+      if (!chasing) { savedYaw = sysCam.yaw.x; savedPitch = sysCam.pitch.x }
       chasing = false
       if (simRateIndex < 4) simRateIndex = 4 // a week per second: Earth laps in under a minute
+      if (scaleAnchor < 0) scaleAnchor = follow >= 1 ? follow : nearestBody()
+      const a = sysCam.anglesOf(galDir(-0.7, 0.35))
+      sysCam.flyTo({ focus: [0, 0, 0], ell: Math.log(1.3), yaw: a.yaw, pitch: a.pitch, fovT: fovPersp, roll: 0, sigma: 0, o: [0, 0] },
+                   { time: 1.2, uScale: squeezeRatio(scaleAnchor) })
+    } else {
+      if (follow < 0) follow = 0
+      const back = { yaw: savedYaw, pitch: savedPitch, fovT: fovOrtho, roll: -0.10 }
+      if (follow >= 1) sysCam.flyTo(Object.assign({ track: bodyTrack(follow), ellRel: landingEllRel(follow), sigma: 1 }, back), { time: 1.2 })
+      else sysCam.flyTo(Object.assign({ track: bodyTrack(0), ell: Math.log(overviewH), sigma: 0 }, back), { time: 1.2 })
     }
   }
 
@@ -596,48 +603,85 @@ Item {
     return ph ? hotspots[i].dpc / 1000 * ph[1] / 60 * Math.PI / 180 : 0
   }
 
-  // what the chase camera looks toward from behind the pinned body: "sun" or
-  // "earth" (E switches; from Earth itself it is always the Sun)
-  property string chaseLook: "sun"
-  readonly property string chaseLookNow: chaseLook === "earth" && follow !== 3 ? "earth" : "sun"
-  readonly property bool vectorLocked: Math.abs(chaseYawTarget) < 0.01 && Math.abs(chasePitchTarget) < 0.01
-  property real chaseMix: 0
-  property real chaseYaw: 0.35
-  property real chaseYawTarget: 0.35
-  property real chasePitch: 0.18
-  property real chasePitchTarget: 0.18
-  property real chaseDist: 7
-  property real chaseDistTarget: 7
-  property var bodies: planetInfo.map(() => Qt.vector4d(0, 0, 0, 0)) // relative to the chase camera (markers)
-  // the one scene for universe.frag's systemScene: every body relative to a
-  // reference point near what is looked at, in display units
+  // ---- chase view: two-point framing on the same camera ----
+  // The camera sits behind a foreground body A (the pinned one) and looks
+  // along the line to a target B (the Sun by default), A centred and B in
+  // frame; X puts the eye exactly on the line or over the shoulder, E or a
+  // click chooses another B, R swaps A and B. It is the overview camera dolly-
+  // zoomed to a 53-degree field (view height held, so A keeps its size) with
+  // its yaw riding the A-B azimuth, so the pair stays framed as they orbit.
+  property bool chasing: false
+  property int chaseTarget: 0        // B: 0 the Sun, 1..6 planets, 7 the Moon
+  property bool chaseLocked: false   // the eye on the A-B line, or angled (yaw 0.35, pitch 0.18 off it)
+  readonly property string chaseTargetName: bodyName(chaseTarget)
+  property real savedYaw: 0          // the overview's orbit angles, restored on the way back
+  property real savedPitch: Math.asin(0.30)
+  function bodyName(i) { return i === 7 ? "Moon" : i > 0 ? planetInfo[i - 1].name : i === 0 ? "Sun" : "" }
+  function chaseTrack(a, b) {
+    return () => {
+      const pa = bodyP(a), pb = bodyP(b), d = Cam.sub(pa, pb)
+      return { p: pa, lnr: Math.log(bodyR(a)), az: Math.atan2(d[0], d[2]) }
+    }
+  }
+  property real chaseMix: 0          // 0 overview .. 1 chase, for the overlays' opacity
+  onChasingChanged: { mix.chase.g = chasing ? 1 : 0; setLimits() }
+  function chaseGoals() {
+    sysCam.yaw.g = Cam.unwrap(sysCam.ref.az + (chaseLocked ? 0 : 0.35), sysCam.yaw.x)
+    sysCam.pitch.g = chaseLocked ? 0 : 0.18
+  }
+  // the one scene for universe.frag's systemScene: every body relative to the
+  // focus (the scene reference point), in display units, and the camera's
+  // eye and basis relative to it
   property var sceneBodies: planetInfo.map(() => Qt.vector4d(0, 0, 0, 0))
   property vector4d sceneMoon: Qt.vector4d(0, 0, 0, 0)
   property vector4d sceneSun: Qt.vector4d(0, 0, 0, 0.006)
-  property vector3d sceneCam: Qt.vector3d(0, 0, 1)
-  property vector3d orthoC: Qt.vector3d(0, 0, 0)
-  property vector3d orthoRight: Qt.vector3d(1, 0, 0)
-  property vector3d orthoDown: Qt.vector3d(0, 0.3, 0.95)
-  property vector3d orthoView: Qt.vector3d(0, -0.3, -0.95)
   property real scenePlaneY: 0
-  property real sceneBack: 1
   property vector3d camPos: Qt.vector3d(0, 0.05, 0.3)
   property vector3d camFwd: Qt.vector3d(0, 0, -1)
   property vector3d camRight: Qt.vector3d(1, 0, 0)
   property vector3d camUp: Qt.vector3d(0, 1, 0)
-  readonly property real focal: 1.0
-  property var chaseCam: [0, 0.05, 0.3] // chase camera, display units, doubles
+  property real focal: 23.8
+  property vector2d principal: Qt.vector2d(-0.64, 0.06)
 
   function toggleChase() {
     if (explore !== "system" || galactic) return
-    if (chasing) { chasing = false; return }
-    if (follow <= 0) return
-    // start locked on the sun-planet vector: behind the planet, facing the sun
-    chaseYaw = chaseYawTarget = 0
-    chasePitch = chasePitchTarget = 0
-    chaseDist = chaseDistTarget = 12
+    if (chasing) { leaveChase(); return }
+    if (follow < 0) return
+    if (chaseTarget === follow) chaseTarget = follow === 0 ? 3 : 0
+    savedYaw = sysCam.yaw.x; savedPitch = sysCam.pitch.x
     chasing = true
-    sysCam.sigma.g = 1
+    sysCam.flyTo({ track: chaseTrack(follow, chaseTarget), yawRel: chaseLocked ? 0 : 0.35, pitch: chaseLocked ? 0 : 0.18,
+                   fovT: fovPersp, roll: 0, sigma: 1, o: [0, 0] }, { time: 0.9 })
+  }
+  function leaveChase() {
+    chasing = false
+    sysCam.flyTo({ track: bodyTrack(follow), yaw: savedYaw, pitch: savedPitch, fovT: fovOrtho, roll: -0.10 }, { time: 0.9 })
+  }
+  // B: look along the line to another body (the next one, or a chosen one)
+  function chaseLook(b) {
+    if (b === undefined) { b = chaseTarget; do b = (b + 1) % 8; while (b === follow) }
+    if (b === follow || b < 0 || b > 7) return
+    chaseTarget = b
+    sysCam.follow(chaseTrack(follow, chaseTarget))
+    chaseGoals()
+  }
+  // swap A and B: stand behind the other one, looking back
+  function chaseSwap() {
+    const a = follow, b = chaseTarget
+    follow = b
+    chaseTarget = a
+    sysCam.flyTo({ track: chaseTrack(b, a), ellRel: Math.log(16.7), yawRel: chaseLocked ? 0 : 0.35, pitch: chaseLocked ? 0 : 0.18 })
+  }
+  function setChaseLocked(on) {
+    chaseLocked = on
+    if (chasing) chaseGoals()
+  }
+  // the camera's ranges per view: zoom (ln of the view height) and pitch
+  function setLimits() {
+    if (explore !== "system") { sysCam.lim.ell = [-60, 60]; sysCam.lim.pitch = [Math.asin(0.12), Math.asin(0.98)] }
+    else if (galactic) { sysCam.lim.ell = [Math.log(galBack ? 0.03 : 0.25), Math.log(8)]; sysCam.lim.pitch = [-1.4, 1.4] }
+    else if (chasing) { const R = trueRadius(follow); sysCam.lim.ell = [Math.log(R * 2.2), Math.log(R * 3000)]; sysCam.lim.pitch = [-1.2, 1.2] }
+    else { sysCam.lim.ell = [Math.log(1 / 150), Math.log(1 / 1.3)]; sysCam.lim.pitch = [Math.asin(follow > 0 ? 0.04 : 0.12), Math.asin(0.98)] }
   }
 
   // key hints shown under the HUD readouts, per mode
@@ -669,19 +713,19 @@ Item {
       ["-  =", galSlow === 1 ? "slow the Sun to see the coils" : "slower / faster Sun (now 1/" + galSlow + ")"],
       ["L", root.guides ? "hide the trails" : "show 2-year trails (guide lines)"],
       ["V", root.galBack ? "back to the side view" : "look back from the Sun along its path"],
-      ["RIGHT-DRAG", "swing the camera"],
-      ["ARROWS", "swing / tilt the camera"],
-      ["SCROLL", "camera distance"],
+      ["DRAG / ARROWS", "swing / tilt the camera"],
+      ["SCROLL / Q E", "camera distance"],
       ["[  ]", "slower / faster time"],
       ["N", "back to now"],
       ["H", "hide / show the HUD"],
       ["G / ESC", "back to the system"]
     ] : chasing ? [
-      ["X", vectorLocked ? "angled view" : "lock on the " + chaseLookNow + " vector"],
-      ["E", chaseLookNow === "earth" ? "look toward the Sun" : "look toward Earth"],
-      ["RIGHT-DRAG", "swing the camera"],
-      ["SCROLL", "slide along the vector"],
-      ["TAB / 1-6 / M", "chase another body (M: Moon)"],
+      ["X", chaseLocked ? "angled view" : "lock on the " + chaseTargetName.toUpperCase() + " vector"],
+      ["E / CLICK", "look toward another body (now " + chaseTargetName.toUpperCase() + ")"],
+      ["R", "swap: stand behind " + chaseTargetName.toUpperCase()],
+      ["DRAG / ARROWS", "swing the camera"],
+      ["SCROLL / Q E", "closer / farther along the vector"],
+      ["TAB / 0-6 / M", "chase another body (M: Moon)"],
       ["[  ]", "slower / faster time"],
       ["N", "back to now"],
       ["H", "hide / show the HUD"],
@@ -691,7 +735,7 @@ Item {
       ["M", "pin the Moon"],
       ["TAB", "next planet"],
       ["0", "the sun"],
-      ["V", follow > 0 ? "chase view behind it" : "chase view (pin first)"],
+      ["V", follow >= 0 ? "chase view behind " + followName.toUpperCase() : "chase view (pin first)"],
       ["G", "galactic motion (paths through space)"],
       ["X", "fly out to the Milky Way"],
       ["L", root.guides ? "hide orbit lines" : "show orbit lines"],
@@ -714,15 +758,9 @@ Item {
   property int follow: 0 // -1 free camera, 0 sun, 1..6 planets, 7 the Moon
   readonly property string followName: follow === 7 ? "Moon" : follow > 0 ? planetInfo[follow - 1].name : follow === 0 ? "Sun" : ""
   onFollowChanged: {
-    if (follow <= 0) chasing = false
-    sysCam.lim.pitch[0] = Math.asin(follow > 0 ? 0.04 : 0.12)
+    if (follow < 0 && chasing) leaveChase()
+    setLimits()
   }
-  // the overview camera as universe.frag's systemScene reads it, from the
-  // camera's basis each tick: q = (p - sysOrigin) / sysScale + sysCamQ is a
-  // screen point's place on the focus plane, relative to the Sun
-  property vector2d sysOrigin: Qt.vector2d(-0.64, 0.06)
-  property real sysScale: 1
-  property vector2d sysCamQ: Qt.vector2d(0, 0)
   // display positions this tick: the planets [x, y, z, radius] and the Moon
   property var dispBodies: planetInfo.map(pl => [0, 0, 0, pl.r])
   property var moonDisp: [0, 0, 0, 0.0012]
@@ -761,7 +799,6 @@ Item {
   }
   function markerWanted(kind, w, h) {
     if (!root.liveBackground || root.sys < 0.5 || root.galMix > 0.5) return false
-    if (chaseMix > 0.02 && chaseMix < 0.98) return false // mid-morph neither projection is right
     const pr = markerProj(kind, w, h)
     const m = 70
     const off = pr.x < m || pr.x > w - m || pr.y < m || pr.y > h - m
@@ -813,7 +850,7 @@ Item {
   property real guideMix: 0
   readonly property real trueAu: 0.0045 * auKm / 6371 // display units per AU at true scale
   property real sunR: 0.006
-  property vector2d sysBound: Qt.vector2d(0.4, 0.2)
+  property vector4d sysBound: Qt.vector4d(-0.64, 0.06, 0.4, 0.2)
   function trueRadius(i) { return i === 7 ? 0.0045 * 1737.4 / 6371 : i <= 0 ? 0.0045 * 695700 / 6371 : 0.0045 * planetInfo[i - 1].km / 6371 }
   function orbitUniform(i) {
     const o = orbitParams[i]
@@ -826,7 +863,7 @@ Item {
     camPose = "system"
     follow = 0
     autoOrbit = false
-    sysCam.lim.ell = [Math.log(1 / 150), Math.log(1 / 1.3)]
+    setLimits()
     // the corner view glides to the centre while it zooms: one path
     sysCam.flyTo({ track: bodyTrack(0), ell: Math.log(overviewH), o: [0, 0], sigma: 0 }, { time: 1.0 })
   }
@@ -835,7 +872,8 @@ Item {
   // under the flight, which rides that collapse (uScale, scaleFlight).
   function universePose(instant) {
     camPose = "universe"
-    sysCam.lim.ell = [-60, 60]
+    chasing = false
+    galactic = false
     if (scaleAnchor < 0) scaleAnchor = follow >= 1 ? follow : nearestBody()
     const uScale = squeezeRatio(scaleAnchor)
     follow = 0
@@ -859,8 +897,16 @@ Item {
     return Math.log(Math.max(1 / 150, Math.min(1 / 3.6, R / 0.06)) / R)
   }
   function focusBody(i) {
-    if (explore !== "system") return
+    if (explore !== "system" || galactic) return
     const prev = follow
+    if (chasing) {
+      // chase another body: it becomes A; if it was B, B becomes the old A (a swap)
+      follow = i
+      if (chaseTarget === i) chaseTarget = prev >= 0 ? prev : 0
+      setLimits()
+      sysCam.flyTo({ track: chaseTrack(i, chaseTarget), ellRel: Math.log(16.7), yawRel: chaseLocked ? 0 : 0.35, pitch: chaseLocked ? 0 : 0.18 })
+      return
+    }
     follow = i
     if (i === 0) {
       // the Sun: the squeezed overview, the world collapsing under the flight
@@ -948,17 +994,20 @@ Item {
 
     // ---- the system camera: held keys are rates into goals; the springs do the rest ----
     const cdt = Math.min(dt, 1 / 30)   // the camera never lurches after a stall
+    if (explore === "system") {
+      // every system view: arrows orbit, Q/E zoom (E in chase is "look toward")
+      const yk = key("right") - key("left"), pk = key("up") - key("down")
+      if (yk !== 0 || pk !== 0) sysCam.orbit(yk * 0.8 * dt, pk * 0.5 * dt, false)
+      const zk = (chasing ? 0 : key("e")) - key("q")
+      if (zk !== 0) {
+        if (zk < 0 && !chasing && !galactic && sysCam.ell.g >= Math.log(1 / 1.3) - 1e-9) explore = "universe"
+        else sysCam.zoomBy(-zk * Math.log(2.5) * dt)
+      }
+    }
     if (explore === "system" && !galactic && !chasing) {
       const mvx = key("d") - key("a"), mvy = key("s") - key("w")
       if (mvx !== 0 || mvy !== 0) { follow = -1; sysCam.move(sysCam.screenToWorld([mvx * 0.6 * dt, mvy * 0.6 * dt])) }
-      const yk = key("right") - key("left"), pk = key("up") - key("down")
-      if (yk !== 0 || pk !== 0) sysCam.orbit(yk * 0.8 * dt, pk * 0.5 * dt, false)
       if (autoOrbit) sysCam.yaw.g += 0.12 * dt
-      const zk = key("e") - key("q")
-      if (zk !== 0) {
-        if (zk < 0 && sysCam.ell.g >= Math.log(1 / 1.3) - 1e-9) explore = "universe"
-        else sysCam.zoomBy(-zk * Math.log(2.5) * dt)
-      }
       // true scale comes with a pick and goes once zoomed out to the overview's
       // framing; a pinned body gets it back two notches further in (hysteresis)
       if (explore === "system" && !sysCam.flying()) {
@@ -1035,80 +1084,25 @@ Item {
     // the step: tracked reference carried, flight or springs advanced, basis built
     const cb = sysCam.update(cdt)
     const camF = cb.F
-    sysScale = 1 / cb.h
-    sysOrigin = Qt.vector2d(cb.o[0], cb.o[1])
-    sysCamQ = Qt.vector2d(Cam.dot(camF, cb.right), -Cam.dot(camF, cb.up))
     {
       // the skip-box for the idle view: Saturn's whole orbit at the current
-      // tilt, the bodies' sizes, the Sun's glow, turned by the screen spin;
-      // computed each frame so tilting or true scale never slices a planet
+      // tilt, the bodies' sizes, the Sun's glow, turned by the screen spin,
+      // as a box around the Sun on screen; computed each frame so tilting or
+      // true scale never slices a planet
       const st = Math.sin(sysCam.pitch.x), ct = Math.cos(sysCam.pitch.x)
       const reach = dispA[5] * 1.06
       const pad = 3 * Math.max(...disp.map(b => b[3])) + sunR * 12 + 0.01
       const bx = reach + pad, by = reach * st + ct * moonOrbit + pad
-      sysBound = Qt.vector2d(bx + 0.1 * by, by + 0.1 * bx)
+      const sp = sysCam.project([0, 0, 0])
+      sysBound = Qt.vector4d(sp.x, sp.y, (bx + 0.1 * by) / cb.h * 1.1, (by + 0.1 * bx) / cb.h * 1.1)
     }
-    chaseMix += ((chasing ? 1 : 0) - chaseMix) * Math.min(1, dt * 1.8)
-    if (Math.abs((chasing ? 1 : 0) - chaseMix) < 0.0005) chaseMix = chasing ? 1 : 0
-    if (follow > 0 && (chasing || chaseMix > 0)) {
-      const ck = Math.min(1, dt * 3)
-      chaseYaw += (chaseYawTarget - chaseYaw) * ck
-      chasePitch += (chasePitchTarget - chasePitch) * ck
-      chaseDist += (chaseDistTarget - chaseDist) * ck
-      // behind the body as seen from what we look toward (the Sun, or Earth),
-      // swung by yaw and pitch, looking between the body and that target so
-      // both are in frame
-      const B = follow === 7 ? moonD : disp[follow - 1]
-      const Tg = chaseLookNow === "earth" ? disp[2] : [0, 0, 0]
-      const P = Qt.vector3d(B[0], B[1], B[2])
-      const d = Qt.vector3d(B[0] - Tg[0], B[1] - Tg[1], B[2] - Tg[2]).normalized()
-      const up = Qt.vector3d(0, 1, 0)
-      const side = up.crossProduct(d).normalized()
-      const o = d.times(Math.cos(chaseYaw)).plus(side.times(Math.sin(chaseYaw)))
-      const off = o.times(Math.cos(chasePitch)).plus(up.times(Math.sin(chasePitch)))
-      // vector3d holds floats, so the camera offset is added in doubles
-      const dist = B[3] * chaseDist
-      const C = [B[0] + off.x * dist, B[1] + off.y * dist, B[2] + off.z * dist]
-      const toPlanet = off.times(-1)
-      const toTarget = Qt.vector3d(Tg[0] - C[0], Tg[1] - C[1], Tg[2] - C[2]).normalized()
-      const fwd = toPlanet.times(0.45).plus(toTarget.times(0.55)).normalized()
-      const right = fwd.crossProduct(up).normalized()
-      camPos = Qt.vector3d(C[0], C[1], C[2])
-      chaseCam = C
-      bodies = disp.map(b => Qt.vector4d(b[0] - C[0], b[1] - C[1], b[2] - C[2], b[3]))
-      moonBody = Qt.vector4d(moonD[0] - C[0], moonD[1] - C[1], moonD[2] - C[2], moonD[3])
-      camFwd = fwd
-      camRight = right
-      camUp = right.crossProduct(fwd)
-    }
+    chaseMix = mix.chase.step(dt)
     mix.gal.g = galactic ? 1 : 0
     galMix = mix.gal.step(dt)
     if (galMix > 0) {
-      const gk = Math.min(1, dt * 3)
-      if (galactic && explore === "system") {
-        galYawTarget += (key("right") - key("left")) * dt * 0.8
-        galPitchTarget = Math.max(-1.4, Math.min(1.4, galPitchTarget + (key("up") - key("down")) * dt * 0.6))
-      }
-      galYaw += (galYawTarget - galYaw) * gk
-      galPitch += (galPitchTarget - galPitch) * gk
-      galDist += (galDistTarget - galDist) * gk
-      // camera rides with the Sun, beside its path: basis from its velocity
-      const f0 = Qt.vector3d(sunVelocity[0], sunVelocity[1], sunVelocity[2])
-      const Yn = Qt.vector3d(0, 1, 0)
-      const s0 = f0.crossProduct(Yn).normalized()
-      const u0 = s0.crossProduct(f0).normalized()
-      const off = s0.times(Math.cos(galYaw)).plus(f0.times(Math.sin(galYaw))).times(Math.cos(galPitch)).plus(u0.times(Math.sin(galPitch)))
-      const cam = off.times(galDist)
-      const gf = off.times(-1)
-      const gr = gf.crossProduct(Yn).normalized()
-      const gu = gr.crossProduct(gf)
-      const proj = (x, y, z) => {
-        const vx = x - cam.x, vy = y - cam.y, vz = z - cam.z
-        const zr = vx * gf.x + vy * gf.y + vz * gf.z
-        const zc = Math.max(1e-4, zr)
-        return { x: (vx * gr.x + vy * gr.y + vz * gr.z) / zc * focal,
-                 y: -(vx * gu.x + vy * gu.y + vz * gu.z) / zc * focal, z: zr }
-      }
+      // the trails and the bodies' points, through the one camera (the Sun in
+      // focus; the overlay draws what the shader scene fades out of)
+      const proj = (x, y, z) => { const pr = sysCam.project([x, y, z]); return { x: pr.x, y: pr.y, z: pr.z, scale: pr.scale } }
       // the Sun's travel at the overview's scale (Earth's 1 AU = 0.11), slowed by galSlow
       const vDisp = sunAuPerYear * 0.11 / galSlow
       const N = 150
@@ -1122,7 +1116,7 @@ Item {
       trails.push(sunPts)
       const s0p = proj(0, 0, 0)
       // true radii at this view's scale (1 AU = 0.11): the Sun a small disc, planets points
-      now.push({ x: s0p.x, y: s0p.y, z: s0p.z, r: 695700 / auKm * 0.11 / Math.max(1e-4, s0p.z) })
+      now.push({ x: s0p.x, y: s0p.y, z: s0p.z, r: 695700 / auKm * 0.11 * s0p.scale })
       for (let i = 0; i < planetInfo.length; i++) {
         const pts = []
         for (let j = 0; j <= N; j++) {
@@ -1131,7 +1125,7 @@ Item {
           pts.push(proj(h[0] - sunVelocity[0] * vDisp * tau, h[1] - sunVelocity[1] * vDisp * tau, h[2] - sunVelocity[2] * vDisp * tau))
         }
         trails.push(pts)
-        now.push({ x: pts[0].x, y: pts[0].y, z: pts[0].z, r: planetInfo[i].km / auKm * 0.11 / Math.max(1e-4, pts[0].z) })
+        now.push({ x: pts[0].x, y: pts[0].y, z: pts[0].z, r: planetInfo[i].km / auKm * 0.11 * pts[0].scale })
       }
       galTrails = trails
       galNow = now
@@ -1141,7 +1135,7 @@ Item {
       const hx = ahead.x - s0p.x, hy = ahead.y - s0p.y
       const hl = Math.max(1e-6, Math.hypot(hx, hy))
       galHeading = Qt.point(hx / hl, hy / hl)
-      const flow = Math.min(0.6, 0.004 + vDisp * simRate / 31557600 * 0.5 / galDist) // screen units per second
+      const flow = Math.min(0.6, 0.004 + vDisp * simRate / 31557600 * 0.5 / cb.h) // screen units per second
       galFlow = Qt.vector4d(galFlow.x - hx / hl * flow * dt, galFlow.y - hy / hl * flow * dt, -hx / hl, -hy / hl)
     }
 
@@ -1330,25 +1324,21 @@ Item {
     mix.sys.g = explore === "system" ? 1 : 0
     sys = mix.sys.step(dt)
 
-    // the shader's scene: every body relative to a reference point near what
-    // is looked at (the chase camera when it leads, else the focus), and the
-    // overview camera's basis
+    // the shader's scene: every body relative to the focus (the reference
+    // point, in doubles), the eye relative to it, the basis and focal length.
+    // Qt vectors are built here only, never read back.
     {
-      const Rw = chaseMix > 0.5 ? chaseCam : camF
-      const rel = (a) => Qt.vector3d(a[0] - Rw[0], a[1] - Rw[1], a[2] - Rw[2])
+      const Rw = camF
       sceneBodies = disp.map(b => Qt.vector4d(b[0] - Rw[0], b[1] - Rw[1], b[2] - Rw[2], b[3]))
       sceneMoon = Qt.vector4d(moonD[0] - Rw[0], moonD[1] - Rw[1], moonD[2] - Rw[2], moonD[3])
       sceneSun = Qt.vector4d(-Rw[0], -Rw[1], -Rw[2], sunR)
-      sceneCam = rel(chaseCam)
-      orthoC = rel(camF)
-      orthoRight = Qt.vector3d(cb.right[0], cb.right[1], cb.right[2])
-      orthoDown = Qt.vector3d(-cb.up[0], -cb.up[1], -cb.up[2])
-      orthoView = Qt.vector3d(cb.fwd[0], cb.fwd[1], cb.fwd[2])
       scenePlaneY = -Rw[1]
-      // behind every body as seen by the overview camera, for the morph
-      let back = 0.1
-      for (const b of disp.concat([moonD, [0, 0, 0, sunR]])) back = Math.max(back, -((b[0] - camF[0]) * cb.fwd[0] + (b[1] - camF[1]) * cb.fwd[1] + (b[2] - camF[2]) * cb.fwd[2]) + 2 * b[3])
-      sceneBack = back * 1.2
+      camPos = Qt.vector3d(cb.relC[0], cb.relC[1], cb.relC[2])
+      camFwd = Qt.vector3d(cb.fwd[0], cb.fwd[1], cb.fwd[2])
+      camRight = Qt.vector3d(cb.right[0], cb.right[1], cb.right[2])
+      camUp = Qt.vector3d(cb.up[0], cb.up[1], cb.up[2])
+      focal = cb.focal
+      principal = Qt.vector2d(cb.o[0], cb.o[1])
     }
 
     // labels and markers, projected once per tick through the same camera.
@@ -1368,23 +1358,11 @@ Item {
       }
       sysScreen = pts
       const mk = {}
-      if (chaseMix > 0.5) {
-        // through the chase camera, bodies relative to it
-        const projC = (v, rad) => {
-          const zc = v[0] * camFwd.x + v[1] * camFwd.y + v[2] * camFwd.z
-          let sx = (v[0] * camRight.x + v[1] * camRight.y + v[2] * camRight.z) / Math.max(Math.abs(zc), 1e-12) * focal
-          let sy = -(v[0] * camUp.x + v[1] * camUp.y + v[2] * camUp.z) / Math.max(Math.abs(zc), 1e-12) * focal
-          if (zc < 0) { sx = -sx * 1000; sy = -sy * 1000 } // behind: push to the edge, mirrored
-          return { x: sx, y: sy, r: zc > 0 ? rad / zc * focal : 0, dist: Math.hypot(v[0], v[1], v[2]) }
-        }
-        mk.moon = projC(Cam.sub(moonD, chaseCam), moonD[3])
-        mk.earth = projC(Cam.sub(disp[2], chaseCam), disp[2][3])
-        mk.sun = projC(Cam.mul(chaseCam, -1), sunR)
-      } else {
-        for (const [kind, P, R] of [["moon", moonD, moonD[3]], ["earth", disp[2], disp[2][3]], ["sun", [0, 0, 0], sunR]]) {
-          const pr = sysCam.project(P)
-          mk[kind] = { x: pr.x, y: pr.y, r: R * pr.scale, dist: 0 }
-        }
+      for (const [kind, P, R] of [["moon", moonD, moonD[3]], ["earth", disp[2], disp[2][3]], ["sun", [0, 0, 0], sunR]]) {
+        const pr = sysCam.project(P)
+        // behind the camera: pushed to the edge, mirrored
+        const k = pr.front ? 1 : -1000
+        mk[kind] = { x: pr.x * k, y: pr.y * k, r: pr.front ? R * pr.scale : 0, dist: Cam.len(Cam.sub(P, cb.C)) }
       }
       markerPts = mk
     }
@@ -1396,25 +1374,21 @@ Item {
       const refresh = now >= navNextAt
       if (refresh) navNextAt = now + 200
       if (explore === "system" && !galactic) {
-        // camera basis: the overview's (spin applied) or the chase camera's
-        const useChase = chaseMix > 0.5
-        const oz = useChase ? 0 : sysScale
-        const R = useChase ? [camRight.x, camRight.y, camRight.z] : [orthoRight.x, orthoRight.y, orthoRight.z]
-        const U = useChase ? [camUp.x, camUp.y, camUp.z] : [-orthoDown.x, -orthoDown.y, -orthoDown.z]
-        const F = useChase ? [camFwd.x, camFwd.y, camFwd.z] : [orthoView.x, orthoView.y, orthoView.z]
+        // the one camera's basis, directions from its eye
+        const R = cb.right, U = cb.up, F = cb.fwd
         const fi = follow === 7 ? -2 : follow - 1          // index into real[], -1 the Sun, -2 the Moon
         const at = fi === -1 ? [0, 0, 0] : fi === -2 ? [real[2][0] + mg[0], real[2][1] + mg[1], real[2][2] + mg[2]] : follow < 0 ? null : real[fi]
         const from = at || [0, 0, 0]
         const d = (a) => Math.hypot(a[0] - from[0], a[1] - from[1], a[2] - from[2])
-        const sub = (a) => [a[0] - from[0], a[1] - from[1], a[2] - from[2]]
         // directions in display space (what is drawn), distances in real AU
-        const fromD = fi === -1 || !at ? [0, 0, 0] : fi === -2 ? moonD : disp[fi]
-        const subD = (a) => [a[0] - fromD[0], a[1] - fromD[1], a[2] - fromD[2]]
-        if (fi !== -1) nb[0] = beaconOf(subD([0, 0, 0]), R, U, F, "SUN", fmtAu(d([0, 0, 0])), "#ffd27a", oz)
-        if (fi !== 2) nb[1] = beaconOf(subD(disp[2]), R, U, F, "EARTH", fmtAu(d(real[2])), "#6ab7ff", oz)
+        const subD = (a) => Cam.sub(a, cb.C)
+        if (fi !== -1) nb[0] = beaconOf(subD([0, 0, 0]), R, U, F, "SUN", fmtAu(d([0, 0, 0])), "#ffd27a", cb.focal)
+        if (fi !== 2) nb[1] = beaconOf(subD(disp[2]), R, U, F, "EARTH", fmtAu(d(real[2])), "#6ab7ff", cb.focal)
         if (fi === 2 || fi === -2) {
-          const mw = [real[2][0] + mg[0], real[2][1] + mg[1], real[2][2] + mg[2]]
-          nb[2] = beaconOf(fi === 2 ? subD(moonD) : subD(disp[2]), R, U, F, fi === 2 ? "MOON" : "EARTH", fmtNum(moonDistanceKm) + " KM", "#cfd6e6", oz)
+          nb[2] = beaconOf(fi === 2 ? subD(moonD) : subD(disp[2]), R, U, F, fi === 2 ? "MOON" : "EARTH", fmtNum(moonDistanceKm) + " KM", "#cfd6e6", cb.focal)
+        }
+        if (chasing && chaseTarget !== 0 && chaseTarget !== 3 && chaseTarget !== 7) {
+          nb[3] = beaconOf(subD(bodyP(chaseTarget)), R, U, F, chaseTargetName.toUpperCase(), fmtAu(d(real[chaseTarget - 1])), root.hudHighlight, cb.focal)
         }
 
         if (refresh) {
@@ -1422,7 +1396,7 @@ Item {
           if (at) {
             const rSun = Math.hypot(at[0], at[1], at[2])
             const rEarth = d(real[2])
-            rows.push({ label: "TARGET", value: (follow === 7 ? "MOON" : follow === 0 ? "SUN" : planetInfo[follow - 1].name.toUpperCase()) })
+            rows.push({ label: "TARGET", value: (follow === 7 ? "MOON" : follow === 0 ? "SUN" : planetInfo[follow - 1].name.toUpperCase()) + (chasing ? "  →  " + chaseTargetName.toUpperCase() : "") })
             if (follow !== 0) rows.push({ label: "FROM SUN", value: fmtAu(rSun) + "  ·  LIGHT " + fmtNum(rSun * 8.317, 1) + " MIN" })
             if (follow !== 3) rows.push({ label: "FROM EARTH", value: fmtAu(rEarth) + "  ·  LIGHT " + (rEarth * 8.317 < 1 ? fmtNum(rEarth * 499.0, 1) + " S" : fmtNum(rEarth * 8.317, 1) + " MIN") })
             if (follow >= 1 && follow <= 6) {
@@ -1479,8 +1453,9 @@ Item {
         }
       } else if (explore === "sky") {
         const R = [skyRight.x, skyRight.y, skyRight.z], U = [skyUp.x, skyUp.y, skyUp.z], F = [skyFwd.x, skyFwd.y, skyFwd.z]
-        nb[1] = beaconOf([0, -1, 0], R, U, F, "GALACTIC CENTRE", "26,000 LY", "#ffb070")
-        nb[2] = beaconOf([0, 0, 1], R, U, F, "GALACTIC NORTH", "", "#9fc3ff")
+        const sf = 0.5 / Math.tan(skyVfov * Math.PI / 360)
+        nb[1] = beaconOf([0, -1, 0], R, U, F, "GALACTIC CENTRE", "26,000 LY", "#ffb070", sf)
+        nb[2] = beaconOf([0, 0, 1], R, U, F, "GALACTIC NORTH", "", "#9fc3ff", sf)
         if (refresh) {
           const l = ((skyL % 360) + 360) % 360
           const eq = galToEq(l, skyB)
@@ -1706,10 +1681,9 @@ Item {
       root.toggleChase()
     }
 
-    // chase view exactly on the planet-sun line (1) or angled (0)
+    // chase view exactly on the A-B line (true) or angled (false)
     function align(on: bool): void {
-      root.chaseYawTarget = on ? 0 : 0.35
-      root.chasePitchTarget = on ? 0 : 0.18
+      root.setChaseLocked(on)
     }
 
     function universe(): void {
@@ -1727,9 +1701,12 @@ Item {
       root.focusBody(Math.max(0, Math.min(7, body)))
     }
 
-    // chase camera aim: "sun" or "earth"
+    // chase camera aim (B): a body name ("sun", "earth", "moon", "mars" ...) or 0-7
     function look(target: string): void {
-      root.chaseLook = target === "earth" ? "earth" : "sun"
+      const t = String(target).trim().toLowerCase()
+      const i = /^[0-7]$/.test(t) ? Number(t) : [0, 1, 2, 3, 4, 5, 6, 7].find(j => root.bodyName(j).toLowerCase().startsWith(t))
+      if (i === undefined) return
+      if (root.chasing) root.chaseLook(i); else root.chaseTarget = i
     }
 
     function sky(): void {
@@ -1990,7 +1967,6 @@ Item {
               property real time: root.shaderTime
               property vector2d resolution: Qt.vector2d(panel.width, panel.height)
               property color accent: Color.accent
-              property color themeBase: Color.background
               property real hudLevel: root.hudLevel
               property vector2d view: root.view
               property vector2d hudCenter: root.hudCenter
@@ -2000,9 +1976,6 @@ Item {
               property real mem: root.mem
               property real secs: (root.now.getSeconds() + root.now.getMilliseconds() / 1000) / 60
               property vector2d pan: root.pan
-              property vector2d sysOrigin: root.sysOrigin
-              property real sysScale: root.sysScale
-              property vector2d sysCam: root.sysCamQ
               property real exposure: root.exposure
               property real boot: root.bootLevel
               property vector4d orbit0: root.orbitUniform(0)
@@ -2014,12 +1987,12 @@ Item {
               property vector4d spinA: Qt.vector4d(root.spins[0], root.spins[1], root.spins[2], root.spins[3])
               property vector2d spinB: Qt.vector2d(root.spins[4], root.spins[5])
               property real sysHover: root.sysHover
-              property real chase: root.chaseMix
-              property vector3d camPos: root.sceneCam
+              property vector3d camPos: root.camPos
               property vector3d camFwd: root.camFwd
               property vector3d camRight: root.camRight
               property vector3d camUp: root.camUp
               property real focal: root.focal
+              property vector2d principal: root.principal
               property vector4d body0: root.sceneBodies[0]
               property vector4d body1: root.sceneBodies[1]
               property vector4d body2: root.sceneBodies[2]
@@ -2027,14 +2000,12 @@ Item {
               property vector4d body4: root.sceneBodies[4]
               property vector4d body5: root.sceneBodies[5]
               property real pinned: root.explore === "system" && !root.chasing && root.follow > 0 ? root.follow : 0
-              property real sunRadius: root.sunRadiusAu
               property real earthTheta: root.earthTheta
               property vector3d earthPole: Qt.vector3d(0, Math.cos(root.obliquity), -Math.sin(root.obliquity))
               property vector3d home: root.homeDir
               property real moonOrbit: root.moonOrbit
               property real galactic: root.galMix
-              property real sunR: root.sunR
-              property vector2d sysBound: root.sysBound
+              property vector4d sysBound: root.sysBound
               property real guides: root.guideMix
               property real galaxyMix: root.galaxyMix
               property var galaxyTex: galaxyPass
@@ -2046,7 +2017,6 @@ Item {
               property vector4d gxFocus: root.gxFocus
               property vector4d gxFocusCol: root.gxFocusCol
               property real gxStars: root.gxStars
-              property real navMix: root.navMix
               property real gxRealSky: root.gxRealSky
               property var skyFull: skyFullTex
               property vector4d gxPhoto: root.gxPhoto
@@ -2063,18 +2033,11 @@ Item {
               property vector4d galFlow: root.galFlow
               property vector4d moonBody: root.sceneMoon
               property vector4d sunBody: root.sceneSun
-              property vector3d orthoC: root.orthoC
-              property vector3d orthoRight: root.orthoRight
-              property vector3d orthoDown: root.orthoDown
-              property vector3d orthoView: root.orthoView
               property real planeY: root.scenePlaneY
-              property real orthoBack: root.sceneBack
               property vector3d moonFace: root.moonFace
               property var earthDay: earthDayTex
               property var earthNight: earthNightTex
               property var moonTex: moonMapTex
-              property vector4d auA: Qt.vector4d(0.387, 0.723, 1.0, 1.524)
-              property vector2d auB: Qt.vector2d(5.203, 9.537)
             }
 
             // HUD readouts in the shell font: the time inside the rings and the
@@ -2167,8 +2130,8 @@ Item {
                       value: root.stats.memUsed.toFixed(1) + " / " + root.stats.memTotal.toFixed(0) + " GB" },
                     { label: "NAV", color: root.hudHighlight, value: "FLIGHT", hidden: !root.navigating },
                     { label: "SYS", color: root.hudHighlight,
-                      value: (root.chasing ? (root.vectorLocked ? "LOCKED ON SUN VECTOR  " : "CHASE  ") : "")
-                        + (root.follow > 0 ? "PINNED " + root.followName.toUpperCase() + (root.chasing ? " → " + root.chaseLookNow.toUpperCase() : "") + "  "
+                      value: (root.chasing ? (root.chaseLocked ? "LOCKED ON " + root.chaseTargetName.toUpperCase() + " VECTOR  " : "CHASE  ") : "")
+                        + (root.follow > 0 ? "PINNED " + root.followName.toUpperCase() + (root.chasing ? " → " + root.chaseTargetName.toUpperCase() : "") + "  "
                            : root.follow === 0 ? "SUN  " : "FREE  ")
                         + Qt.formatDateTime(new Date(root.simMs), "d MMM yyyy HH:mm").toUpperCase() + "  "
                         + root.simRateNames[root.simRateIndex] + (root.autoOrbit ? "  AUTO ORBIT" : ""),
@@ -2744,8 +2707,8 @@ Item {
         focus: root.explore !== "universe"
         Keys.onPressed: function(event) {
           if (event.key === Qt.Key_Escape) {
-            if (root.galactic) { root.galactic = false; root.galBack = false }
-            else if (root.chasing) root.chasing = false
+            if (root.galactic) root.toggleGalactic()
+            else if (root.chasing) root.leaveChase()
             else root.explore = "universe"
             event.accepted = true
             return
@@ -2811,11 +2774,8 @@ Item {
               return
             }
             if (k === "m") { root.focusBody(7); event.accepted = true; return }
-            if (k === "e" && root.chasing) {
-              root.chaseLook = root.chaseLookNow === "earth" ? "sun" : "earth"
-              event.accepted = true
-              return
-            }
+            if (k === "e" && root.chasing) { root.chaseLook(); event.accepted = true; return }
+            if (k === "r" && root.chasing) { root.chaseSwap(); event.accepted = true; return }
             if (k.length === 1 && "0123456".includes(k)) {
               root.focusBody(Number(k))
               event.accepted = true
@@ -2824,14 +2784,7 @@ Item {
             if (k === "o") { root.autoOrbit = !root.autoOrbit; event.accepted = true; return }
             if (k === "x" && !root.chasing) { root.enterGalaxy(); event.accepted = true; return }
             if (k === "v") { root.toggleChase(); event.accepted = true; return }
-            if (k === "x" && root.chasing) {
-              // locked on the planet-sun line, or the angled over-the-shoulder view
-              const aligned = Math.abs(root.chaseYawTarget) < 0.01 && Math.abs(root.chasePitchTarget) < 0.01
-              root.chaseYawTarget = aligned ? 0.35 : 0
-              root.chasePitchTarget = aligned ? 0.18 : 0
-              event.accepted = true
-              return
-            }
+            if (k === "x" && root.chasing) { root.setChaseLocked(!root.chaseLocked); event.accepted = true; return }
             if (k === "[" || k === "]") {
               root.simRateIndex = Math.max(0, Math.min(root.simRates.length - 1, root.simRateIndex + (k === "]" ? 1 : -1)))
               event.accepted = true
@@ -2891,15 +2844,7 @@ Item {
             root.gxYawTarget += (mouse.x - lastAt.x) * 0.005
             root.gxPitchTarget = Math.max(-1.45, Math.min(1.45, root.gxPitchTarget + (mouse.y - lastAt.y) * 0.004))
             lastAt = Qt.point(mouse.x, mouse.y)
-          } else if (root.galactic && pressed && (mouse.buttons & Qt.RightButton)) {
-            root.galYawTarget += (mouse.x - lastAt.x) * 0.005
-            root.galPitchTarget = Math.max(-1.4, Math.min(1.4, root.galPitchTarget + (mouse.y - lastAt.y) * 0.004))
-            lastAt = Qt.point(mouse.x, mouse.y)
-          } else if (root.chasing && pressed && (mouse.buttons & Qt.RightButton)) {
-            root.chaseYawTarget += (mouse.x - lastAt.x) * 0.005
-            root.chasePitchTarget = Math.max(-1.2, Math.min(1.2, root.chasePitchTarget + (mouse.y - lastAt.y) * 0.004))
-            lastAt = Qt.point(mouse.x, mouse.y)
-          } else if (root.explore === "system" && !root.chasing && pressed) {
+          } else if (root.explore === "system" && pressed) {
             // The scene sticks to the pointer 1:1 and coasts on release. Right-drag
             // orbits (so does left-drag while a body is pinned: it stays centred
             // and pinned; panning would cast the view adrift); left-drag otherwise
@@ -2907,8 +2852,10 @@ Item {
             const t = Date.now() / 1000
             if (!dragged && Math.hypot(mouse.x - pressAt.x, mouse.y - pressAt.y) > 4) dragged = true
             if (dragged) {
-              if ((mouse.buttons & Qt.RightButton) || (root.follow > 0 && (mouse.buttons & Qt.LeftButton))) {
-                root.sysCam.orbit((mouse.x - lastAt.x) / height * 8.6, -(mouse.y - lastAt.y) / height * 4.3, true, t - lastT)
+              if ((mouse.buttons & Qt.RightButton) || root.chasing || root.galactic || (root.follow > 0 && (mouse.buttons & Qt.LeftButton))) {
+                // in the chase and galactic views the pitch is a real elevation: drag down to look down
+                const sgn = root.chasing || root.galactic ? 1 : -1
+                root.sysCam.orbit((mouse.x - lastAt.x) / height * 8.6, sgn * (mouse.y - lastAt.y) / height * 4.3, true, t - lastT)
                 root.autoOrbit = false
                 orbiting = true
               } else if (mouse.buttons & Qt.LeftButton) {
@@ -2947,9 +2894,9 @@ Item {
             }
             if (best !== -2) root.gxFlyTo(best)
           } else if (root.explore === "universe" && root.overSystem(pt)) root.enterSystem()
-          else if (root.explore === "system" && !root.chasing) {
+          else if (root.explore === "system" && !root.galactic) {
             const b = root.pickBody(pt)
-            if (b >= 0) root.focusBody(b)
+            if (b >= 0) { if (root.chasing) root.chaseLook(b); else root.focusBody(b) }
           }
         }
         onWheel: function(wheel) {
@@ -2957,8 +2904,7 @@ Item {
           const steps = wheel.angleDelta.y / 120
           if (root.explore === "sky") root.skyVfovTarget = Math.max(8, Math.min(130, root.skyVfovTarget * Math.pow(1.12, -steps)))
           else if (root.explore === "galaxy") root.gxDistGoal = Math.max(root.gxMinDist(), Math.min(2500, root.gxDistGoal * Math.pow(1.2, -steps)))
-          else if (root.galactic) root.galDistTarget = Math.max(root.galBack ? 0.03 : 0.25, Math.min(8, root.galDistTarget * Math.pow(1.15, -steps)))
-          else if (root.chasing) root.chaseDistTarget = Math.max(2.2, Math.min(3000, root.chaseDistTarget * Math.pow(1.15, -steps)))
+          else if (root.galactic || root.chasing) root.sysCam.zoomBy(-steps * Math.log(1.15))
           else if (root.explore === "system") {
             // zoom about the point under the pointer (on the ecliptic), exact at
             // every frame; about the body while one is pinned; out past the

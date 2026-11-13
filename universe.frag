@@ -15,7 +15,6 @@ layout(std140, binding = 0) uniform buf {
     float time;
     vec2 resolution;
     vec4 accent;     // theme accent (Color.accent)
-    vec4 themeBase;  // theme background (unused: the sky is true black)
     float hudLevel;  // HUD brightness, 0 hides it
     vec2 view;       // eased pointer offset from the screen centre, -0.5..0.5
     vec2 hudCenter;  // HUD centre in p coordinates (drift and pointer applied)
@@ -25,15 +24,6 @@ layout(std140, binding = 0) uniform buf {
     float mem;
     float secs;      // position within the current minute, 0..1
     vec2 pan;        // sideways travel in navigation mode
-    vec2 sysOrigin;  // screen point of the solar-system camera centre
-    float sysScale;  // solar-system zoom (1 in the universe view)
-    vec2 sysCam;     // system coordinates shown at sysOrigin
-    vec4 planet0;    // per planet: position (system coords), sin(orbit angle)
-    vec4 planet1;    //   (> 0 is the near side), radius
-    vec4 planet2;
-    vec4 planet3;
-    vec4 planet4;
-    vec4 planet5;
     float exposure;  // 1 behind windows, brighter on an empty workspace
     float boot;      // HUD draw-in at startup, 0..1
     vec4 orbit0;     // per planet: semi-major axis, eccentricity, argument of
@@ -45,14 +35,18 @@ layout(std140, binding = 0) uniform buf {
     vec4 spinA;      // rotation phase of planets 0-3 (radians)
     vec2 spinB;      // rotation phase of planets 4-5
     float sysHover;  // pointer over the solar system in the universe view, 0..1
-    float tilt;      // view elevation: orbit-plane squash, 0.12 edge-on .. 0.95 top-down
-    float yaw;       // camera yaw of the system view (already in orbitN.z)
-    float chase;     // 0 overview camera (orthographic) .. 1 chase camera (perspective)
-    vec3 camPos;     // perspective camera, relative to the scene reference point
+    // The one solar-system camera (lib/camera.js): a pinhole camera whose eye
+    // sits relative to the scene reference point (the focus). The overview is
+    // this camera at a 2.4-degree field of view (focal 24: it looks
+    // orthographic); the chase view is the same camera at 53 degrees, reached
+    // by a dolly zoom (fov changes, view height fixed), so every frame in
+    // between is a real camera too.
+    vec3 camPos;     // the eye, relative to the scene reference point
     vec3 camFwd;
     vec3 camRight;
     vec3 camUp;
-    float focal;     // perspective focal length, screen heights
+    float focal;     // focal length, screen heights (0.5 / tan(fov / 2))
+    vec2 principal;  // principal point: where the focus sits on screen (p units; the corner view)
     vec4 body0;      // per body: centre relative to the scene reference point, radius
                      // (display units: the overview's squeezed scale, or true scale)
     vec4 body1;
@@ -61,26 +55,16 @@ layout(std140, binding = 0) uniform buf {
     vec4 body4;
     vec4 body5;
     float pinned;    // pinned planet 1-6 in the system view, else 0
-    float sunRadius; // real sun radius in AU, for the chase view
-    vec4 auA;        // real semi-major axes in AU, planets 0-3
-    vec2 auB;        //   and 4-5
     float earthTheta; // Earth's rotation (Greenwich sidereal angle), radians
     vec3 earthPole;  // Earth's north pole direction (axial tilt)
     vec3 home;       // direction of our spot on Earth, from its centre
-    vec4 moon2d;     // Moon in the overview: position, near-side depth, radius
     float moonOrbit; // Earth-Moon distance in the overview (true scale when zoomed in)
     vec4 moonBody;   // the Moon, like body0..5
     vec4 sunBody;    // the Sun, like body0..5
-    vec3 orthoC;     // overview camera: the screen centre's point, relative to the reference
-    vec3 orthoRight; // overview camera: world step per screen unit right (yaw, tilt, screen spin)
-    vec3 orthoDown;  //   and down
-    vec3 orthoView;  //   and the direction it looks (into the scene)
     float planeY;    // the ecliptic (y = 0), relative to the reference
-    float orthoBack; // how far behind the scene the morphing overview rays start
     vec3 moonFace;   // direction from the Moon to Earth (it keeps one face to us)
     float galactic;  // 0..1: galactic view on, the flat overview fades out
-    float sunR;      // Sun radius in the overview (true size when at true scale)
-    vec2 sysBound;   // half-size of the box (system coords) that holds every body, orbit and glow
+    vec4 sysBound;   // screen box (p units: centre, half sizes) holding every body, orbit and glow; z = 0: none
     float guides;    // 0..1: orbit rings and the Sun vector (off by default: space has no lines)
     float galaxyMix; // 0..1: the Milky Way view (galaxy.frag volume + stars + the chosen hotspot)
     vec3 gxCam;      // its camera, kpc (Galactocentric, Z north)
@@ -90,7 +74,6 @@ layout(std140, binding = 0) uniform buf {
     vec4 gxFocus;    // chosen hotspot: centre (kpc), diameter (kpc); w = 0 for none
     vec4 gxFocusCol; // its colour; a = kind (0 nebula, 1 cluster, 2 globular, 3 remnant, 4 star, 5 black hole, 6 dwarf galaxy)
     float gxStars;   // how much of the Milky Way's own stars surround the camera (0 far outside it)
-    float navMix;    // 0..1: flight mode (procedural star layers stream past)
     float gxRealSky; // 0..1: near the Sun, the real sky replaces the model
     vec4 gxPhoto;    // chosen place's photo: tile, width (kpc; 0 = none), north's screen angle, cos of view vs Earth's
     float skyMix;    // 0..1: Sky mode (look around the real sky from Earth)
@@ -302,15 +285,10 @@ float lod(float f, float fp) {
     return 1.0 - smoothstep(0.25, 0.6, f * fp);
 }
 
-// The solar system is drawn in its own coordinates q: the sun at the origin,
-// orbits squashed by TILT (seen from slightly above) and turned by SPIN.
-// Background.qml runs the orbits (Kepler ellipses with real eccentricities and
-// period ratios) and the camera: in the universe view the system sits small
-// in the left third; in the system view it fills the screen and can be
-// zoomed and panned.
-#define TILT tilt
-const float SPIN = -0.10;
-#define SUN_R sunR
+// The solar system: Background.qml runs the orbits (Kepler ellipses with real
+// eccentricities and period ratios) and the camera; in the universe view the
+// system sits small in the left third (the camera's principal point), in the
+// system view it fills the screen.
 
 // mip level for a map W texels around at a pixel size of fp radians
 float mapLod(float fp, float W) {
@@ -436,39 +414,29 @@ float ringPattern(float re, float fp) {
                  + 0.06 * sin(re * 530.0) * lod(530.0 / 6.283, fp));
 }
 
-// The solar system: one ray-traced scene seen through one camera. The
-// overview is an orthographic camera (yaw, tilt and screen spin as before, so
-// what you click is where it is drawn); the chase view is a perspective
-// camera; between them the rays morph. Everything is a real sphere lit by the
-// Sun, and detail follows each pixel's footprint on the surface (`fp`): maps,
-// bands, craters and ring structure appear as you come closer and settle to
-// their averages from afar, down to a point of light. Positions come in
-// relative to a reference point near what is being looked at (computed in
-// double precision), so close-ups stay steady at true scale.
+// The solar system: one ray-traced scene seen through one pinhole camera (the
+// overview at a 2.4-degree field, the chase view at 53, a dolly zoom between
+// them; what you click is where it is drawn, because picks, labels and this
+// share one projection). Everything is a real sphere lit by the Sun, and
+// detail follows each pixel's footprint on the surface (`fp`): maps, bands,
+// craters and ring structure appear as you come closer and settle to their
+// averages from afar, down to a point of light. Positions come in relative to
+// a reference point near what is being looked at (computed in double
+// precision), so close-ups stay steady at true scale.
 
 // Saturn's north pole (IAU: RA 40.589, Dec 83.537), this frame: the rings sit
 // on its equator, tilted 26.7 degrees to its orbit
 const vec3 SATURN_POLE = vec3(0.08548, 0.88252, -0.46244);
 
 vec4 systemScene(vec2 p, float t, vec3 orbitTint) {
-    float c = chase;
-    vec2 dq = (p - sysOrigin) / sysScale;
     // in the universe view the system is small: skip pixels far from it
-    if (c < 0.001) {
-        vec2 q = dq + sysCam;
-        if (abs(q.x) > sysBound.x || abs(q.y) > sysBound.y)
-            return vec4(0.0);
-    }
-    // at c = 0 the orthographic rays look both ways from their plane (exact,
-    // no large offsets); once the morph starts they start behind the scene
-    // (orthoBack) and only look forward, so nothing behind the camera shows
-    vec3 ro = mix(orthoC + orthoRight * dq.x + orthoDown * dq.y - orthoView * (c > 0.001 ? orthoBack : 0.0), camPos, c);
-    vec3 rd = normalize(mix(orthoView, normalize(camFwd * focal + camRight * p.x - camUp * p.y), c));
-    // a pixel's size at distance t along the ray: fixed for the orthographic
-    // camera, growing with distance for the perspective one
-    float pxW = (1.0 - c) / (resolution.y * sysScale);
-    float pa = c / (resolution.y * focal);
-    float tMin = c > 0.001 ? 0.0 : -1e20;
+    if (sysBound.z > 0.0 && (abs(p.x - sysBound.x) > sysBound.z || abs(p.y - sysBound.y) > sysBound.w))
+        return vec4(0.0);
+    vec2 pp = p - principal;
+    vec3 ro = camPos;
+    vec3 rd = normalize(camFwd * focal + camRight * pp.x - camUp * pp.y);
+    // a pixel's size at distance t along the ray is pa * t
+    float pa = 1.0 / (resolution.y * focal);
     vec3 col = vec3(0.0);
     float cov = 0.0;
     float nearest = 1e20;
@@ -477,17 +445,15 @@ vec4 systemScene(vec2 p, float t, vec3 orbitTint) {
     vec3 S = sunBody.xyz;
     float SR = sunBody.w;
     float ts = dot(S - ro, rd);
-    if (ts > tMin) {
+    if (ts > 0.0) {
         float ds = length(S - ro - rd * ts);
-        float fpS = pxW + pa * abs(ts);
+        float fpS = pa * ts;
         col += SUN_COL * (exp(-max(ds - SR, 0.0) / (SR * 1.5)) * 0.25 + exp(-ds / (SR * 10.0)) * 0.03 + exp(-ds / (SR * 60.0)) * 0.012);
         float edge = 1.0 - smoothstep(SR - fpS, SR + fpS, ds);
         if (edge > 0.0) {
             vec3 hp = ro + rd * ts - S;
             float mu = sqrt(max(0.0, 1.0 - ds * ds / (SR * SR)));
-            vec3 bx = normalize(mix(orthoRight, camRight, c));
-            vec3 by = normalize(mix(orthoDown, -camUp, c));
-            col = mix(col, sunSurface(vec2(dot(hp, bx), dot(hp, by)) / SR, mu, fpS / SR, t), edge);
+            col = mix(col, sunSurface(vec2(dot(hp, camRight), -dot(hp, camUp)) / SR, mu, fpS / SR, t), edge);
             cov = edge;
             nearest = ts;
         }
@@ -496,10 +462,10 @@ vec4 systemScene(vec2 p, float t, vec3 orbitTint) {
     // guide lines (L): the orbits on the ecliptic, the Moon's around Earth
     if (guides > 0.0 && abs(rd.y) > 1e-6) {
         float tP = (planeY - ro.y) / rd.y;
-        if (tP > tMin && tP < nearest) {
+        if (tP > 0.0 && tP < nearest) {
             vec3 H = ro + rd * tP - S;
             vec2 he = vec2(H.x, -H.z); // ecliptic x, y
-            float w = 0.7 * (pxW + pa * abs(tP)) / max(abs(rd.y), 0.12);
+            float w = 0.7 * pa * tP / max(abs(rd.y), 0.12);
             for (int i = 0; i < 6; i++) {
                 vec4 ob = orbitAt(i);
                 vec2 pf = vec2(he.x * cos(-ob.z) - he.y * sin(-ob.z), he.x * sin(-ob.z) + he.y * cos(-ob.z)) + vec2(ob.x * ob.y, 0.0);
@@ -517,9 +483,9 @@ vec4 systemScene(vec2 p, float t, vec3 orbitTint) {
         float R = B.w;
         vec3 oc = B.xyz - ro;
         float tc = dot(oc, rd);
-        if (tc <= tMin) continue;
+        if (tc <= 0.0) continue;
         float dp = length(oc - rd * tc);
-        float fpc = pxW + pa * abs(tc);
+        float fpc = pa * tc;
         vec3 sunDir = normalize(S - B.xyz);
 
         // backlit atmosphere: a thin glow just outside the limb
@@ -539,11 +505,11 @@ vec4 systemScene(vec2 p, float t, vec3 orbitTint) {
             float dn = dot(rd, SATURN_POLE);
             if (abs(dn) > 1e-6) {
                 float tr = dot(B.xyz - ro, SATURN_POLE) / dn;
-                if (tr > tMin && tr < nearest) {
+                if (tr > 0.0 && tr < nearest) {
                     vec3 hp = ro + rd * tr - B.xyz;
                     float re = length(hp) / R;
                     // a pixel spans more ring radius the more edge-on we look
-                    ringA = clamp(ringPattern(re, (pxW + pa * abs(tr)) / (R * max(abs(dn), 0.02))), 0.0, 1.0) * 0.9;
+                    ringA = clamp(ringPattern(re, pa * tr / (R * max(abs(dn), 0.02))), 0.0, 1.0) * 0.9;
                     if (ringA > 0.0) {
                         float inShadow = length(cross(sunDir, hp)) < R && dot(hp, sunDir) < 0.0 ? 1.0 : 0.0;
                         float sunSide = dot(SATURN_POLE, sunDir);
@@ -616,9 +582,9 @@ vec4 systemScene(vec2 p, float t, vec3 orbitTint) {
         float den = cc - b * b;
         float sg = clamp(den > 1e-12 ? (e - b * d) / den : 0.0, 0.0, 1.0);
         float tr = dot(Bp + v * sg - ro, rd);
-        if (tr > tMin && tr < nearest) {
+        if (tr > 0.0 && tr < nearest) {
             float dist = length(ro + rd * tr - (Bp + v * sg));
-            float wpx = pxW + pa * abs(tr);
+            float wpx = pa * tr;
             float dash = step(0.5, fract(sg * sqrt(cc) / (40.0 * wpx + 1e-9) - W * 30.0 * t));
             col += guides * orbitTint * 0.35 * (1.0 - smoothstep(0.7 * wpx, 1.8 * wpx, dist)) * dash
                  * smoothstep(0.0, 0.05, sg) * (1.0 - smoothstep(0.9, 1.0, sg));

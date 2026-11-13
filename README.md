@@ -39,6 +39,11 @@ tracing, or into the real sky around Earth.
 - The sky is brighter on an empty workspace and deep black behind windows. The
   animation pauses while a fullscreen window (a game, a video) is visible, so
   the GPU goes to that window.
+- The solar system has one camera (`lib/camera.js`): the overview, a pinned
+  body, the chase and galactic views and the small system in the universe view
+  are the same orbit camera, moved by one critically damped spring per channel
+  and by van Wijk & Nuij flights. The shader, picks, labels and markers all
+  share its projection, so what you click is where it is drawn.
 
 ## Install
 
@@ -92,8 +97,11 @@ Click or scroll up over the solar system, or `omarchy-shell background system`.
 Positions come from the real date using JPL's approximate Keplerian elements
 (Standish, valid 1800-2050), so the planets, Earth's rotation and the Moon are
 where they are right now. The overview squeezes the orbits so they fit on
-screen; pinning a planet or the Moon (and staying zoomed in) blends the whole
-system to true scale: real orbit distances, real radii, the real Sun.
+screen; pinning a planet or the Moon blends the whole system to true scale
+during the flight to it: real orbit distances, real radii, the real Sun. A
+pick is one continuous move that lands with the body centred at its final
+size; any input mid-flight takes over from the current motion. Zooming out
+past the overview's framing returns to the squeezed layout.
 
 | Key | Action |
 |---|---|
@@ -105,27 +113,32 @@ system to true scale: real orbit distances, real radii, the real Sun.
 | `G` | galactic motion: the Sun's path through space |
 | `X` | fly out to the Milky Way |
 | `L` | show / hide orbit lines (off by default) |
-| scroll / `Q` `E` | zoom (zooming all the way out returns to the universe) |
-| drag / `W` `A` `S` `D` | pan |
+| scroll / `Q` `E` | zoom about the point under the pointer, or about the pinned body (zooming all the way out returns to the universe) |
+| drag / `W` `A` `S` `D` | pan (the scene sticks to the pointer and coasts on release); with a body pinned, a left-drag orbits instead |
 | right-drag / arrows | orbit / tilt the camera |
 | `O` | auto orbit |
 | `[` `]` | slower / faster time (live, 1 min/s, 1 hour/s ... 1 year/s) |
 | `N` | back to now |
 | `Esc` | back to the universe |
 
-**Chase view** (`V` with a body pinned): a 3D camera ray-traces the scene from
-behind the pinned planet or the Moon, looking toward the Sun along the
-body-Sun line. Bodies are at their real sizes and distances.
+**Chase view** (`V` with a body pinned): two-point framing. The same camera
+dolly-zooms to a 53-degree field (the pinned body keeps its size) and sits
+behind a foreground body A, looking along the line to a target B, with A
+centred and B in frame. B is the Sun by default; click another body or press
+`E` to look along the line to it, `R` to stand behind the other one. The
+camera's yaw rides the A-B direction, so the pair stays framed as they orbit.
+Bodies are at their real sizes and distances.
 
 | Key | Action |
 |---|---|
-| `X` | lock on the Sun vector / angled view |
-| `E` | look toward Earth instead of the Sun (from Earth: always the Sun) |
-| right-drag | swing the camera |
-| scroll | slide along the vector |
-| `Tab` / `1`-`6` / `M` | chase another body |
+| `X` | lock the eye exactly on the A-B line / angled over-the-shoulder view |
+| `E` / click | look toward another body (the next one, or the one clicked) |
+| `R` | swap A and B: stand behind the target, looking back |
+| drag / arrows | swing the camera |
+| scroll / `Q` | closer / farther along the vector |
+| `Tab` / `0`-`6` / `M` | chase another body (`0`: the Sun) |
 | `[` `]`, `N` | time rate, back to now |
-| `V` / `Esc` | back to the system view |
+| `V` / `Esc` | back to the system view (the overview's angle is restored) |
 
 **Galactic motion** (`G`): the solar system drawn in the Galaxy's rest frame.
 The Sun travels at 249 km/s toward Cygnus and each planet leaves the trail of
@@ -136,8 +149,9 @@ with the orbital plane tilted 61 degrees to the direction of travel.
 |---|---|
 | `-` `=` | slow the Sun down (1/2 ... 1/200) so the coils show; the HUD says by how much |
 | `L` | show / hide the 2-year trails |
-| right-drag / arrows | swing / tilt the camera |
-| scroll | camera distance |
+| `V` | look back from just ahead of the Sun along its path (again: the side view) |
+| drag / arrows | swing / tilt the camera |
+| scroll / `Q` `E` | camera distance |
 | `[` `]`, `N` | time rate, back to now |
 | `G` / `Esc` | back to the system view |
 
@@ -268,8 +282,8 @@ Everything is reachable through the shell's IPC, `omarchy-shell background <func
 | `system` | toggle the solar system view |
 | `focus <0-7>` | pin a body: 0 the Sun, 1-6 Mercury to Saturn, 7 the Moon (opens the system view if needed) |
 | `chase` | toggle the chase view behind the pinned body |
-| `align <true/false>` | chase camera exactly on the body-Sun line, or angled |
-| `look <sun/earth>` | what the chase camera looks toward |
+| `align <true/false>` | chase camera exactly on the A-B line, or angled |
+| `look <body>` | what the chase camera looks toward (B): a name (`sun`, `earth`, `moon`, `mars` ...) or 0-7 |
 | `galactic` | the galactic-motion view (opens the system view if needed) |
 | `milkyway` | the Milky Way view |
 | `fly <place>` | fly to a place by name prefix (`"Orion"`, `"Sagittarius A"`, `"Andromeda"`; `sun` for the Sun) |
@@ -398,6 +412,12 @@ clear Qt's shader cache: `rm -rf ~/.cache/quickshell`.
 Other knobs are plain properties at the top of `Background.qml`: the home
 marker (`homeLat`, `homeLon`), the HUD brightness (`hudBrightness`), the
 time rates, and the list of places (`hotspots`).
+
+The camera's feel lives in `lib/camera.js`: `W_INPUT` (how quickly wheel,
+keys and flings settle), `W_MODE` (fades, the field-of-view morph, the
+true-scale blend), `FLING_TAU` (how far a released drag coasts) and the
+flight's `rho` (how high a long hop rises). Its numeric checks run with
+`node tests/test_camera.js lib/camera.js`.
 
 ## Notes
 
