@@ -30,9 +30,11 @@ layout(std140, binding = 0) uniform buf {
     vec3 camRight;
     vec3 camUp;
     float aspect;
-    vec4 m31Pos;      // centre (kpc), size relative to the Milky Way
+    vec4 m31Pos;      // centre (kpc), scale (1: its own map is in true kpc)
     vec3 m31Major;
+    vec3 m31Minor;    // in-plane axes signed like the photo (tools/deproject_m31.py)
     vec3 m31Normal;
+    float m31Fade;    // 1 drawn here, 0 where its photo card has taken over (Earth's view)
     vec4 m33Pos;
     vec3 m33Major;
     vec3 m33Normal;
@@ -45,6 +47,8 @@ layout(std140, binding = 0) uniform buf {
 
 layout(binding = 1) uniform sampler2D youngTex;
 layout(binding = 2) uniform sampler2D dustTex;
+// Andromeda face-on, unfolded from its real photo (tools/deproject_m31.py), +-24 kpc
+layout(binding = 3) uniform sampler2D m31Tex;
 
 const float EXT = 16.0;          // the maps cover +-16 kpc
 const float RMAX = 17.0;
@@ -69,7 +73,18 @@ float noise3(vec3 p) {
 }
 
 // light and dust at a point of a galaxy, in its own frame (kpc, disk in xy)
-void sampleDisk(vec3 p, float lod, out vec3 emit, out float dust) {
+void sampleDisk(vec3 p, float lod, int which, out vec3 emit, out float dust) {
+    if (which == 1) {
+        // Andromeda: its real disk (the photo's own dust lanes are in it), a
+        // thin layer, and a round 3D bulge in place of the one the unfolding smeared
+        float Rm = length(p.xy);
+        vec3 c = textureLod(m31Tex, vec2(0.5 + p.x / 48.0, 0.5 - p.y / 48.0), lod).rgb;
+        c *= c;
+        float bulge = exp(-length(vec3(p.xy, p.z * 1.6)) / 0.8);
+        emit = c * 1.4 * exp(-abs(p.z) / 0.35) * (1.0 - smoothstep(22.0, 24.0, Rm)) + vec3(1.0, 0.82, 0.60) * bulge * 1.6;
+        dust = 0.0;
+        return;
+    }
     float R = length(p.xy);
     float az = abs(p.z);
     vec2 uv = vec2(0.5 + p.x / (2.0 * EXT), 0.5 - p.y / (2.0 * EXT));
@@ -89,7 +104,8 @@ void sampleDisk(vec3 p, float lod, out vec3 emit, out float dust) {
 }
 
 // ray through one galaxy, front to back; returns light and transmittance
-vec4 marchDisk(vec3 ro, vec3 rd, float jitter, float pxAngle, float scale) {
+vec4 marchDisk(vec3 ro, vec3 rd, float jitter, float pxAngle, float scale, int which) {
+    float rmax = which == 1 ? 24.5 : RMAX;
     float t0 = 0.0;
     float t1 = 1e9;
     if (abs(rd.z) > 1e-6) {
@@ -102,7 +118,7 @@ vec4 marchDisk(vec3 ro, vec3 rd, float jitter, float pxAngle, float scale) {
     }
     float a = dot(rd.xy, rd.xy);
     float b = dot(ro.xy, rd.xy);
-    float c = dot(ro.xy, ro.xy) - RMAX * RMAX;
+    float c = dot(ro.xy, ro.xy) - rmax * rmax;
     float disc = b * b - a * c;
     if (a < 1e-9 || disc < 0.0) {
         if (a < 1e-9 && c < 0.0) { /* straight up or down inside the disk */ }
@@ -126,11 +142,11 @@ vec4 marchDisk(vec3 ro, vec3 rd, float jitter, float pxAngle, float scale) {
         float dt = len * (s1 * s1 - s0 * s0);
         vec3 p = ro + rd * ta;
         // texture detail no finer than a pixel at this distance
-        float texel = 2.0 * EXT / 2048.0;
+        float texel = (which == 1 ? 48.0 : 2.0 * EXT) / 2048.0;
         float lod = log2(max(ta * pxAngle / texel, 1.0));
         vec3 e;
         float d;
-        sampleDisk(p, lod, e, d);
+        sampleDisk(p, lod, which, e, d);
         float tau = d * dt * scale; // dt is in the galaxy's own units
         float tr = exp(-tau);
         // light emitted inside a step is dimmed by that step's own dust too
@@ -141,15 +157,15 @@ vec4 marchDisk(vec3 ro, vec3 rd, float jitter, float pxAngle, float scale) {
     return vec4(L, T);
 }
 
-vec4 otherGalaxy(vec3 ro, vec3 rd, vec4 pos, vec3 major, vec3 normal, float jitter, float pxAngle) {
-    vec3 minor = cross(normal, major);
+vec4 otherGalaxy(vec3 ro, vec3 rd, vec4 pos, vec3 major, vec3 minor, vec3 normal, float jitter, float pxAngle, int which) {
     vec3 o = (ro - pos.xyz) / pos.w;
     vec3 lo = vec3(dot(o, major), dot(o, minor), dot(o, normal));
     vec3 ld = vec3(dot(rd, major), dot(rd, minor), dot(rd, normal));
     // cheap reject: the ray misses its bounding sphere
     float tb = -dot(lo, ld);
-    if (dot(lo, lo) - tb * tb > RMAX * RMAX * 1.2) return vec4(0.0, 0.0, 0.0, 1.0);
-    return marchDisk(lo, ld, jitter, pxAngle, pos.w);
+    float rb = which == 1 ? 24.5 : RMAX;
+    if (dot(lo, lo) - tb * tb > rb * rb * 1.2) return vec4(0.0, 0.0, 0.0, 1.0);
+    return marchDisk(lo, ld, jitter, pxAngle, pos.w, which);
 }
 
 // a dwarf galaxy: a clumpy glow, integrated along the ray in closed form
@@ -180,7 +196,7 @@ void main() {
     mat2 unspin = mat2(cs, sn, -sn, cs); // (x, y) -> (x c - y s, y c + x s)
     vec3 mro = vec3(unspin * camPos.xy, camPos.z);
     vec3 mrd = vec3(unspin * rd.xy, rd.z);
-    vec4 mw = marchDisk(mro, mrd, jitter, pxAngle, 1.0);
+    vec4 mw = marchDisk(mro, mrd, jitter, pxAngle, 1.0, 0);
     vec3 col = mw.rgb;
     float T = mw.a;
 
@@ -191,8 +207,9 @@ void main() {
 
     // Andromeda and Triangulum, far beyond: behind the Milky Way unless we
     // have flown out to them
-    vec4 a31 = otherGalaxy(camPos, rd, m31Pos, m31Major, m31Normal, jitter, pxAngle);
-    vec4 a33 = otherGalaxy(camPos, rd, m33Pos, m33Major, m33Normal, jitter, pxAngle);
+    vec4 a31 = otherGalaxy(camPos, rd, m31Pos, m31Major, m31Minor, m31Normal, jitter, pxAngle, 1);
+    a31.rgb *= m31Fade;
+    vec4 a33 = otherGalaxy(camPos, rd, m33Pos, m33Major, cross(m33Normal, m33Major), m33Normal, jitter, pxAngle, 0);
     bool m33First = length(camPos - m33Pos.xyz) < length(camPos - m31Pos.xyz);
     vec3 far = m33First ? a33.rgb + a33.a * a31.rgb : a31.rgb + a31.a * a33.rgb;
     float farT = a31.a * a33.a;

@@ -329,7 +329,9 @@ Item {
     {"name": "Andromeda Galaxy", "kind": "galaxy", "label": "spiral galaxy (Local Group)", "pos": [605.53871, 374.44407, -279.75147], "dpc": 761000, "size": 46000, "color": "#fff0d8", "blurb": "The nearest large spiral, approaching the Milky Way at about 110 km/s."},
     {"name": "Triangulum Galaxy", "kind": "galaxy", "label": "spiral galaxy (Local Group)", "pos": [519.51912, 503.0543, -436.751], "dpc": 840000, "size": 18700, "color": "#dfe6ff", "blurb": "A smaller, loosely wound spiral rich in star-forming regions like NGC 604."},
     {"name": "Gum Nebula", "kind": "remnant", "label": "ionised shell / old supernova remnant region", "pos": [-0.4399, 8.2435, 0.0051], "dpc": 450, "size": 290, "color": "#c85a6a", "blurb": "A faint 36-degree bubble of ionised gas around the Vela pulsar region."}]
-  readonly property var m31Disk: {"major": [-0.09263, 0.69656, 0.71149], "normal": [0.7622, -0.41018, 0.5008]}
+  // from tools/deproject_m31.py: in-plane axes signed like the photo
+  readonly property var m31Disk: {"major": [-0.09263, 0.69656, 0.71149], "minor": [0.64068, 0.58869, -0.49293], "normal": [-0.76220, 0.41018, -0.50080]}
+  property real m31Fade: 1
   readonly property var m33Disk: {"major": [0.22554, 0.50077, 0.83568], "normal": [0.97135, -0.18151, -0.15339]}
 
   property real galaxyMix: 0
@@ -363,7 +365,7 @@ Item {
     const h = hotspots[gxIndex(name)]
     return Qt.vector4d(h.pos[0], h.pos[1], h.pos[2], scale)
   }
-  readonly property vector4d m31Pos: gxGalaxy("Andromeda", 1.45)
+  readonly property vector4d m31Pos: gxGalaxy("Andromeda", 1.0) // its own map is in true kpc
   readonly property vector4d m33Pos: gxGalaxy("Triangulum", 0.6)
   readonly property vector4d lmcPos: { const h = hotspots[gxIndex("Large Magellanic")]; return Qt.vector4d(h.pos[0], h.pos[1], h.pos[2], h.size / 4000) }
   readonly property vector4d smcPos: { const h = hotspots[gxIndex("Small Magellanic")]; return Qt.vector4d(h.pos[0], h.pos[1], h.pos[2], h.size / 4000) }
@@ -388,6 +390,7 @@ Item {
   function gxViewDist(i) {
     if (i < 0) return 0.0008
     const h = hotspots[i]
+    if (h.kind === "blackhole") return 20 * rsKpc // straight down to the event horizon
     return h.kind === "star" ? 0.0005 : Math.max(0.0015, h.size / 1000 * 3.2)
   }
   // closest approach: 0.2 pc anywhere, down to 6 Schwarzschild radii at Sgr A*
@@ -410,11 +413,6 @@ Item {
       gxPitchTarget = Math.max(-1.45, Math.min(1.45, Math.asin(o[2] / ol)))
       gxSel = i
       gxDistGoal = Math.max(photoWidthKpc(i) / 0.85, gxMinDist())
-      return
-    }
-    // B again at the centre: dive to the event horizon (20 Rs)
-    if (i >= 0 && i === gxSel && hotspots[i].kind === "blackhole" && gxDistGoal > 1e-6) {
-      gxDistGoal = 20 * rsKpc
       return
     }
     gxSel = i
@@ -575,7 +573,7 @@ Item {
     ] : explore === "galaxy" ? [
       ["TAB", "next place (shift: previous)"],
       ["0", "back to the Sun"],
-      ["B", gxSel >= 0 && hotspots[gxSel].kind === "blackhole" ? "B again: dive to the event horizon" : "the black hole at the centre"],
+      ["B", "fall into the black hole at the centre"],
       ["CLICK", "fly to a place"],
       ["DRAG / ARROWS", "orbit the camera"],
       ["SCROLL / Q E", "closer / farther"],
@@ -1232,7 +1230,11 @@ Item {
           const ns = [n[0] - fwd.x * fd, n[1] - fwd.y * fd, n[2] - fwd.z * fd]
           const ang = Math.atan2(ns[0] * right.x + ns[1] * right.y + ns[2] * right.z, ns[0] * up.x + ns[1] * up.y + ns[2] * up.z)
           gxPhoto = Qt.vector4d(ph[0], photoWidthKpc(gxSel), ang, Math.max(-1, Math.min(1, cosA)))
-        } else gxPhoto = Qt.vector4d(0, 0, 0, 0)
+          // Andromeda is drawn in 3D from its photo; its card takes over only near Earth's view
+          const isM31 = h.name.startsWith("Andromeda")
+          m31Fade = isM31 ? 1 - Math.min(1, Math.max(0, (cosA - 0.85) / 0.12)) : 1
+          if (isM31) gxFocusCol = Qt.vector4d(gxFocusCol.x, gxFocusCol.y, gxFocusCol.z, 7)
+        } else { gxPhoto = Qt.vector4d(0, 0, 0, 0); m31Fade = 1 }
       } else if (gxSel === -1) {
         gxPhoto = Qt.vector4d(0, 0, 0, 0)
         const sp0 = sunPosAt(gxMyr)
@@ -1742,7 +1744,10 @@ Item {
               property real aspect: panel.width / Math.max(1, panel.height)
               property vector4d m31Pos: root.m31Pos
               property vector3d m31Major: Qt.vector3d(root.m31Disk.major[0], root.m31Disk.major[1], root.m31Disk.major[2])
+              property vector3d m31Minor: Qt.vector3d(root.m31Disk.minor[0], root.m31Disk.minor[1], root.m31Disk.minor[2])
               property vector3d m31Normal: Qt.vector3d(root.m31Disk.normal[0], root.m31Disk.normal[1], root.m31Disk.normal[2])
+              property real m31Fade: root.m31Fade
+              property var m31Tex: m31FaceTex
               property vector4d m33Pos: root.m33Pos
               property vector3d m33Major: Qt.vector3d(root.m33Disk.major[0], root.m33Disk.major[1], root.m33Disk.major[2])
               property vector3d m33Normal: Qt.vector3d(root.m33Disk.normal[0], root.m33Disk.normal[1], root.m33Disk.normal[2])
@@ -1804,6 +1809,7 @@ Item {
             // face-on maps built from the measured arms (gen_milkyway.py)
             Image { id: mwYoungTex; source: "textures/milkyway-young.png"; visible: false; mipmap: true; smooth: true }
             Image { id: mwDustTex; source: "textures/milkyway-dust.png"; visible: false; mipmap: true; smooth: true }
+            Image { id: m31FaceTex; source: "textures/m31-faceon.jpg"; visible: false; mipmap: true; smooth: true }
 
             // the real sky (NASA SVS Deep Star Maps 2020, tools/make_sky.py)
             Image { id: skyFullTex; source: "textures/sky-full.jpg"; visible: false; smooth: true; mipmap: true }

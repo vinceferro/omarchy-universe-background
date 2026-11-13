@@ -933,6 +933,11 @@ vec3 hotspotPhoto(vec3 rd) {
     float cn = cos(gxPhoto.z);
     float sn = sin(gxPhoto.z);
     vec2 tuv = vec2(dot(s, vec2(cn, -sn)), -dot(s, vec2(sn, cn))) + 0.5;
+    if (int(gxFocusCol.a + 0.5) == 7) {
+        // a disk galaxy drawn in 3D from its own photo: the card adds the
+        // photo's sharpness only near Earth's line of sight
+        return photoSample(tuv) * smoothstep(0.85, 0.97, gxPhoto.w);
+    }
     float front = 0.5 + 0.5 * gxPhoto.w;
     vec3 seen = front > 0.001 ? photoSample(tuv) : vec3(0.0);
     vec3 mirrored = front < 0.999 ? photoSample(vec2(1.0 - tuv.x, tuv.y)) : vec3(0.0);
