@@ -1018,40 +1018,6 @@ Item {
       camRight = right
       camUp = right.crossProduct(fwd)
     }
-    {
-      // The overview as a real orthographic camera: the same yaw, tilt and
-      // screen spin as the 2D layout (`project` above), so a body drawn at a
-      // screen point is exactly where picks and labels expect it.
-      const sY = Math.sin(viewYaw), cY = Math.cos(viewYaw)
-      const st = viewTilt, ct = Math.sqrt(Math.max(0, 1 - st * st))
-      const eox = [cY, 0, -sY], eoy = [sY, 0, cY]
-      const right = eox
-      const down = [eoy[0] * st, -ct, eoy[2] * st]
-      const toward = [eoy[0] * ct, st, eoy[2] * ct]
-      const Rs = [right[0] * cs - down[0] * sn, right[1] * cs - down[1] * sn, right[2] * cs - down[2] * sn]
-      const Ds = [right[0] * sn + down[0] * cs, right[1] * sn + down[1] * cs, right[2] * sn + down[2] * cs]
-      // the screen centre's point on the ecliptic (system coords back to the world)
-      const qc = sysCamNow
-      const sx = qc.x * cs + qc.y * sn, sy = -qc.x * sn + qc.y * cs
-      const ox = sx, oy = sy / Math.max(st, 1e-6)
-      const Oc = [eox[0] * ox + eoy[0] * oy, 0, eox[2] * ox + eoy[2] * oy]
-      // reference point: the chase camera when it leads, else the overview centre
-      const Rw = chaseMix > 0.5 ? chaseCam : Oc
-      const rel = (a) => Qt.vector3d(a[0] - Rw[0], a[1] - Rw[1], a[2] - Rw[2])
-      sceneBodies = disp.map(b => Qt.vector4d(b[0] - Rw[0], b[1] - Rw[1], b[2] - Rw[2], b[3]))
-      sceneMoon = Qt.vector4d(moonD[0] - Rw[0], moonD[1] - Rw[1], moonD[2] - Rw[2], moonD[3])
-      sceneSun = Qt.vector4d(-Rw[0], -Rw[1], -Rw[2], sunR)
-      sceneCam = rel(chaseCam)
-      orthoC = rel(Oc)
-      orthoRight = Qt.vector3d(Rs[0], Rs[1], Rs[2])
-      orthoDown = Qt.vector3d(Ds[0], Ds[1], Ds[2])
-      orthoView = Qt.vector3d(-toward[0], -toward[1], -toward[2])
-      scenePlaneY = -Rw[1]
-      // behind every body as seen by the overview camera, for the morph
-      let back = 0.1
-      for (const b of disp.concat([moonD, [0, 0, 0, sunR]])) back = Math.max(back, (b[0] - Oc[0]) * toward[0] + (b[1] - Oc[1]) * toward[1] + (b[2] - Oc[2]) * toward[2] + 2 * b[3])
-      sceneBack = back * 1.2
-    }
     galMix += ((galactic ? 1 : 0) - galMix) * Math.min(1, dt * 1.6)
     if (Math.abs((galactic ? 1 : 0) - galMix) < 0.0005) galMix = galactic ? 1 : 0
     if (galMix > 0) {
@@ -1206,10 +1172,14 @@ Item {
       const outside = Math.max(Math.hypot(cam[0], cam[1]) - 15, Math.abs(cam[2]) - 0.5, 0)
       gxStars = 1 - 0.85 * Math.min(1, outside / 10)
       {
-        // the real sky holds near the Sun, today: 30 pc to 400 pc it blends into the model
+        // the real sky (as seen from the Sun) holds while the view would barely
+        // differ: the band's light comes from kiloparsecs away, so a few
+        // hundred parsecs change little. It hands over to the model gradually,
+        // in log distance from 0.2 to 2.5 kpc, sooner once we leave the disk.
         const s0 = sunPosAt(0)
         const ds = Math.hypot(cam[0] - s0[0], cam[1] - s0[1], cam[2] - s0[2])
-        const near = 1 - Math.min(1, Math.max(0, (ds - 0.03) / 0.37))
+        const reach = Math.abs(cam[2]) > 0.6 ? 0.8 : 2.5
+        const near = 1 - Math.min(1, Math.max(0, Math.log(Math.max(ds, 1e-6) / 0.2) / Math.log(reach / 0.2)))
         const nowish = 1 - Math.min(1, Math.max(0, (Math.abs(gxMyr) - 0.2) / 0.8))
         const rs = near * near * (3 - 2 * near) * nowish
         if (Math.abs(rs - gxRealSky) > 1e-3 || (rs === 0) !== (gxRealSky === 0)) gxRealSky = rs
@@ -1244,12 +1214,13 @@ Item {
           const a = [cam[0] - hp[0], cam[1] - hp[1], cam[2] - hp[2]]
           const s = [Sn[0] - hp[0], Sn[1] - hp[1], Sn[2] - hp[2]]
           const cosA = (a[0] * s[0] + a[1] * s[1] + a[2] * s[2]) / Math.max(1e-12, Math.hypot(...a) * Math.hypot(...s))
-          const w = Math.min(1, Math.max(0, (cosA - 0.5) / (0.85 - 0.5))) // full within ~30 degrees of Earth's view
+          // cos of our view against Earth's: the shader shows the photo, or its
+          // mirror image from the far side, crossfading in between
           // celestial north on screen, clockwise from up
           const n = ncpDir, fd = fwd.x * n[0] + fwd.y * n[1] + fwd.z * n[2]
           const ns = [n[0] - fwd.x * fd, n[1] - fwd.y * fd, n[2] - fwd.z * fd]
           const ang = Math.atan2(ns[0] * right.x + ns[1] * right.y + ns[2] * right.z, ns[0] * up.x + ns[1] * up.y + ns[2] * up.z)
-          gxPhoto = Qt.vector4d(ph[0], photoWidthKpc(gxSel), ang, w * w * (3 - 2 * w))
+          gxPhoto = Qt.vector4d(ph[0], photoWidthKpc(gxSel), ang, Math.max(-1, Math.min(1, cosA)))
         } else gxPhoto = Qt.vector4d(0, 0, 0, 0)
       } else if (gxSel === -1) {
         gxPhoto = Qt.vector4d(0, 0, 0, 0)
@@ -1303,7 +1274,7 @@ Item {
       const yawKey = key("right") - key("left")
       const tiltKey = key("up") - key("down")
       if (yawKey !== 0) viewYawTarget += yawKey * dt * 0.8
-      if (tiltKey !== 0) viewTiltTarget = Math.max(0.12, Math.min(0.95, viewTiltTarget + tiltKey * dt * 0.5))
+      if (tiltKey !== 0) viewTiltTarget = Math.max(follow > 0 ? 0.04 : 0.12, Math.min(0.98, viewTiltTarget + tiltKey * dt * 0.5))
       const zk = key("e") - key("q")
       if (zk !== 0) sysZoomTarget = Math.max(1.3, Math.min(80, sysZoomTarget * Math.pow(2.5, zk * dt)))
       // a copy: reading a vector2d property gives a live reference, which would
@@ -1329,6 +1300,44 @@ Item {
         const carried = sysCam.plus(sysCamTarget.minus(before))
         sysCam = carried.plus(sysCamTarget.minus(carried).times(kz))
       }
+    }
+
+    // the shader's camera, built after this frame's camera update (built before
+    // it, the scene was drawn with last frame's camera: at true scale an orbit
+    // step moved the view by screen heights per frame)
+    {
+      // The overview as a real orthographic camera: the same yaw, tilt and
+      // screen spin as the 2D layout (`project` above), so a body drawn at a
+      // screen point is exactly where picks and labels expect it.
+      const sY = Math.sin(viewYaw), cY = Math.cos(viewYaw)
+      const st = viewTilt, ct = Math.sqrt(Math.max(0, 1 - st * st))
+      const eox = [cY, 0, -sY], eoy = [sY, 0, cY]
+      const right = eox
+      const down = [eoy[0] * st, -ct, eoy[2] * st]
+      const toward = [eoy[0] * ct, st, eoy[2] * ct]
+      const Rs = [right[0] * cs - down[0] * sn, right[1] * cs - down[1] * sn, right[2] * cs - down[2] * sn]
+      const Ds = [right[0] * sn + down[0] * cs, right[1] * sn + down[1] * cs, right[2] * sn + down[2] * cs]
+      // the screen centre's point on the ecliptic (system coords back to the world)
+      const qc = sysCamNow
+      const sx = qc.x * cs + qc.y * sn, sy = -qc.x * sn + qc.y * cs
+      const ox = sx, oy = sy / Math.max(st, 1e-6)
+      const Oc = [eox[0] * ox + eoy[0] * oy, 0, eox[2] * ox + eoy[2] * oy]
+      // reference point: the chase camera when it leads, else the overview centre
+      const Rw = chaseMix > 0.5 ? chaseCam : Oc
+      const rel = (a) => Qt.vector3d(a[0] - Rw[0], a[1] - Rw[1], a[2] - Rw[2])
+      sceneBodies = disp.map(b => Qt.vector4d(b[0] - Rw[0], b[1] - Rw[1], b[2] - Rw[2], b[3]))
+      sceneMoon = Qt.vector4d(moonD[0] - Rw[0], moonD[1] - Rw[1], moonD[2] - Rw[2], moonD[3])
+      sceneSun = Qt.vector4d(-Rw[0], -Rw[1], -Rw[2], sunR)
+      sceneCam = rel(chaseCam)
+      orthoC = rel(Oc)
+      orthoRight = Qt.vector3d(Rs[0], Rs[1], Rs[2])
+      orthoDown = Qt.vector3d(Ds[0], Ds[1], Ds[2])
+      orthoView = Qt.vector3d(-toward[0], -toward[1], -toward[2])
+      scenePlaneY = -Rw[1]
+      // behind every body as seen by the overview camera, for the morph
+      let back = 0.1
+      for (const b of disp.concat([moonD, [0, 0, 0, sunR]])) back = Math.max(back, (b[0] - Oc[0]) * toward[0] + (b[1] - Oc[1]) * toward[1] + (b[2] - Oc[2]) * toward[2] + 2 * b[3])
+      sceneBack = back * 1.2
     }
 
     exposure += ((emptyWorkspace && explore === "universe" ? 1.9 : 1) - exposure) * Math.min(1, dt * 0.8)
@@ -2675,9 +2684,12 @@ Item {
             root.chaseYawTarget += (mouse.x - lastAt.x) * 0.005
             root.chasePitchTarget = Math.max(-1.2, Math.min(1.2, root.chasePitchTarget + (mouse.y - lastAt.y) * 0.004))
             lastAt = Qt.point(mouse.x, mouse.y)
-          } else if (root.explore === "system" && pressed && (mouse.buttons & Qt.RightButton)) {
+          } else if (root.explore === "system" && pressed && ((mouse.buttons & Qt.RightButton) || (root.follow > 0 && !root.chasing && (mouse.buttons & Qt.LeftButton)))) {
+            // orbit: right-drag anywhere, or left-drag while a body is pinned
+            // (it stays centred and pinned; panning would cast the view adrift)
+            if (Math.hypot(mouse.x - pressAt.x, mouse.y - pressAt.y) > 4) dragged = true
             root.viewYawTarget += (mouse.x - lastAt.x) * 0.004
-            root.viewTiltTarget = Math.max(0.12, Math.min(0.95, root.viewTiltTarget - (mouse.y - lastAt.y) * 0.002))
+            root.viewTiltTarget = Math.max(root.follow > 0 ? 0.04 : 0.12, Math.min(0.98, root.viewTiltTarget - (mouse.y - lastAt.y) * 0.002))
             root.autoOrbit = false
             lastAt = Qt.point(mouse.x, mouse.y)
           } else if (!root.chasing && root.explore === "system" && pressed && (mouse.buttons & Qt.LeftButton)) {

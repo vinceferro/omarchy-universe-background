@@ -92,7 +92,7 @@ layout(std140, binding = 0) uniform buf {
     float gxStars;   // how much of the Milky Way's own stars surround the camera (0 far outside it)
     float navMix;    // 0..1: flight mode (procedural star layers stream past)
     float gxRealSky; // 0..1: near the Sun, the real sky replaces the model
-    vec4 gxPhoto;    // chosen place's photo: tile, width (kpc), north's screen angle, weight
+    vec4 gxPhoto;    // chosen place's photo: tile, width (kpc; 0 = none), north's screen angle, cos of view vs Earth's
     float skyMix;    // 0..1: Sky mode (look around the real sky from Earth)
     vec3 skyFwd;
     vec3 skyRight;
@@ -883,8 +883,18 @@ vec3 hotspotDrawn(vec3 rd, float t) {
 
 // the photo where there is one and we see the place from Earth's side; the
 // drawn version elsewhere
+vec3 photoSample(vec2 tuv) {
+    if (any(lessThan(tuv, vec2(0.0))) || any(greaterThan(tuv, vec2(1.0)))) return vec3(0.0);
+    vec2 tile = vec2(mod(gxPhoto.x, 4.0), floor(gxPhoto.x / 4.0));
+    vec3 c = texture(photoAtlas, (tile + tuv) / 4.0).rgb;
+    return c * c * 1.15; // gamma-encoded atlas, light adds linearly
+}
+
+// The place's real photo, always facing us. Glowing gas is see-through, so
+// from the far side it looks like the mirror image of Earth's view; between
+// the two the views crossfade by angle, so turning around never pops.
 vec3 hotspotPhoto(vec3 rd) {
-    if (gxPhoto.w <= 0.0 || gxFocus.w <= 0.0) return vec3(0.0);
+    if (gxPhoto.y <= 0.0 || gxFocus.w <= 0.0) return vec3(0.0);
     vec3 oc = gxFocus.xyz - gxCam;
     float tc = dot(oc, rd);
     if (tc <= 0.0) return vec3(0.0);
@@ -893,15 +903,15 @@ vec3 hotspotPhoto(vec3 rd) {
     float cn = cos(gxPhoto.z);
     float sn = sin(gxPhoto.z);
     vec2 tuv = vec2(dot(s, vec2(cn, -sn)), -dot(s, vec2(sn, cn))) + 0.5;
-    if (any(lessThan(tuv, vec2(0.0))) || any(greaterThan(tuv, vec2(1.0)))) return vec3(0.0);
-    vec2 tile = vec2(mod(gxPhoto.x, 4.0), floor(gxPhoto.x / 4.0));
-    vec3 c = texture(photoAtlas, (tile + tuv) / 4.0).rgb;
-    return c * c * 1.15; // gamma-encoded atlas, light adds linearly
+    float front = 0.5 + 0.5 * gxPhoto.w;
+    vec3 seen = front > 0.001 ? photoSample(tuv) : vec3(0.0);
+    vec3 mirrored = front < 0.999 ? photoSample(vec2(1.0 - tuv.x, tuv.y)) : vec3(0.0);
+    return mix(mirrored, seen, front);
 }
 
 vec3 hotspotLook(vec3 rd, float t) {
     vec3 drawn = hotspotDrawn(rd, t);
-    return gxPhoto.w > 0.0 ? mix(drawn, hotspotPhoto(rd), gxPhoto.w) : drawn;
+    return gxPhoto.y > 0.0 ? hotspotPhoto(rd) : drawn;
 }
 
 // ---- Sagittarius A*, up close ------------------------------------------------
