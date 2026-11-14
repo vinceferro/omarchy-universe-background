@@ -8,6 +8,7 @@ import QtQuick.Shapes
 import qs.Commons
 import qs.Ui
 import "lib/camera.js" as Cam
+import "lib/fall.js" as Fall
 
 Item {
   id: root
@@ -185,17 +186,21 @@ Item {
     hover: new Cam.Spring(0, Cam.W_MODE),
     sys: new Cam.Spring(0, Cam.W_MODE),        // overlays fade in with the system view
     chase: new Cam.Spring(0, Cam.W_MODE),      // labels give way to markers in the chase view
-    exposure: new Cam.Spring(1, 1.3)           // the sky brightens slowly on an empty workspace
+    exposure: new Cam.Spring(1, 1.3),          // the sky brightens slowly on an empty workspace
+    fallFade: new Cam.Spring(0, 2.4)           // the fall's black, 2 s each way
   })
 
   onAnimateChanged: if (!animate && !sleeping) explore = "universe"
-  onSleepingChanged: if (!animate && !sleeping) explore = "universe"
+  onSleepingChanged: {
+    if (!animate && !sleeping) explore = "universe"
+    if (sleeping) fallReset()   // wake up beside the Sun, never inside the hole
+  }
   // Flight and system grab the keyboard, so leave them as soon as the user
   // is on a workspace with windows (or switches away).
   onEmptyWorkspaceChanged: if (!emptyWorkspace) explore = "universe"
   onExploreChanged: {
     keysDown = ({})
-    if (explore !== "galaxy") gxRateIndex = 0
+    if (explore !== "galaxy") { gxRateIndex = 0; fallReset() }
     if (explore !== "system") {
       chasing = false
       galactic = false
@@ -498,7 +503,72 @@ Item {
     if (gxSel >= 0 && photoOf(gxSel)) return photoWidthKpc(gxSel) * 0.7
     return 0.0002
   }
+  // ---- the fall into Sgr A* (lib/fall.js) ----
+  // With the hole chosen and the camera parked at 6 Rs, B again (or one more
+  // scroll in) lets go; free flight that carries the camera below the
+  // horizon falls too. From there on nothing steers: the camera rides the
+  // free-fall trajectory ("falling"), the view turning from the hole to the
+  // side as the horizon nears, so that the dark fills the half of the sky
+  // below and the outside squeezes into a bright band above. Near the
+  // singularity the screen fades to black ("out"), holds two seconds, and
+  // the camera is back beside the Sun, fading in ("in"). Esc gives up by the
+  // same fade; leaving the view, sleep or a fullscreen window reset it all.
+  property string fallPhase: ""
+  property var fallState: null          // Fall.begin() state, plus x (outward radial) and the eased fwd/up
+  property real fallR: 6                // radius, Schwarzschild radii
+  property bool fallInside: false       // below the horizon (set once, not per frame: the hints bind to it)
+  property real fallLeft: 0             // proper time to the singularity, s
+  property real fallRate: 1             // proper seconds per screen second (the approach is compressed)
+  property real gxFallE: 0              // the observer's energy per unit mass, for the shaders (0: not falling)
+  property real fallFade: 0             // 0..1 black
+  property real fallHold: 0             // seconds spent black
+  property real fallHoldFor: 2
+  property bool gxParkedAtHole: false   // Sgr A* chosen, camera at its closest approach: B lets go
+  function fallBegin(rStart) {
+    if (fallState || explore !== "galaxy") return
+    const cam = [gxCamPos.x, gxCamPos.y, gxCamPos.z]
+    const l = Math.hypot(cam[0], cam[1], cam[2])
+    const F = Fall.begin(rStart)
+    F.x = l > 1e-15 ? [cam[0] / l, cam[1] / l, cam[2] / l] : [0, 1, 0]
+    F.fwd = [gxFwd.x, gxFwd.y, gxFwd.z]
+    F.up = [gxUp.x, gxUp.y, gxUp.z]
+    // the side we turn toward once inside: where we already look, else north
+    const fr = F.fwd[0] * F.x[0] + F.fwd[1] * F.x[1] + F.fwd[2] * F.x[2]
+    let t = [F.fwd[0] - F.x[0] * fr, F.fwd[1] - F.x[1] * fr, F.fwd[2] - F.x[2] * fr]
+    if (Math.hypot(t[0], t[1], t[2]) < 1e-3) t = [-F.x[0] * F.x[2], -F.x[1] * F.x[2], 1 - F.x[2] * F.x[2]]
+    if (Math.hypot(t[0], t[1], t[2]) < 1e-3) t = [1, 0, 0]
+    const tl = Math.hypot(t[0], t[1], t[2])
+    F.t = [t[0] / tl, t[1] / tl, t[2] / tl]
+    fallState = F
+    fallPhase = "falling"
+    fallHold = 0
+    gxFallE = F.tl.E
+    gxSel = gxIndex("Sagittarius A")
+    gxTarget = [0, 0, 0]
+    keysDown = ({})
+  }
+  // Esc: give up, fade out now and come back beside the Sun
+  function fallAbort() { if (fallPhase === "falling") { fallPhase = "out"; fallHold = 0; fallHoldFor = 0.5 } }
+  // the galaxy view's home pose, placed instantly (behind the black)
+  function fallHome() {
+    fallState = null
+    gxFallE = 0
+    fallInside = false
+    gxFlyTo(-1)
+    const sp = sunPosAt(gxMyr)
+    gxTarget = sp.slice(); gxFree = sp.slice()
+    gxDist = gxDistGoal
+    gxYaw = gxYawTarget; gxPitch = gxPitchTarget
+    fallHoldFor = 2
+  }
+  function fallReset() {
+    if (fallState) fallHome()
+    fallPhase = ""
+    mix.fallFade.set(0); fallFade = 0
+    fallHold = 0
+  }
   function gxFlyTo(i) {
+    if (fallState) return   // below the horizon, or on the way: nothing steers
     if (i >= 0 && photoOf(i)) {
       // come in from Earth's side, as the photo was taken, framed to fill the view
       const P = hotspotPos(i), Sn = sunPosAt(gxMyr)
@@ -524,6 +594,7 @@ Item {
   property bool gxFromSystem: false
   function enterGalaxy() {
     if (!emptyWorkspace) return
+    fallReset()
     gxFromSystem = explore === "system"
     explore = "galaxy"
     gxMyr = 0
@@ -705,10 +776,15 @@ Item {
       ["SCROLL / Q E", "zoom"],
       ["H", "hide / show the HUD"],
       ["ESC / RIGHT-CLICK", "back to the universe"]
+    ] : explore === "galaxy" && fallPhase !== "" ? [
+      ["", fallInside ? "below the horizon there is no way out" : "falling: nothing steers now"],
+      ["H", "hide / show the HUD"],
+      ["ESC / RIGHT-CLICK", "give up: fade back to the Sun"]
     ] : explore === "galaxy" ? [
       ["TAB", "next place (shift: previous)"],
       ["0", "back to the Sun (scroll in: the solar system)"],
-      ["B", "fall into the black hole at the centre"],
+      gxParkedAtHole ? ["B / SCROLL IN", "let go: fall into the black hole"]
+                     : ["B", "the black hole at the centre (then B again: fall in)"],
       ["CLICK", "fly to a place"],
       ["DRAG / ARROWS", "orbit the camera"],
       ["SCROLL / Q E", "closer / farther"],
@@ -931,6 +1007,8 @@ Item {
   // one level back (Esc, or a right-click on empty space): out of the
   // galactic or chase view, from the Milky Way to the solar system, else home
   function back() {
+    if (fallPhase === "falling") { fallAbort(); return }   // never leaves the camera inside the hole
+    if (fallPhase === "out") return
     if (galactic) toggleGalactic()
     else if (chasing) leaveChase()
     else if (explore === "galaxy" && gxFromSystem) enterSystem()
@@ -1211,7 +1289,8 @@ Item {
       const right = fwd.crossProduct(Qt.vector3d(0, 0, 1)).normalized()
       const up = right.crossProduct(fwd)
       // WASD: free flight, level with the disk, at a speed matching the view
-      if (inView) {
+      // (not while falling: nothing steers then)
+      if (inView && !fallState) {
         const mv = [key("d") - key("a"), key("w") - key("s")]
         if (mv[0] !== 0 || mv[1] !== 0) {
           if (gxSel !== -2) { gxFree = gxTarget.slice(); gxSel = -2 }
@@ -1229,7 +1308,46 @@ Item {
       // twice the remaining trip keeps the destination within ~27 degrees of the centre: on screen
       const want = Math.max(gxDistGoal, remain * 2.0)
       gxDist = Math.exp(Math.log(gxDist) + (Math.log(want) - Math.log(gxDist)) * Math.min(1, dt * 1.6))
-      const cam = [gxTarget[0] + off[0] * gxDist, gxTarget[1] + off[1] * gxDist, gxTarget[2] + off[2] * gxDist]
+      let cam = [gxTarget[0] + off[0] * gxDist, gxTarget[1] + off[1] * gxDist, gxTarget[2] + off[2] * gxDist]
+      // the fall: the horizon crossed in free flight starts it; parked at the
+      // hole, B or a scroll in lets go (the key and wheel handlers)
+      {
+        const parked = gxSel >= 0 && hotspots[gxSel].kind === "blackhole" && gxDistGoal <= 6 * rsKpc * 1.001 && gxDist < 6.5 * rsKpc
+        if (parked !== gxParkedAtHole) gxParkedAtHole = parked
+        if (!fallState && inView && Math.hypot(cam[0], cam[1], cam[2]) < rsKpc) fallBegin(Math.hypot(cam[0], cam[1], cam[2]) / rsKpc)
+      }
+      mix.fallFade.g = fallPhase === "out" ? 1 : 0
+      fallFade = mix.fallFade.step(dt)
+      if (fallPhase === "out" && fallFade >= 0.98) {
+        // black: hold, then back beside the Sun, and fade in
+        fallHold += dt
+        if (fallHold >= fallHoldFor) { fallHome(); fallPhase = "in" }
+      } else if (fallPhase === "in" && fallFade <= 0.01) fallPhase = ""
+      if (fallState) {
+        // the camera rides the trajectory (lib/fall.js); the view turns from
+        // the hole to the side over the approach (in log r), so at the
+        // horizon the dark is below and the sky above; nothing else steers
+        const F = fallState
+        const o = Fall.step(F, dt)
+        const r = Math.max(o.r, 0.03)
+        fallR = r; fallLeft = o.left; fallRate = o.rate
+        if ((r < 1) !== fallInside) fallInside = r < 1
+        if (fallPhase === "falling" && o.left < 1.8) { fallPhase = "out"; fallHold = 0; fallHoldFor = 2 }
+        const chi = Math.PI / 2 * Math.min(1, Math.max(0, Math.log(F.tl.r0 / r) / Math.log(F.tl.r0)))
+        const c = Math.cos(chi), sn = Math.sin(chi), k = Math.min(1, dt * 2.5)
+        const gf = [-c * F.x[0] + sn * F.t[0], -c * F.x[1] + sn * F.t[1], -c * F.x[2] + sn * F.t[2]]
+        const gu = [sn * F.x[0] + c * F.t[0], sn * F.x[1] + c * F.t[1], sn * F.x[2] + c * F.t[2]]
+        let fw = F.fwd.map((v, j) => v + (gf[j] - v) * k)
+        let fl = Math.hypot(fw[0], fw[1], fw[2]); fw = fw.map(v => v / fl)
+        let u = F.up.map((v, j) => v + (gu[j] - v) * k)
+        const uf = u[0] * fw[0] + u[1] * fw[1] + u[2] * fw[2]
+        u = u.map((v, j) => v - fw[j] * uf)
+        const ul = Math.hypot(u[0], u[1], u[2]); u = u.map(v => v / ul)
+        F.fwd = fw; F.up = u
+        cam = [F.x[0] * r * rsKpc, F.x[1] * r * rsKpc, F.x[2] * r * rsKpc]
+        gxDist = r * rsKpc
+        gxTarget = [0, 0, 0]
+      }
       // only hand the shaders a new camera when it really moved: an unchanged
       // camera lets the galaxy volume skip redrawing (it is the costly pass)
       const moved = Math.hypot(cam[0] - gxCamPos.x, cam[1] - gxCamPos.y, cam[2] - gxCamPos.z) > gxDist * 1e-5
@@ -1238,9 +1356,15 @@ Item {
       gxHoleNear = Math.hypot(cam[0], cam[1], cam[2]) < 1e-5
       if (gxHoleNear) gxCamRs = Qt.vector3d(cam[0] / rsKpc, cam[1] / rsKpc, cam[2] / rsKpc)
       if (moved) {
-        gxFwd = fwd
-        gxRight = right
-        gxUp = up
+        if (fallState) {
+          gxFwd = Qt.vector3d(fallState.fwd[0], fallState.fwd[1], fallState.fwd[2])
+          gxUp = Qt.vector3d(fallState.up[0], fallState.up[1], fallState.up[2])
+          gxRight = gxFwd.crossProduct(gxUp)
+        } else {
+          gxFwd = fwd
+          gxRight = right
+          gxUp = up
+        }
       }
       // the Milky Way's own stars thin out once we are outside it
       const outside = Math.max(Math.hypot(cam[0], cam[1]) - 15, Math.abs(cam[2]) - 0.5, 0)
@@ -1468,6 +1592,14 @@ Item {
             { label: "NEAREST", value: near >= 0 ? hotspots[near].name.toUpperCase() + "  ·  " + fmtLy(nd * ly) : "—" }
           ]
           if (gxSel >= 0) rows.splice(0, 0, { label: "TARGET", value: hotspots[gxSel].name.toUpperCase() + "  ·  " + fmtLy(len(vec(hotspotPos(gxSel))) * ly) + " AWAY" })
+          if (fallState) {
+            // the fall: where we are in radii, and our own clock
+            const left = fallLeft >= 60 ? fmtNum(Math.floor(fallLeft / 60)) + " MIN " + fmtNum(fallLeft % 60, 0) + " S" : fmtNum(fallLeft, 1) + " S"
+            rows = [
+              { label: "FALLING", value: fmtNum(fallR, 2) + " SCHWARZSCHILD RADII  ·  " + (fallR > 1 ? "OUTSIDE THE HORIZON" : "INSIDE THE HORIZON  ·  NO WAY OUT") },
+              { label: "PROPER TIME", value: left + " TO THE SINGULARITY  ·  " + (fallRate > 1.05 ? "SHOWN " + fmtNum(fallRate) + "× FASTER" : "REAL TIME") }
+            ]
+          }
         }
       } else if (explore === "sky") {
         const R = [skyRight.x, skyRight.y, skyRight.z], U = [skyUp.x, skyUp.y, skyUp.z], F = [skyFwd.x, skyFwd.y, skyFwd.z]
@@ -1941,6 +2073,7 @@ Item {
               // gas motion 30x faster than real (1 Rs/c = 42 s): an orbit at
               // the innermost stable radius takes ~1 minute instead of ~30
               property real flowTime: 0
+              property real fallE: 0
             }
             Timer {
               id: holeClock
@@ -1954,6 +2087,7 @@ Item {
                 holePass.camRight = root.gxRight
                 holePass.camUp = root.gxUp
                 holePass.flowTime = root.shaderTime * 30 / 42.3
+                holePass.fallE = root.gxFallE
               }
             }
 
@@ -2040,6 +2174,8 @@ Item {
               property vector4d gxFocusCol: root.gxFocusCol
               property real gxStars: root.gxStars
               property real gxRealSky: root.gxRealSky
+              property real gxFallE: root.gxFallE
+              property real gxFallFade: root.fallFade
               property var skyFull: skyFullTex
               property vector4d gxPhoto: root.gxPhoto
               property var photoAtlas: photoAtlasTex
@@ -2604,7 +2740,7 @@ Item {
         width: panel.width
         height: panel.height
         visible: root.liveBackground && root.galaxyMix > 0.01
-        opacity: root.galaxyMix
+        opacity: root.galaxyMix * (1 - root.fallFade)
 
         Repeater {
           model: root.hotspots.length + 1
@@ -2662,7 +2798,9 @@ Item {
           }
           Text {
             visible: !!parent.h
-            text: parent.h && parent.h.kind === "blackhole" && root.gxDist < 2e-6
+            text: parent.h && parent.h.kind === "blackhole" && root.fallPhase !== ""
+                  ? "falling  ·  " + root.fallR.toFixed(2) + " Schwarzschild radii from the centre  ·  the longest anyone lasts inside: π GM/c³ = 64 s, ~29 s in free fall"
+                  : parent.h && parent.h.kind === "blackhole" && root.gxDist < 2e-6
                   ? Math.round(root.gxDist / root.rsKpc) + " Schwarzschild radii from it (" + (root.gxDist * 2.0626e8).toFixed(1) + " AU)  ·  event horizon "
                     + (2 * root.rsKpc * 2.0626e8).toFixed(2) + " AU across"
                   : parent.h ? root.lightYears(parent.h.dpc) + " away  ·  " + root.sizeText(parent.h.size) + " across" : ""
@@ -2673,7 +2811,9 @@ Item {
           Text {
             width: parent.width
             wrapMode: Text.WordWrap
-            text: parent.h ? (parent.h.kind === "blackhole"
+            text: parent.h ? (parent.h.kind === "blackhole" && root.fallPhase !== ""
+                               ? "Letting go from 6 radii: free fall, the way down shown 45 times faster, the inside at the true rate. Nothing is felt crossing the horizon of a hole this large, but below it every direction leads to the centre. The outside sky squeezes into a thin bright band, blueshifted, with the dark filling the half of the sky in front; straight behind, the last of it reddens and goes out."
+                               : parent.h.kind === "blackhole"
                                ? parent.h.blurb + "  Visible light never gets out to us through the dust; you see the crowded star cluster around it. Its shadow was imaged in radio by the Event Horizon Telescope in 2022."
                                : parent.h.blurb) + (parent.h.dpc * 3.26156 >= 10 ? "  The light you see left it " + root.lightYears(parent.h.dpc).replace(" ly", " years") + " ago." : "")
                            : "The Sun circles Sagittarius A* with everything around it, rising and sinking through the disk as it goes. Press [ ] to watch."
@@ -2766,7 +2906,13 @@ Item {
               return
             }
             if (k === "0") { root.gxFlyTo(-1); event.accepted = true; return }
-            if (k === "b") { root.gxFlyTo(root.gxIndex("Sagittarius A")); event.accepted = true; return }
+            if (k === "b") {
+              // parked at the hole already: let go
+              if (root.gxParkedAtHole) root.fallBegin(root.gxDist / root.rsKpc)
+              else root.gxFlyTo(root.gxIndex("Sagittarius A"))
+              event.accepted = true
+              return
+            }
             if (k === "[" || k === "]") {
               root.gxRateIndex = Math.max(0, Math.min(root.gxRates.length - 1, root.gxRateIndex + (k === "]" ? 1 : -1)))
               event.accepted = true
@@ -2932,7 +3078,8 @@ Item {
           else if (root.explore === "galaxy") {
             // scrolling in on the Sun, already at the closest approach, lands in the solar system
             if (steps > 0 && root.gxSel === -1 && root.gxDistGoal <= root.gxMinDist() * 1.001) root.enterSystem()
-            else root.gxDistGoal = Math.max(root.gxMinDist(), Math.min(2500, root.gxDistGoal * Math.pow(1.2, -steps)))
+            else if (steps > 0 && root.gxParkedAtHole) root.fallBegin(root.gxDist / root.rsKpc)   // one more notch at 6 Rs: let go
+            else if (!root.fallState) root.gxDistGoal = Math.max(root.gxMinDist(), Math.min(2500, root.gxDistGoal * Math.pow(1.2, -steps)))
           }
           else if (root.galactic || root.chasing) root.sysCam.zoomBy(-steps * Math.log(1.15))
           else if (root.explore === "system") {

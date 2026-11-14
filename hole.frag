@@ -22,6 +22,25 @@
 // hide what is behind), a = how far the ray was bent in total (radians), or
 // -1 if it fell in. universe.frag lenses the sky with that angle at full
 // resolution, so the stars stay sharp.
+//
+// The fall (fallE > 0): the camera is no longer standing still but falling
+// freely, from rest at 6 Rs, with energy per unit mass E = sqrt(1 - 1/r0)
+// (lib/fall.js). What such an observer sees in a given direction is a
+// different light ray from what a hovering one sees: aberration, and below
+// the horizon no observer can hover at all. So the look direction is first
+// turned into the ray's constants of motion in the falling observer's own
+// frame (the radially infalling tetrad of the Schwarzschild metric):
+//   e = E - n_r sqrt(E^2 - f)       the ray's energy at infinity (f = 1 - 1/r)
+//   b = r n_t / e                   its impact parameter (Rs)
+//   s = sqrt(E^2 - f) - n_r E       sign: traced backward, does it climb (> 0)?
+// with n the direction the light travels (opposite to the look direction),
+// n_r its outward radial part and n_t its transverse part. e <= 0 is light
+// that would have to come out of the hole: dark. The same tracer then
+// follows the ray from (b, s): its shape equation holds inside the horizon
+// too. Below 1.5 Rs any ray heading inward is lost. Rays that climb out
+// report the direction they left along, as an angle from the outward
+// radial in the ray's own plane (a); universe.frag reads the sky there and
+// applies the frequency shift 1/e: blue toward the horizon line, red behind.
 
 layout(location = 0) in vec2 qt_TexCoord0;
 layout(location = 0) out vec4 fragColor;
@@ -38,6 +57,7 @@ layout(std140, binding = 0) uniform buf {
     float aspect;
     vec3 spinAxis;    // the flow's rotation axis (world frame)
     float flowTime;   // seconds of gas motion (in Rs/c units: 1 Rs/c = 42 s)
+    float fallE;      // 0: the camera hovers; else it falls, with this energy per unit mass
 };
 
 const float R_OUT = 60.0;   // beyond this, bending is left to the weak-field formula
@@ -86,6 +106,27 @@ void main() {
     vec3 v = normalize(camFwd + camRight * p.x - camUp * p.y);
     vec3 v0 = v;
     vec3 x = camPos;
+    // the falling camera: the ray this look direction really belongs to
+    vec3 xh = vec3(0.0), th = vec3(0.0);
+    if (fallE > 0.0) {
+        float r = length(x);
+        xh = x / r;
+        float f = 1.0 - 1.0 / r;
+        float vr = dot(v, xh);
+        vec3 vt = v - xh * vr;
+        float nt = length(vt);
+        th = nt > 1e-4 ? vt / nt : normalize(cross(xh, abs(xh.x) < 0.9 ? vec3(1, 0, 0) : vec3(0, 1, 0)));
+        nt = max(nt, 1e-3);
+        float w = sqrt(max(fallE * fallE - f, 0.0));   // the observer's speed, dr/dtau
+        float n1 = -vr;                                 // the light's outward component
+        float e = fallE - n1 * w;
+        if (e <= 0.0) { fragColor = vec4(0.0, 0.0, 0.0, -1.0); return; }
+        float s = w - n1 * fallE;
+        // start direction in Schwarzschild space with that impact parameter:
+        // transverse speed 1, radial speed from (dr/dphi)^2 = r^2 (r^2/b^2 - f)
+        float rb = e / nt;
+        v = xh * (sign(s) * sqrt(max(rb * rb - f, 0.0))) + th;
+    }
 
     // start where the ray enters the region of strong bending
     float b = dot(x, v);
@@ -106,10 +147,11 @@ void main() {
 
     for (int i = 0; i < 200; i++) {
         float r = length(x);
-        if (r < R_IN) { fell = true; break; }
+        if (fallE > 0.0 ? (r < 1.5 && dot(x, v) < 0.0) : (r < R_IN)) { fell = true; break; }
         if (r > R_OUT + 1.0 && dot(x, v) > 0.0) break;
-        // smaller steps near the hole, where paths curve hardest
-        float dt = clamp(0.11 * (r - 0.9), 0.025, 3.0) * (i == 0 ? jitter + 0.5 : 1.0);
+        // smaller steps near the hole, where paths curve hardest (and finer
+        // still below the horizon, where the fall's rays start)
+        float dt = (fallE > 0.0 && r < 1.0 ? max(0.004, 0.05 * r) : clamp(0.11 * (r - 0.9), 0.025, 3.0)) * (i == 0 ? jitter + 0.5 : 1.0);
         // velocity Verlet on a = -3/2 h^2 x / r^5
         float r2 = r * r;
         vec3 a0 = -1.5 * h2 * x / (r2 * r2 * r);
@@ -138,6 +180,13 @@ void main() {
             float dl = dt * length(v);
             L += tint * j * boost * dl * 1.6;
         }
+    }
+    if (fallE > 0.0) {
+        // where the ray left: its angle from the outward radial, in its plane
+        vec3 d = normalize(v);
+        float phi = atan(dot(d, th), dot(d, xh));
+        fragColor = vec4(L, fell ? -1.0 : (phi < 0.0 ? phi + 6.2831853 : phi));
+        return;
     }
     float bend = acos(clamp(dot(normalize(v), v0), -1.0, 1.0));
     fragColor = vec4(L, fell ? -1.0 : bend);

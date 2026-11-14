@@ -84,6 +84,8 @@ layout(std140, binding = 0) uniform buf {
     float skyStaticMix; // 0..1: exactly on a named view: its native 5K render
     float photoHiReady; // 1 once the chosen place's close-up photo has loaded
     vec4 galFlow;    // galactic view: interstellar dust drift (xy offset), direction it streams (zw)
+    float gxFallE;   // > 0: the camera is falling into Sgr A* with this energy per unit mass (hole.frag)
+    float gxFallFade; // 0..1: the fall's fade to black (and back, beside the Sun)
 };
 
 // NASA maps, equirectangular: Blue Marble (day), Black Marble (night lights),
@@ -947,9 +949,70 @@ vec3 gxSceneAlong(vec3 d) {
     return g2.rgb + g2.a * gxSky(d);
 }
 
+// starlight seen with a frequency shift g (seen over emitted): g^3 in
+// intensity, and the broad spectrum slides toward blue (g > 1) or red
+// (g < 1). An approximation on the rendered colour, not a spectrum.
+vec3 shifted(vec3 c, float g) {
+    float k = clamp(g, 0.05, 6.0);
+    vec3 tint = k > 1.0 ? mix(vec3(1.0), vec3(0.55, 0.78, 1.45), clamp((k - 1.0) * 1.6, 0.0, 1.0))
+                        : mix(vec3(1.35, 0.62, 0.40), vec3(1.0), clamp(k * 1.6 - 0.4, 0.0, 1.0));
+    return c * tint * min(k * k * k, 10.0);
+}
+
+// The fall: the camera is falling freely, outside or inside the horizon.
+// The look direction's ray is found in the falling observer's frame exactly
+// as in hole.frag (same formulas, the same E), which tells whether it is
+// sky or darkness and with what shift; the tracer's exit angle says where
+// on the sky. The sky's edge (the shadow seen from outside, or the horizon
+// line below which everything is dark once inside) is known exactly here,
+// so the tracer is read from the sky's side of it: a crisp edge at full
+// resolution. Near the singularity the whole sky squeezes into a thin,
+// bright, blue band on that line, red and dim straight overhead.
+vec3 blackHoleFall(vec3 rd, vec2 uv) {
+    float rk = length(gxCam);
+    float r = rk / RS_KPC;
+    vec3 xh = gxCam / rk;
+    float f = 1.0 - 1.0 / r;
+    float vr = dot(rd, xh);
+    vec3 vt = rd - xh * vr;
+    float nt = length(vt);
+    vec3 th = nt > 1e-4 ? vt / nt : normalize(cross(xh, abs(xh.x) < 0.9 ? vec3(1, 0, 0) : vec3(0, 1, 0)));
+    nt = max(nt, 1e-3);
+    float w = sqrt(max(gxFallE * gxFallE - f, 0.0));
+    float n1 = -vr;
+    float e = gxFallE - n1 * w;
+    float s = w - n1 * gxFallE;
+    float b = r * nt / max(e, 1e-6);
+    // signed distance from the sky's edge, positive on the sky's side: light
+    // from the hole (e <= 0) is dark; a ray that was climbing out from
+    // below 1.5 Rs needs b < B_CRIT, one that was diving in needs b > B_CRIT
+    float xs = e <= 0.0 ? -1.0 : s < 0.0 ? b / B_CRIT - 1.0 : r < 1.5 ? 1.0 - b / B_CRIT : 1.0;
+    // on screen, the sky lies away from the hole (and the hole may be behind us)
+    vec2 toHole = vec2(dot(-xh, gxRight), -dot(-xh, gxUp));
+    vec2 outward = -normalize(toHole + vec2(1e-9, 0.0));
+    vec2 texel = 3.0 / resolution;
+    float nudge = (xs <= 0.0 ? -2.0 : 2.0) * (1.0 - smoothstep(0.0, 0.15, abs(xs)));
+    vec4 traced = texture(holeTex, uv + outward * texel * nudge);
+    float g = 1.0 / max(e, 1e-3);
+    vec3 col = vec3(0.0);
+    if (xs > 0.0 && traced.a >= 0.0) {
+        vec3 d = xh * cos(traced.a) + th * sin(traced.a);
+        col = shifted(gxSceneAlong(d), g);
+    }
+    // the hot gas's light, shifted along with everything else we see
+    col += shifted(max(traced.rgb, 0.0), g);
+    // the photon ring on the sky's edge, as from outside
+    if (xs > 0.0) {
+        vec3 rim = max(texture(holeTex, uv + outward * texel * 3.0).rgb, 0.0);
+        col += (rim * 0.9 + vec3(0.02, 0.012, 0.006)) * exp(-xs / 0.006);
+    }
+    return col;
+}
+
 // returns the lensed colour, or a negative red channel when the hole is too
 // far away to matter
 vec3 blackHole(vec3 rd, vec2 uv) {
+    if (gxFallE > 0.0) return blackHoleFall(rd, uv);
     vec3 toBH = -gxCam;
     float along = dot(toBH, rd);
     if (length(gxCam) > 2e-4 || along <= 0.0) return vec3(-1.0);
@@ -1037,6 +1100,9 @@ void main() {
         if (skyStaticMix > 0.0) real = mix(real, texture(skyStatic, uv).rgb, skyStaticMix);
         col = mix(col, real, skyMix);
     }
+
+    // the end of the fall: black, then back beside the Sun (the HUD stays)
+    if (gxFallFade > 0.0) col *= 1.0 - gxFallFade;
 
     if (hudLevel > 0.0)
         col += hud(p, t, accent.rgb, themed(vec3(0.95, 0.15, 0.62), 0.38));
