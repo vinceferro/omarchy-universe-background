@@ -524,6 +524,7 @@ Item {
   property real fallHold: 0             // seconds spent black
   property real fallHoldFor: 2
   property bool gxParkedAtHole: false   // Sgr A* chosen, camera at its closest approach: B lets go
+  property bool gxFallArmed: false      // B pressed again on the way down: let go on arrival
   property bool gxCamJumped: false      // the camera was placed, not flown: no path to test this frame
   // at: where the fall starts (kpc), when not the camera's last position
   function fallBegin(rStart, at) {
@@ -543,6 +544,7 @@ Item {
     F.t = [t[0] / tl, t[1] / tl, t[2] / tl]
     fallState = F
     fallPhase = "falling"
+    gxFallArmed = false
     fallHold = 0
     gxFallE = F.tl.E
     gxSel = gxIndex("Sagittarius A")
@@ -573,6 +575,7 @@ Item {
   }
   function gxFlyTo(i) {
     if (fallState) return   // below the horizon, or on the way: nothing steers
+    gxFallArmed = false
     if (i >= 0 && photoOf(i)) {
       // come in from Earth's side, as the photo was taken, framed to fill the view
       const P = hotspotPos(i), Sn = sunPosAt(gxMyr)
@@ -599,6 +602,7 @@ Item {
   function enterGalaxy() {
     if (!emptyWorkspace) return
     fallReset()
+    gxFallArmed = false
     gxFromSystem = explore === "system"
     explore = "galaxy"
     gxMyr = 0
@@ -787,8 +791,9 @@ Item {
     ] : explore === "galaxy" ? [
       ["TAB", "next place (shift: previous)"],
       ["0", "back to the Sun (scroll in: the solar system)"],
-      gxParkedAtHole ? ["B / SCROLL IN", "let go: fall into the black hole"]
-      : gxSel >= 0 && hotspots[gxSel].kind === "blackhole" ? ["B", "down to 6 radii, the closest approach (then B again: let go)"]
+      gxParkedAtHole ? ["B / SCROLL IN", gxFallArmed ? "letting go in a moment (or now: B)" : "let go: fall into the black hole"]
+      : gxFallArmed ? ["SCROLL OUT / Q", "on the way down: you fall on arrival (scroll out to stay)"]
+      : gxSel >= 0 && hotspots[gxSel].kind === "blackhole" ? ["B", "down to 6 radii and let go (or scroll in, and B there)"]
       : ["B", "the black hole at the centre"],
       ["CLICK", "fly to a place"],
       ["DRAG / ARROWS", "orbit the camera"],
@@ -1284,6 +1289,7 @@ Item {
         gxPitchTarget = Math.max(-1.45, Math.min(1.45, gxPitchTarget + (key("up") - key("down")) * dt * 0.6))
         const zk = key("e") - key("q")
         if (zk !== 0) gxDistGoal = Math.max(gxMinDist(), Math.min(2500, gxDistGoal * Math.pow(2.5, zk * dt)))
+        if (zk > 0) gxFallArmed = false
       }
       const ek = Math.min(1, dt * 3)
       gxYaw += (gxYawTarget - gxYaw) * ek
@@ -1321,6 +1327,8 @@ Item {
       {
         const parked = gxSel >= 0 && hotspots[gxSel].kind === "blackhole" && gxDistGoal <= 6 * rsKpc * 1.001 && gxDist < 6.5 * rsKpc
         if (parked !== gxParkedAtHole) gxParkedAtHole = parked
+        // asked on the way down: let go once settled at 6 Rs
+        if (parked && gxFallArmed && !fallState && gxDist < 6.05 * rsKpc) fallBegin(gxDist / rsKpc)
         if (!fallState && inView) {
           const p0 = gxCamJumped ? cam : [gxCamPos.x, gxCamPos.y, gxCamPos.z]
           const d = [cam[0] - p0[0], cam[1] - p0[1], cam[2] - p0[2]]
@@ -2929,7 +2937,7 @@ Item {
               // B: the hole; B again: down to the closest approach; parked there: let go
               const hole = root.gxIndex("Sagittarius A")
               if (root.gxParkedAtHole) root.fallBegin(root.gxDist / root.rsKpc)
-              else if (root.gxSel === hole) root.gxDistGoal = root.gxMinDist()
+              else if (root.gxSel === hole) { root.gxDistGoal = root.gxMinDist(); root.gxFallArmed = true }
               else root.gxFlyTo(hole)
               event.accepted = true
               return
@@ -3100,7 +3108,10 @@ Item {
             // scrolling in on the Sun, already at the closest approach, lands in the solar system
             if (steps > 0 && root.gxSel === -1 && root.gxDistGoal <= root.gxMinDist() * 1.001) root.enterSystem()
             else if (steps > 0 && root.gxParkedAtHole) root.fallBegin(root.gxDist / root.rsKpc)   // one more notch at 6 Rs: let go
-            else if (!root.fallState) root.gxDistGoal = Math.max(root.gxMinDist(), Math.min(2500, root.gxDistGoal * Math.pow(1.2, -steps)))
+            else if (!root.fallState) {
+              root.gxDistGoal = Math.max(root.gxMinDist(), Math.min(2500, root.gxDistGoal * Math.pow(1.2, -steps)))
+              if (steps < 0) root.gxFallArmed = false
+            }
           }
           else if (root.galactic || root.chasing) root.sysCam.zoomBy(-steps * Math.log(1.15))
           else if (root.explore === "system") {
