@@ -551,6 +551,14 @@ Item {
     gxTarget = [0, 0, 0]
     keysDown = ({})
   }
+  // B: the hole; B again (on the way or there): down to 6 Rs and let go on
+  // arrival; parked there: let go now
+  function gxB() {
+    const hole = gxIndex("Sagittarius A")
+    if (gxParkedAtHole) fallBegin(gxDist / rsKpc)
+    else if (gxSel === hole) { gxDistGoal = gxMinDist(); gxFallArmed = true }
+    else gxFlyTo(hole)
+  }
   // Esc: give up, fade out now and come back beside the Sun
   function fallAbort() { if (fallPhase === "falling") { fallPhase = "out"; fallHold = 0; fallHoldFor = 0.5 } }
   // the galaxy view's home pose, placed instantly (behind the black)
@@ -1906,6 +1914,11 @@ Item {
       root.gxFlyTo(place === "sun" ? -1 : root.gxIndex(place))
     }
 
+    function hole(): void {
+      if (root.explore !== "galaxy") root.enterGalaxy()
+      root.gxB()
+    }
+
     function galactic(): void {
       if (root.explore !== "system") root.enterSystem()
       if (!root.galactic) root.toggleGalactic()
@@ -2933,15 +2946,7 @@ Item {
               return
             }
             if (k === "0") { root.gxFlyTo(-1); event.accepted = true; return }
-            if (k === "b") {
-              // B: the hole; B again: down to the closest approach; parked there: let go
-              const hole = root.gxIndex("Sagittarius A")
-              if (root.gxParkedAtHole) root.fallBegin(root.gxDist / root.rsKpc)
-              else if (root.gxSel === hole) { root.gxDistGoal = root.gxMinDist(); root.gxFallArmed = true }
-              else root.gxFlyTo(hole)
-              event.accepted = true
-              return
-            }
+            if (k === "b") { root.gxB(); event.accepted = true; return }
             if (k === "[" || k === "]") {
               root.gxRateIndex = Math.max(0, Math.min(root.gxRates.length - 1, root.gxRateIndex + (k === "]" ? 1 : -1)))
               event.accepted = true
