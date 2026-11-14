@@ -308,6 +308,9 @@ Everything is reachable through the shell's IPC, `omarchy-shell background <func
 | `skyView <1-7>` | Sky mode at a named view |
 | `hud <0..1>` | HUD brightness until the shell restarts (default 0.38) |
 | `toggleHud` | hide / show the HUD; hidden is remembered across restarts |
+| `film <true/false>` | film mode for recording: the HUD, key hints, place labels, markers and mode captions fade out, the scene stays (not remembered) |
+| `caption <title> <body>` | a quiet lower-third caption that fades in, replacing the last one; `caption "" ""` fades it out |
+| `status` | prints `<view> <fall phase or -> <radius in Rs>`, e.g. `galaxy falling 1.84`, for scripts |
 | `refresh`, `set <path>`, `setInstant <path>`, `transition <from> <to>`, `themeTransition ...` | the stock background plugin's functions, unchanged |
 
 ## Real data and accuracy
