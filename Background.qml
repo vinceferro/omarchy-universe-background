@@ -540,6 +540,7 @@ Item {
   property real gxLookPitchTarget: 0
   property real gxLookIdle: 0           // seconds since the last look input
   property bool gxLookHold: false       // set over IPC: no easing back
+  property bool gxLookDragging: false   // a look drag is held: a still pointer is not a pause
   function fallLookBy(dYaw, dPitch) {
     gxLookYawTarget += dYaw   // all the way round: straight back at the hole, or up at the sky
     gxLookPitchTarget = Math.max(-1.45, Math.min(1.45, gxLookPitchTarget + dPitch))   // never over the top
@@ -1417,10 +1418,11 @@ Item {
         const ul = Math.hypot(u[0], u[1], u[2]); u = u.map(v => v / ul)
         F.fwd = fw; F.up = u
         // looking around (drag, arrows, fallLook): right arrow looks right,
-        // up looks up; eased like the orbit, and back after a pause
+        // up looks up, as the arrows do in the sky view (the orbit's up
+        // raises the camera instead); eased like the orbit, back after a pause
         const lk = [key("right") - key("left"), key("up") - key("down")]
         if (inView && (lk[0] !== 0 || lk[1] !== 0)) fallLookBy(lk[0] * dt * 0.8, lk[1] * dt * 0.6)
-        gxLookIdle += dt
+        gxLookIdle = gxLookDragging ? 0 : gxLookIdle + dt
         if (!gxLookHold && gxLookIdle > 2.5) {
           // the short way home: whole turns dropped first
           const w = Math.round(gxLookYawTarget / (2 * Math.PI)) * 2 * Math.PI
@@ -1457,6 +1459,16 @@ Item {
           gxFwd = Qt.vector3d(fallState.lookFwd[0], fallState.lookFwd[1], fallState.lookFwd[2])
           gxUp = Qt.vector3d(fallState.lookUp[0], fallState.lookUp[1], fallState.lookUp[2])
           gxRight = gxFwd.crossProduct(gxUp)
+          // while the look turns, the hole tracer gets the camera every
+          // frame: at its 40 Hz the whole sky (all of it read from the
+          // tracer when falling) would judder against the live edge
+          if (holePass.near && (gxLookDragging || gxLookIdle < 0.1
+              || Math.abs(gxLookYawTarget - gxLookYaw) + Math.abs(gxLookPitchTarget - gxLookPitch) > 1e-4)) {
+            holePass.camPos = gxCamRs
+            holePass.camFwd = gxFwd
+            holePass.camRight = gxRight
+            holePass.camUp = gxUp
+          }
         } else {
           gxFwd = fwd
           gxRight = right
@@ -3117,8 +3129,10 @@ Item {
             if (Math.hypot(mouse.x - pressAt.x, mouse.y - pressAt.y) > 4) dragged = true
             // falling: look around instead, the view following the drag as
             // the orbit does (right looks right, down looks down)
-            if (root.fallState) root.fallLookBy((mouse.x - lastAt.x) * 0.005, -(mouse.y - lastAt.y) * 0.004)
-            else {
+            if (root.fallState) {
+              root.gxLookDragging = true
+              root.fallLookBy((mouse.x - lastAt.x) * 0.005, -(mouse.y - lastAt.y) * 0.004)
+            } else {
               root.gxYawTarget += (mouse.x - lastAt.x) * 0.005
               root.gxPitchTarget = Math.max(-1.45, Math.min(1.45, root.gxPitchTarget + (mouse.y - lastAt.y) * 0.004))
             }
@@ -3151,9 +3165,11 @@ Item {
         }
         onReleased: {
           root.skyDragging = false
+          root.gxLookDragging = false
           if (root.sysCam.grab) root.sysCam.grabEnd()
           if (orbiting) { root.sysCam.orbitEnd(); orbiting = false }
         }
+        onCanceled: root.gxLookDragging = false
         onExited: {
           root.viewTarget = Qt.vector2d(0, 0)
           root.hoverSystem = false
