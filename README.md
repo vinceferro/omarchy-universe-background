@@ -180,7 +180,7 @@ angular size, north up. Near the Sun the model blends into the real sky.
 | click | fly to the place under the pointer |
 | `0` | back to the Sun |
 | `B` | the black hole at the centre; `B` again goes down to 6 Schwarzschild radii, and parked there `B` (or one more scroll in) lets go and falls in |
-| drag / arrows | orbit the camera |
+| drag / arrows | orbit the camera (falling into the hole: look around) |
 | scroll / `Q` `E` | closer / farther |
 | `W` `A` `S` `D` | fly freely, level with the disk |
 | `[` `]` | time-lapse: the Galaxy turns (100,000 years/s up to 20 million years/s) |
@@ -221,7 +221,13 @@ rocket). The ray tracer takes the falling observer's frame: aberration
 shrinks the shadow to a disc 46 degrees in radius at the horizon, and once inside the
 dark fills the half of the sky toward the centre while the outside squeezes
 into an ever thinner, blueshifted band on the horizon line, red and dim
-straight behind. Near the singularity the screen fades to black, holds two
+straight behind. Nothing steers on the way down, but drag or the arrows
+look around (right looks right, up looks up; all the way round, short of
+straight up or down): back at the hole, or up at the shrinking sky. Only the
+camera turns; the fall stays radial, and the ray tracer's frame with it.
+After a few seconds without input the view eases back to the scripted one,
+which turns from the hole to the side so that at the horizon the dark is
+below and the sky above. Near the singularity the screen fades to black, holds two
 seconds, and the camera is back beside the Sun. Esc gives up the same way;
 nothing leaves the camera inside the hole. The HUD counts the proper time
 left; the maths has its own checks in `tests/test_fall.js`.
@@ -304,6 +310,8 @@ Everything is reachable through the shell's IPC, `omarchy-shell background <func
 | `galactic` | the galactic-motion view (opens the system view if needed) |
 | `milkyway` | the Milky Way view |
 | `fly <place>` | fly to a place by name prefix (`"Orion"`, `"Sagittarius A"`, `"Andromeda"`; `sun` for the Sun) |
+| `hole` | the same step as `B`: to Sgr A*, down to 6 Rs, let go |
+| `fallLook <yaw> <pitch>` | falling into the hole: look this many degrees right and up from the scripted view, held until the next drag or arrow (for tests and filming) |
 | `sky` | Sky mode, at the last view |
 | `skyView <1-7>` | Sky mode at a named view |
 | `hud <0..1>` | HUD brightness until the shell restarts (default 0.38) |

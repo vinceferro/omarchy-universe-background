@@ -509,7 +509,8 @@ Item {
   // the horizon falls too. From there on nothing steers: the camera rides the
   // free-fall trajectory ("falling"), the view turning from the hole to the
   // side as the horizon nears, so that the dark fills the half of the sky
-  // below and the outside squeezes into a bright band above. Near the
+  // below and the outside squeezes into a bright band above. Drag and the
+  // arrows only look around, on top of that turn (gxLook below). Near the
   // singularity the screen fades to black ("out"), holds two seconds, and
   // the camera is back beside the Sun, fading in ("in"). Esc gives up by the
   // same fade; leaving the view, sleep or a fullscreen window reset it all.
@@ -526,6 +527,37 @@ Item {
   property bool gxParkedAtHole: false   // Sgr A* chosen, camera at its closest approach: B lets go
   property bool gxFallArmed: false      // B pressed again on the way down: let go on arrival
   property bool gxCamJumped: false      // the camera was placed, not flown: no path to test this frame
+  // looking around while falling: an offset on top of the scripted view, yaw
+  // about its up and pitch about its right (radians). It turns the camera
+  // only: the trajectory and the falling observer's frame stay radial. After
+  // 2.5 s without input it eases back (1.5 s per e-fold), so the scripted
+  // framing, the dark below and the band above, returns on its own: the
+  // turn keeps changing on the way down and a held offset would lose it.
+  // Set over IPC (fallLook) it holds until the next drag or arrow.
+  property real gxLookYaw: 0
+  property real gxLookPitch: 0
+  property real gxLookYawTarget: 0
+  property real gxLookPitchTarget: 0
+  property real gxLookIdle: 0           // seconds since the last look input
+  property bool gxLookHold: false       // set over IPC: no easing back
+  function fallLookBy(dYaw, dPitch) {
+    gxLookYawTarget += dYaw   // all the way round: straight back at the hole, or up at the sky
+    gxLookPitchTarget = Math.max(-1.45, Math.min(1.45, gxLookPitchTarget + dPitch))   // never over the top
+    gxLookIdle = 0
+    gxLookHold = false
+  }
+  function fallLookSet(yaw, pitch) {
+    gxLookYawTarget = yaw
+    gxLookPitchTarget = Math.max(-1.45, Math.min(1.45, pitch))
+    gxLookIdle = 0
+    gxLookHold = true
+  }
+  function fallLookReset() {
+    gxLookYaw = 0; gxLookPitch = 0
+    gxLookYawTarget = 0; gxLookPitchTarget = 0
+    gxLookIdle = 0
+    gxLookHold = false
+  }
   // at: where the fall starts (kpc), when not the camera's last position
   function fallBegin(rStart, at) {
     if (fallState || explore !== "galaxy") return
@@ -543,6 +575,7 @@ Item {
     const tl = Math.hypot(t[0], t[1], t[2])
     F.t = [t[0] / tl, t[1] / tl, t[2] / tl]
     fallState = F
+    fallLookReset()
     fallPhase = "falling"
     gxFallArmed = false
     fallHold = 0
@@ -564,6 +597,7 @@ Item {
   // the galaxy view's home pose, placed instantly (behind the black)
   function fallHome() {
     fallState = null
+    fallLookReset()
     gxFallE = 0
     fallInside = false
     gxFlyTo(-1)
@@ -577,6 +611,7 @@ Item {
   }
   function fallReset() {
     if (fallState) fallHome()
+    fallLookReset()
     fallPhase = ""
     mix.fallFade.set(0); fallFade = 0
     fallHold = 0
@@ -794,6 +829,7 @@ Item {
       ["ESC / RIGHT-CLICK", "back to the universe"]
     ] : explore === "galaxy" && fallState ? [
       ["", fallInside ? "below the horizon there is no way out" : "falling: nothing steers now"],
+      ["DRAG / ARROWS", "look around: you cannot steer"],
       ["H", "hide / show the HUD"],
       fallPhase === "falling" ? ["ESC / RIGHT-CLICK", "give up: fade back to the Sun"] : ["", "back beside the Sun in a moment"]
     ] : explore === "galaxy" ? [
@@ -1292,9 +1328,11 @@ Item {
     if (galaxyMix > 0) {
       gxMyr += dt * gxRates[gxRateIndex]
       const inView = explore === "galaxy"
-      if (inView) {
+      if (inView && !fallState) {
         gxYawTarget += (key("right") - key("left")) * dt * 0.8
         gxPitchTarget = Math.max(-1.45, Math.min(1.45, gxPitchTarget + (key("up") - key("down")) * dt * 0.6))
+      }
+      if (inView) {
         const zk = key("e") - key("q")
         if (zk !== 0) gxDistGoal = Math.max(gxMinDist(), Math.min(2500, gxDistGoal * Math.pow(2.5, zk * dt)))
         if (zk > 0) gxFallArmed = false
@@ -1378,21 +1416,46 @@ Item {
         u = u.map((v, j) => v - fw[j] * uf)
         const ul = Math.hypot(u[0], u[1], u[2]); u = u.map(v => v / ul)
         F.fwd = fw; F.up = u
+        // looking around (drag, arrows, fallLook): right arrow looks right,
+        // up looks up; eased like the orbit, and back after a pause
+        const lk = [key("right") - key("left"), key("up") - key("down")]
+        if (inView && (lk[0] !== 0 || lk[1] !== 0)) fallLookBy(lk[0] * dt * 0.8, lk[1] * dt * 0.6)
+        gxLookIdle += dt
+        if (!gxLookHold && gxLookIdle > 2.5) {
+          // the short way home: whole turns dropped first
+          const w = Math.round(gxLookYawTarget / (2 * Math.PI)) * 2 * Math.PI
+          gxLookYawTarget -= w; gxLookYaw -= w
+          const d = Math.min(1, dt / 1.5)
+          gxLookYawTarget -= gxLookYawTarget * d
+          gxLookPitchTarget -= gxLookPitchTarget * d
+        }
+        gxLookYaw += (gxLookYawTarget - gxLookYaw) * ek
+        gxLookPitch += (gxLookPitchTarget - gxLookPitch) * ek
+        // the view handed to the shaders: the scripted one turned by the
+        // offset. They take the radial direction from the camera's position,
+        // not from the view, so the observer's frame is untouched.
+        const cy = Math.cos(gxLookYaw), sy = Math.sin(gxLookYaw)
+        const cq = Math.cos(gxLookPitch), sq = Math.sin(gxLookPitch)
+        const rt = [fw[1] * u[2] - fw[2] * u[1], fw[2] * u[0] - fw[0] * u[2], fw[0] * u[1] - fw[1] * u[0]]
+        const f1 = fw.map((v, j) => v * cy + rt[j] * sy)
+        F.lookFwd = f1.map((v, j) => v * cq + u[j] * sq)
+        F.lookUp = u.map((v, j) => v * cq - f1[j] * sq)
         cam = [F.x[0] * r * rsKpc, F.x[1] * r * rsKpc, F.x[2] * r * rsKpc]
         gxDist = r * rsKpc
         gxTarget = [0, 0, 0]
       }
       // only hand the shaders a new camera when it really moved: an unchanged
       // camera lets the galaxy volume skip redrawing (it is the costly pass)
-      const moved = Math.hypot(cam[0] - gxCamPos.x, cam[1] - gxCamPos.y, cam[2] - gxCamPos.z) > gxDist * 1e-5
+      // (falling, the view turns every frame: always)
+      const moved = !!fallState || Math.hypot(cam[0] - gxCamPos.x, cam[1] - gxCamPos.y, cam[2] - gxCamPos.z) > gxDist * 1e-5
                  || Math.abs(fwd.x - gxFwd.x) + Math.abs(fwd.y - gxFwd.y) + Math.abs(fwd.z - gxFwd.z) > 1e-6
       if (moved) gxCamPos = Qt.vector3d(cam[0], cam[1], cam[2])
       gxHoleNear = Math.hypot(cam[0], cam[1], cam[2]) < 1e-5
       if (gxHoleNear) gxCamRs = Qt.vector3d(cam[0] / rsKpc, cam[1] / rsKpc, cam[2] / rsKpc)
       if (moved) {
         if (fallState) {
-          gxFwd = Qt.vector3d(fallState.fwd[0], fallState.fwd[1], fallState.fwd[2])
-          gxUp = Qt.vector3d(fallState.up[0], fallState.up[1], fallState.up[2])
+          gxFwd = Qt.vector3d(fallState.lookFwd[0], fallState.lookFwd[1], fallState.lookFwd[2])
+          gxUp = Qt.vector3d(fallState.lookUp[0], fallState.lookUp[1], fallState.lookUp[2])
           gxRight = gxFwd.crossProduct(gxUp)
         } else {
           gxFwd = fwd
@@ -1917,6 +1980,13 @@ Item {
     function hole(): void {
       if (root.explore !== "galaxy") root.enterGalaxy()
       root.gxB()
+    }
+
+    // falling into Sgr A*: look this far from the scripted view (degrees,
+    // yaw right and pitch up), held until the next drag or arrow; for tests
+    // and filming (a fall that starts after the call resets it)
+    function fallLook(yawDeg: real, pitchDeg: real): void {
+      root.fallLookSet(yawDeg * Math.PI / 180, pitchDeg * Math.PI / 180)
     }
 
     function galactic(): void {
@@ -3045,8 +3115,13 @@ Item {
             lastAt = Qt.point(mouse.x, mouse.y)
           } else if (root.explore === "galaxy" && pressed) {
             if (Math.hypot(mouse.x - pressAt.x, mouse.y - pressAt.y) > 4) dragged = true
-            root.gxYawTarget += (mouse.x - lastAt.x) * 0.005
-            root.gxPitchTarget = Math.max(-1.45, Math.min(1.45, root.gxPitchTarget + (mouse.y - lastAt.y) * 0.004))
+            // falling: look around instead, the view following the drag as
+            // the orbit does (right looks right, down looks down)
+            if (root.fallState) root.fallLookBy((mouse.x - lastAt.x) * 0.005, -(mouse.y - lastAt.y) * 0.004)
+            else {
+              root.gxYawTarget += (mouse.x - lastAt.x) * 0.005
+              root.gxPitchTarget = Math.max(-1.45, Math.min(1.45, root.gxPitchTarget + (mouse.y - lastAt.y) * 0.004))
+            }
             lastAt = Qt.point(mouse.x, mouse.y)
           } else if (root.explore === "system" && pressed) {
             // The scene sticks to the pointer 1:1 and coasts on release. Right-drag
