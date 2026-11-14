@@ -986,10 +986,14 @@ vec3 blackHoleFall(vec3 rd, vec2 uv) {
     // signed distance from the sky's edge, positive on the sky's side: light
     // from the hole (e <= 0) is dark; a ray that was climbing out from
     // below 1.5 Rs needs b < B_CRIT, one that was diving in needs b > B_CRIT
-    float xs = e <= 0.0 ? -1.0 : s < 0.0 ? b / B_CRIT - 1.0 : r < 1.5 ? 1.0 - b / B_CRIT : 1.0;
-    // on screen, the sky lies away from the hole (and the hole may be behind us)
-    vec2 toHole = vec2(dot(-xh, gxRight), -dot(-xh, gxUp));
-    vec2 outward = -normalize(toHole + vec2(1e-9, 0.0));
+    // and to be above 1.5 Rs
+    float xs = e <= 0.0 ? -1.0 : s < 0.0 ? (r < 1.5 ? -1.0 : b / B_CRIT - 1.0) : r < 1.5 ? 1.0 - b / B_CRIT : 1.0;
+    // on screen, the sky lies away from the hole's position (as in
+    // blackHole below; with the hole behind us the projection flips)
+    float fz = dot(-xh, gxFwd);
+    fz = abs(fz) < 1e-6 ? 1e-6 : fz;
+    vec2 cuv = vec2(dot(-xh, gxRight), -dot(-xh, gxUp)) / fz / vec2(resolution.x / resolution.y, 1.0) + 0.5;
+    vec2 outward = normalize(uv - cuv + 1e-9) * sign(fz);
     vec2 texel = 3.0 / resolution;
     float nudge = (xs <= 0.0 ? -2.0 : 2.0) * (1.0 - smoothstep(0.0, 0.15, abs(xs)));
     vec4 traced = texture(holeTex, uv + outward * texel * nudge);

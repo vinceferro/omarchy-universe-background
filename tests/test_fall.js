@@ -91,5 +91,72 @@ while (true) {
 check("time left and r only ever shrink", leftMono && rMono)
 check("the singularity arrives at sEnd (52.7 s on screen)", Math.abs(frames / 165 - F.tl.sEnd) < 0.02, (frames / 165).toFixed(2))
 
+// 6. the shader's exit angle (hole.frag, fall mode): sweepOut / sweepIn /
+//    sweepTurn ported line for line, against a fine quadrature of the same
+//    integral, phi = int du / sqrt(c - u^2 + u^3), for the falling observer
+//    (E of the 6 Rs drop) at every depth and look angle; the 1 % band around
+//    the critical impact parameter winds and is not judged
+const B_CRIT = 2.598076211
+function sweepOut(umax, c) { const h = umax / 48; let acc = 0; for (let i = 0; i < 48; i++) { const u = (i + 0.5) * h; acc += 1 / Math.sqrt(Math.max(c - u * u * (1 - u), 1e-12)) } return acc * h }
+function sweepIn(r, c) { const x0 = Math.sqrt(r), h = (1 - x0) / 24; let acc = 0; for (let i = 0; i < 24; i++) { const x = x0 + (i + 0.5) * h, x2 = x * x; acc += 1 / Math.sqrt(Math.max(1 - x2 + c * x2 * x2 * x2, 1e-12)) } return 2 * acc * h }
+function sweepTurn(u, c, diving) {
+  const ua = 1 / 3 + 2 / 3 * Math.cos(Math.acos(Math.max(-1, Math.min(1, 1 - 13.5 * c))) / 3 - 2.0943951)
+  const tu = Math.sqrt(Math.max(1 - u / ua, 0)), h1 = 1 / 32, h2 = tu / 32
+  let a1 = 0, a2 = 0
+  for (let i = 0; i < 32; i++) {
+    let t = (i + 0.5) * h1, q = ua * (1 - t * t); a1 += 1 / Math.sqrt(Math.max(-q * q + (1 - ua) * q + ua * (1 - ua), 1e-12))
+    t = (i + 0.5) * h2; q = ua * (1 - t * t); a2 += 1 / Math.sqrt(Math.max(-q * q + (1 - ua) * q + ua * (1 - ua), 1e-12))
+  }
+  return 2 * Math.sqrt(ua) * (a1 * h1 + (diving ? a2 * h2 : -a2 * h2))
+}
+// the look direction's ray (the tetrad formulas) -> dark | lost | its exit angle
+function shaderExit(E, r, ang) {
+  const f = 1 - 1 / r, vr = Math.cos(ang), nt = Math.max(Math.abs(Math.sin(ang)), 1e-3)
+  const w = Math.sqrt(Math.max(E * E - f, 0)), n1 = -vr, e = E - n1 * w
+  if (e <= 0) return { dark: true }
+  const s = w - n1 * E, c = e * e / (r * r * nt * nt), b = r * nt / e
+  let phi = -1
+  if (r * nt < B_CRIT * e) { if (s > 0) phi = sweepOut(Math.min(1 / r, 1), c) + (r < 1 ? sweepIn(r, c) : 0) }
+  else if (r >= 1.5) phi = sweepTurn(1 / r, c, s < 0)
+  return phi < 0 ? { lost: true, b: b, s: s } : { phi: phi, b: b, s: s }
+}
+// reference: 2e5 samples on each smooth stretch (log-spaced where u > 1,
+// the t = sqrt(1 - u/ua) substitution round a turning point)
+function refSweep(u, c, diving) {
+  const N = 200000
+  const P = x => c - x * x + x * x * x
+  if (c > 4 / 27) {
+    const a = Math.min(u, 1); let s = 0
+    for (let i = 0; i < N; i++) { const x = (i + 0.5) / N * a; s += 1 / Math.sqrt(P(x)) } s *= a / N
+    if (u > 1) { const L = Math.log(u); let t = 0; for (let i = 0; i < N; i++) { const x = Math.exp(L * (i + 0.5) / N); t += x / Math.sqrt(P(x)) } s += t * L / N }
+    return s
+  }
+  const ua = 1 / 3 + 2 / 3 * Math.cos(Math.acos(1 - 13.5 * c) / 3 - 2 * Math.PI / 3)
+  const Q = v => -v * v + (1 - ua) * v + ua * (1 - ua)
+  const tu = Math.sqrt(Math.max(1 - u / ua, 0))
+  let a1 = 0, a2 = 0
+  for (let i = 0; i < N; i++) { a1 += 1 / Math.sqrt(Q(ua * (1 - ((i + 0.5) / N) ** 2))); a2 += 1 / Math.sqrt(Q(ua * (1 - (tu * (i + 0.5) / N) ** 2))) }
+  return 2 * Math.sqrt(ua) * (a1 / N + (diving ? a2 * tu / N : -a2 * tu / N))
+}
+let worstExit = 0, worstAt = "", nExit = 0, badClass = 0
+for (const r of [6, 3, 1.6, 1.4, 1.0, 0.5, 0.2, 0.05, 0.03]) {
+  for (let ang = 0.05; ang < Math.PI; ang += 0.11) {
+    const o = shaderExit(tl.E, r, ang)
+    if (o.dark) continue
+    // the classification universe.frag draws the sky's edge from: climbing
+    // below 1.5 Rs needs b < B_CRIT, diving needs b > B_CRIT and r >= 1.5
+    const sky = o.s < 0 ? (r >= 1.5 && o.b > B_CRIT) : (r >= 1.5 || o.b < B_CRIT)
+    if (sky === !!o.lost) badClass++
+    if (o.lost || Math.abs(o.b / B_CRIT - 1) < 0.01) continue
+    nExit++
+    const d = Math.abs(o.phi - refSweep(1 / r, 1 / (o.b * o.b), o.s < 0)) * 180 / Math.PI
+    if (d > worstExit) { worstExit = d; worstAt = "r " + r + " look " + (ang * 180 / Math.PI).toFixed(0) + " deg" }
+  }
+}
+check("exit angle: sky / lost as universe.frag's edge says", badClass === 0, badClass)
+check("exit angle within 0.1 deg of the exact integral (" + nExit + " rays)", worstExit < 0.1, worstExit.toFixed(4) + " deg at " + worstAt)
+// at rest at 6 Rs the falling frame is the hovering one: a ray b = r sin(a) / sqrt(f) off the radial
+check("letting go at 6 Rs: the hovering view (sin a / sqrt f, hardly bent)", Math.abs(shaderExit(tl.E, 6, 0.05).phi - Math.asin(Math.sin(0.05) / Math.sqrt(5 / 6))) < 5e-4, shaderExit(tl.E, 6, 0.05).phi.toFixed(5))
+
 console.log(fails ? fails + " FAILED" : "all passed")
 process.exit(fails ? 1 : 0)

@@ -179,7 +179,7 @@ angular size, north up. Near the Sun the model blends into the real sky.
 | `Tab` / `Shift+Tab` | next / previous place |
 | click | fly to the place under the pointer |
 | `0` | back to the Sun |
-| `B` | the black hole at the centre, parked at 6 Schwarzschild radii; `B` again (or one more scroll in) lets go and falls in |
+| `B` | the black hole at the centre; `B` again goes down to 6 Schwarzschild radii, and parked there `B` (or one more scroll in) lets go and falls in |
 | drag / arrows | orbit the camera |
 | scroll / `Q` `E` | closer / farther |
 | `W` `A` `S` `D` | fly freely, level with the disk |
@@ -209,7 +209,8 @@ light does not reach us through the dust at all. The gas motion is also
 sped up 30 times so an orbit at the innermost stable radius takes about a
 minute rather than half an hour.
 
-**The fall.** Parked at 6 Rs, `B` again lets go (so does one more scroll in,
+**The fall.** `B` flies to the hole and `B` again down to 6 Rs; parked
+there, `B` lets go (so does one more scroll in,
 and so does free flight that carries the camera below the horizon: there is
 no flying through). The camera is then in radial free fall from rest at 6 Rs
 (`lib/fall.js`): the way down to the photon sphere is shown 45 times faster
@@ -217,7 +218,7 @@ than real, the last stretch to the horizon in 4 s, and the inside at the
 true rate, 28.7 s of proper time for 4.15 million solar masses (the most any
 observer can last below the horizon is pi GM/c^3 = 64 s, with an ideal
 rocket). The ray tracer takes the falling observer's frame: aberration
-shrinks the shadow to a 46 degree disc at the horizon, and once inside the
+shrinks the shadow to a disc 46 degrees in radius at the horizon, and once inside the
 dark fills the half of the sky toward the centre while the outside squeezes
 into an ever thinner, blueshifted band on the horizon line, red and dim
 straight behind. Near the singularity the screen fades to black, holds two

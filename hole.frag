@@ -35,12 +35,14 @@
 //   s = sqrt(E^2 - f) - n_r E       sign: traced backward, does it climb (> 0)?
 // with n the direction the light travels (opposite to the look direction),
 // n_r its outward radial part and n_t its transverse part. e <= 0 is light
-// that would have to come out of the hole: dark. The same tracer then
-// follows the ray from (b, s): its shape equation holds inside the horizon
-// too. Below 1.5 Rs any ray heading inward is lost. Rays that climb out
-// report the direction they left along, as an angle from the outward
-// radial in the ray's own plane (a); universe.frag reads the sky there and
-// applies the frequency shift 1/e: blue toward the horizon line, red behind.
+// that would have to come out of the hole: dark. Below 1.5 Rs any ray
+// heading inward is lost, and so is one with b > B_CRIT. Where a ray left
+// is not left to the step-limited march (from deep inside, rays crawl out
+// too slowly for 200 steps): it is the exact integral of the shape
+// equation, phi = ∫ du / sqrt(1/b^2 - u^2 + u^3) along the ray, as an angle
+// from the outward radial in the ray's own plane (a). universe.frag reads
+// the sky there and applies the frequency shift 1/e: blue toward the
+// horizon line, red behind. The march then only collects the gas's light.
 
 layout(location = 0) in vec2 qt_TexCoord0;
 layout(location = 0) out vec4 fragColor;
@@ -62,6 +64,46 @@ layout(std140, binding = 0) uniform buf {
 
 const float R_OUT = 60.0;   // beyond this, bending is left to the weak-field formula
 const float R_IN = 1.0;     // the horizon
+const float B_CRIT = 2.598076211;   // 3 sqrt(3) / 2: the impact parameter of the photon sphere
+
+// The fall's exit angle: the midpoint rule on stretches of the ray's path
+// chosen so that the integrand stays smooth (u = 1/r, c = 1/b^2; checked
+// against a fine reference in tests/test_fall.js).
+// from infinity in to u = umax (<= 1) with no turning point on the way
+float sweepOut(float umax, float c) {
+    float h = umax / 48.0, acc = 0.0;
+    for (int i = 0; i < 48; i++) {
+        float u = (float(i) + 0.5) * h;
+        acc += inversesqrt(max(c - u * u * (1.0 - u), 1e-12));
+    }
+    return acc * h;
+}
+// on from the horizon (u = 1) down to r < 1: with u = 1/x^2 the integrand
+// is 2 / sqrt(1 - x^2 + c x^6), x from sqrt(r) to 1
+float sweepIn(float r, float c) {
+    float x0 = sqrt(r), h = (1.0 - x0) / 24.0, acc = 0.0;
+    for (int i = 0; i < 24; i++) {
+        float x = x0 + (float(i) + 0.5) * h, x2 = x * x;
+        acc += inversesqrt(max(1.0 - x2 + c * x2 * x2 * x2, 1e-12));
+    }
+    return 2.0 * acc * h;
+}
+// b > B_CRIT outside the photon sphere: the ray turns at ua, the smallest
+// root of u^3 - u^2 + c; the whole sweep is 2 ∫_0^ua, minus (climbing) or
+// plus (diving) ∫_u^ua. With u = ua (1 - t^2) the square-root end is
+// smooth: ∫ du / sqrt(P) = 2 sqrt(ua) ∫ dt / sqrt(Q), Q = P / (ua - u)
+float sweepTurn(float u, float c, bool diving) {
+    float ua = 1.0 / 3.0 + 2.0 / 3.0 * cos(acos(clamp(1.0 - 13.5 * c, -1.0, 1.0)) / 3.0 - 2.0943951);
+    float tu = sqrt(max(1.0 - u / ua, 0.0));
+    float h1 = 1.0 / 32.0, h2 = tu / 32.0, a1 = 0.0, a2 = 0.0;
+    for (int i = 0; i < 32; i++) {
+        float t = (float(i) + 0.5) * h1, q = ua * (1.0 - t * t);
+        a1 += inversesqrt(max(-q * q + (1.0 - ua) * q + ua * (1.0 - ua), 1e-12));
+        t = (float(i) + 0.5) * h2; q = ua * (1.0 - t * t);
+        a2 += inversesqrt(max(-q * q + (1.0 - ua) * q + ua * (1.0 - ua), 1e-12));
+    }
+    return 2.0 * sqrt(ua) * (a1 * h1 + (diving ? a2 * h2 : -a2 * h2));
+}
 
 float hash31(vec3 p) {
     p = fract(p * 0.1031);
@@ -107,25 +149,31 @@ void main() {
     vec3 v0 = v;
     vec3 x = camPos;
     // the falling camera: the ray this look direction really belongs to
-    vec3 xh = vec3(0.0), th = vec3(0.0);
+    float fallPhi = -1.0;   // its exit angle (-1: no sky this way)
     if (fallE > 0.0) {
         float r = length(x);
-        xh = x / r;
+        vec3 xh = x / r;
         float f = 1.0 - 1.0 / r;
         float vr = dot(v, xh);
         vec3 vt = v - xh * vr;
         float nt = length(vt);
-        th = nt > 1e-4 ? vt / nt : normalize(cross(xh, abs(xh.x) < 0.9 ? vec3(1, 0, 0) : vec3(0, 1, 0)));
+        vec3 th = nt > 1e-4 ? vt / nt : normalize(cross(xh, abs(xh.x) < 0.9 ? vec3(1, 0, 0) : vec3(0, 1, 0)));
         nt = max(nt, 1e-3);
         float w = sqrt(max(fallE * fallE - f, 0.0));   // the observer's speed, dr/dtau
         float n1 = -vr;                                 // the light's outward component
         float e = fallE - n1 * w;
         if (e <= 0.0) { fragColor = vec4(0.0, 0.0, 0.0, -1.0); return; }
         float s = w - n1 * fallE;
-        // start direction in Schwarzschild space with that impact parameter:
-        // transverse speed 1, radial speed from (dr/dphi)^2 = r^2 (r^2/b^2 - f)
-        float rb = e / nt;
-        v = xh * (sign(s) * sqrt(max(rb * rb - f, 0.0))) + th;
+        float c = e * e / (r * r * nt * nt);            // 1/b^2
+        // where the ray left, exactly; a lost ray never climbs past 1.5 Rs,
+        // so it sees no gas either
+        if (r * nt < B_CRIT * e) { if (s > 0.0) fallPhi = sweepOut(min(1.0 / r, 1.0), c) + (r < 1.0 ? sweepIn(r, c) : 0.0); }
+        else if (r >= 1.5) fallPhi = sweepTurn(1.0 / r, c, s < 0.0);
+        if (fallPhi < 0.0) { fragColor = vec4(0.0, 0.0, 0.0, -1.0); return; }
+        // the march for the gas starts along that ray: transverse speed 1,
+        // radial speed from (dr/dphi)^2 = r^2 (r^2/b^2 - f), the whole scaled
+        // to unit speed far out so the steps below keep their meaning
+        v = (xh * (sign(s) * sqrt(max(r * r * c - f, 0.0))) + th) * (nt / e);
     }
 
     // start where the ray enters the region of strong bending
@@ -149,9 +197,11 @@ void main() {
         float r = length(x);
         if (fallE > 0.0 ? (r < 1.5 && dot(x, v) < 0.0) : (r < R_IN)) { fell = true; break; }
         if (r > R_OUT + 1.0 && dot(x, v) > 0.0) break;
-        // smaller steps near the hole, where paths curve hardest (and finer
-        // still below the horizon, where the fall's rays start)
-        float dt = (fallE > 0.0 && r < 1.0 ? max(0.004, 0.05 * r) : clamp(0.11 * (r - 0.9), 0.025, 3.0)) * (i == 0 ? jitter + 0.5 : 1.0);
+        // smaller steps near the hole, where paths curve hardest; the fall's
+        // rays can be fast near the centre, so there the steps go by distance
+        float dt = clamp(0.11 * (r - 0.9), 0.025, 3.0);
+        if (fallE > 0.0) dt = (r < 1.5 ? 0.05 * r : dt) / max(length(v), 1.0);
+        dt *= (i == 0 ? jitter + 0.5 : 1.0);
         // velocity Verlet on a = -3/2 h^2 x / r^5
         float r2 = r * r;
         vec3 a0 = -1.5 * h2 * x / (r2 * r2 * r);
@@ -181,13 +231,7 @@ void main() {
             L += tint * j * boost * dl * 1.6;
         }
     }
-    if (fallE > 0.0) {
-        // where the ray left: its angle from the outward radial, in its plane
-        vec3 d = normalize(v);
-        float phi = atan(dot(d, th), dot(d, xh));
-        fragColor = vec4(L, fell ? -1.0 : (phi < 0.0 ? phi + 6.2831853 : phi));
-        return;
-    }
+    if (fallE > 0.0) { fragColor = vec4(L, fallPhi); return; }
     float bend = acos(clamp(dot(normalize(v), v0), -1.0, 1.0));
     fragColor = vec4(L, fell ? -1.0 : bend);
 }
