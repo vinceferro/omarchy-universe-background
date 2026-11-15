@@ -1,7 +1,10 @@
-// numeric checks for fall.js (run with node; strips the QML pragma)
-const fs = require("fs")
-const src = fs.readFileSync(process.argv[2], "utf8").replace(".pragma library", "")
-const Fall = new Function(src + "\nreturn { GM_C3, RS_C, TAU_MAX_INSIDE, S_PHOTON, S_HORIZON, timeline, tauAtR, rAt, speedAt, tau, rate, sAtTau, begin, step };")()
+// numeric checks for fall.js (run with node; strips the QML pragma and the
+// .import of its sibling kerr.js, which is prepended instead)
+const fs = require("fs"), path = require("path")
+const kerrSrc = fs.readFileSync(path.join(path.dirname(process.argv[2]), "kerr.js"), "utf8").replace(".pragma library", "")
+const src = fs.readFileSync(process.argv[2], "utf8").replace(".pragma library", "").replace(/^\.import .*$/m, "")
+const Fall = new Function(kerrSrc + "\nconst Kerr = { horizons, polarPhotonOrbit, axisEnergyFromRest, axisSpeed, axisFall, tableR, tableTau };\n" + src
+  + "\nreturn { GM_C3, RS_C, TAU_MAX_INSIDE, S_PHOTON, S_HORIZON, S_OTHER, E_MATH, R_END_MATH, T_INNER, timeline, tauAtR, rAt, speedAt, tau, rate, sAtTau, phase, begin, step };")()
 let fails = 0
 function check(name, ok, info) { console.log((ok ? "ok   " : "FAIL ") + name + (info !== undefined ? "  " + info : "")); if (!ok) fails++ }
 
@@ -91,11 +94,12 @@ while (true) {
 check("time left and r only ever shrink", leftMono && rMono)
 check("the singularity arrives at sEnd (52.7 s on screen)", Math.abs(frames / 165 - F.tl.sEnd) < 0.02, (frames / 165).toFixed(2))
 
-// 6. the shader's exit angle (hole.frag, fall mode): sweepOut / sweepIn /
-//    sweepTurn ported line for line, against a fine quadrature of the same
-//    integral, phi = int du / sqrt(c - u^2 + u^3), for the falling observer
-//    (E of the 6 Rs drop) at every depth and look angle; the 1 % band around
-//    the critical impact parameter winds and is not judged
+// 6. the Schwarzschild exit angle (the sweepOut / sweepIn / sweepTurn of the
+//    old hole.frag, kept here as the a = 0 reference that test_kerr.js's
+//    march is held to), against a fine quadrature of the same integral,
+//    phi = int du / sqrt(c - u^2 + u^3), for the falling observer (E of the
+//    6 Rs drop) at every depth and look angle; the 1 % band around the
+//    critical impact parameter winds and is not judged
 const B_CRIT = 2.598076211
 function sweepOut(umax, c) { const h = umax / 48; let acc = 0; for (let i = 0; i < 48; i++) { const u = (i + 0.5) * h; acc += 1 / Math.sqrt(Math.max(c - u * u * (1 - u), 1e-12)) } return acc * h }
 function sweepIn(r, c) { const x0 = Math.sqrt(r), h = (1 - x0) / 24; let acc = 0; for (let i = 0; i < 24; i++) { const x = x0 + (i + 0.5) * h, x2 = x * x; acc += 1 / Math.sqrt(Math.max(1 - x2 + c * x2 * x2 * x2, 1e-12)) } return 2 * acc * h }
@@ -294,6 +298,63 @@ let worstEdge = 0, worstEdgeAt = 0
 for (let r0 = 1.001; r0 < 60; r0 *= 1.002) { const I = hoverGlow(r0, 3); if (I > worstEdge) { worstEdge = I; worstEdgeAt = r0 } }
 const edgeE = Math.sqrt(1 - 1 / worstEdgeAt), edgeRef = refLeg(Math.min(worstEdgeAt, 5), 1, edgeE, edgeE * B_CRIT * 0.999, 1)
 check("the edge ray at its brightest hover radius matches the fine quadrature within 3 %", Math.abs(worstEdge / edgeRef - 1) < 0.03 && worstEdge < 0.02, worstEdge.toExponential(3) + " at r0 " + worstEdgeAt.toFixed(3) + ", ref " + edgeRef.toExponential(3))
+
+// 8. the spinning hole (a/M = 0.94, the EHT 2022 best-bet; lib/kerr.js's
+//    table): the same timeline shape with the knots at the polar photon orbit
+//    and r+, real time between the horizons, the end at r-; and the
+//    mathematics mode's plunge through the disk, compressed on the far side
+const A = 0.47
+const tk = Fall.timeline(6, A)
+check("chi = 0.94: E = 0.9134 from rest at 6 Rs", Math.abs(tk.E - 0.91343) < 1e-5, tk.E.toFixed(5))
+check("chi = 0.94: knots at the polar photon orbit (1.2535) and r+ (0.6706)", Math.abs(tk.rPhoton - 1.2535) < 1e-4 && Math.abs(tk.rPlus - 0.6706) < 1e-4)
+check("chi = 0.94: the drop ends at r- (0.3294), 961 s of proper time", tk.rEnd === tk.rMinus && Math.abs(tk.tauEnd - 960.9) < 0.1, tk.tauEnd.toFixed(1))
+check("chi = 0.94: 14.9 s between the horizons, on screen 24 + 14.9 s", Math.abs(tk.tauEnd - tk.tauHorizon - 14.90) < 0.01 && Math.abs(tk.sEnd - (24 + tk.tauEnd - tk.tauHorizon)) < 1e-9, (tk.tauEnd - tk.tauHorizon).toFixed(2))
+check("chi = 0.94: r(0) = 6, r(tauHorizon) = r+, r(tauEnd) = r-", Fall.rAt(tk, 0) === 6 && Math.abs(Fall.rAt(tk, tk.tauHorizon) - tk.rPlus) < 1e-9 && Fall.rAt(tk, tk.tauEnd) === tk.rMinus)
+check("chi = 0.94: tau(20 s) is the photon orbit, tau(24 s) is r+", Math.abs(Fall.tau(tk, 20) - tk.tauPhoton) < 1e-9 && Math.abs(Fall.tau(tk, 24) - tk.tauHorizon) < 1e-9)
+let kMono = true, kC1 = 0, kPrev = Fall.rate(tk, 0), kInv = 0, kV = 0
+for (let s = 0.001; s <= tk.sEnd; s += 0.001) {
+  if (Fall.tau(tk, s) <= Fall.tau(tk, s - 0.001)) kMono = false
+  const rt = Fall.rate(tk, s); kC1 = Math.max(kC1, Math.abs(rt - kPrev)); kPrev = rt
+}
+for (let r = 0.34; r <= 6; r += 0.07) {
+  kInv = Math.max(kInv, Math.abs(Fall.rAt(tk, Fall.tauAtR(tk, r)) - r))
+  const h = 1e-3, t0 = Fall.tauAtR(tk, r)
+  kV = Math.max(kV, Math.abs((Fall.rAt(tk, t0 - h) - Fall.rAt(tk, t0 + h)) / (2 * h) * Fall.RS_C - Fall.speedAt(tk, r)))
+}
+check("chi = 0.94: tau(s) strictly increasing, rate without jumps", kMono && kC1 < 0.1, kC1.toFixed(4))
+check("chi = 0.94: r(tau(r)) round trip, speed = sqrt(E^2 - 1 + 2Mr/(r^2+a^2))", kInv < 1e-7 && kV < 1e-4, kInv.toExponential(1) + " " + kV.toExponential(1))
+check("chi = 0.94: at r+ the fall is at 0.91 c; the clock runs in real time there", Math.abs(Fall.speedAt(tk, tk.rPlus) - Math.sqrt(1 - 1e-12)) < 0.1 && Fall.rate(tk, 30) === 1)
+// phases
+check("phases: falling above r+, outer-horizon between, inner-horizon in the last seconds", Fall.phase(tk, 2, 0) === "falling" && Fall.phase(tk, 0.5, Fall.tauAtR(tk, 0.5)) === "outer-horizon" && Fall.phase(tk, 0.34, tk.tauEnd - 0.5) === "inner-horizon" && Fall.phase(tk, 0.5, tk.tauEnd - Fall.T_INNER - 0.5) === "outer-horizon")
+const Fk = Fall.begin(6, A)
+let lastPhase = "", order = [], innerSeen = 0
+for (let i = 0; i < 165 * 60; i++) { const o = Fall.step(Fk, 1 / 165); if (o.phase !== lastPhase) { order.push(o.phase); lastPhase = o.phase } if (o.phase === "inner-horizon" && o.left >= 2.2) innerSeen += 1 / 165; if (o.left === 0) break }
+check("stepping the realistic fall: falling -> outer-horizon -> inner-horizon, ends at r-", order.join(" ") === "falling outer-horizon inner-horizon" && Math.abs(Fk.s - tk.sEnd) < 0.02, order.join(" ") + ", " + Fk.s.toFixed(2) + " s on screen")
+// Background.qml starts the fade when 2.2 s are left and stops taking phases
+// then: the inner horizon must be reported for a readable while before that
+check("realistic: inner-horizon is reported for > 1.5 s before the fade begins", innerSeen > 1.5 && innerSeen < Fall.T_INNER, innerSeen.toFixed(2) + " s")
+check("a = 0 through the general path gives the cycloid's numbers", Math.abs(Fall.timeline(6, 0).tauEnd - tl.tauEnd) < 1e-12 && Fall.timeline(6, 0).rPhoton === 1.5)
+// the mathematics mode
+const tm = Fall.timeline(6, A, true)
+check("math: E = 1.5, the plunge ends at -12 Rs", tm.E === Fall.E_MATH && tm.rEnd === Fall.R_END_MATH && tm.math)
+check("math: r+ to r- 9.2 s, r- to the disk 10.0 s, real time to the disk", Math.abs(tm.tauInner - tm.tauHorizon - 9.2) < 0.1 && Math.abs(tm.tauReal - tm.tauInner - 10.0) < 0.1 && Fall.rate(tm, 30) === 1, (tm.tauInner - tm.tauHorizon).toFixed(2) + " " + (tm.tauReal - tm.tauInner).toFixed(2))
+check("math: the far side (hundreds of seconds to -12 Rs) is shown in 20 s", Math.abs(tm.sEnd - tm.sReal - Fall.S_OTHER) < 1e-9 && tm.tauEnd - tm.tauReal > 300, (tm.tauEnd - tm.tauReal).toFixed(0) + " s")
+check("math: tau(sReal) = the disk, tau(sEnd) = the end, r there -12", Math.abs(Fall.tau(tm, tm.sReal) - tm.tauReal) < 1e-9 && Math.abs(Fall.tau(tm, tm.sEnd) - tm.tauEnd) < 1e-9 && Fall.rAt(tm, tm.tauEnd) === -12 && Math.abs(Fall.rAt(tm, tm.tauReal)) < 1e-9)
+let mMono = true, mC1 = 0, mPrev = Fall.rate(tm, 0), mS = 0
+for (let s = 0.001; s <= tm.sEnd; s += 0.001) {
+  if (Fall.tau(tm, s) <= Fall.tau(tm, s - 0.001)) mMono = false
+  const rt = Fall.rate(tm, s); mC1 = Math.max(mC1, Math.abs(rt - mPrev)); mPrev = rt
+}
+for (let s = 0; s < tm.sEnd; s += 0.37) mS = Math.max(mS, Math.abs(Fall.sAtTau(tm, Fall.tau(tm, s)) - s))
+check("math: tau(s) strictly increasing and C1 across the disk, s(tau(s)) round trip", mMono && mC1 < 0.1 && mS < 1e-7, mC1.toFixed(4) + " " + mS.toExponential(1))
+check("math: the rate is 1 just before the disk and climbs after it (the far side compressed)", Math.abs(Fall.rate(tm, tm.sReal - 1e-6) - 1) < 1e-4 && Fall.rate(tm, tm.sReal + 5) > 2)
+const Fm = Fall.begin(6, A, true)
+lastPhase = ""; order = []
+let rMin = 7, rMonoM = true, lastRm = 7
+for (let i = 0; i < 165 * 90; i++) { const o = Fall.step(Fm, 1 / 165); if (o.phase !== lastPhase) { order.push(o.phase); lastPhase = o.phase } if (o.r > lastRm + 1e-12) rMonoM = false; lastRm = o.r; rMin = Math.min(rMin, o.r); if (o.left === 0) break }
+check("stepping the plunge: falling -> outer-horizon -> inner-horizon -> ring -> other-universe, r monotone to -12", order.join(" ") === "falling outer-horizon inner-horizon ring other-universe" && rMonoM && rMin === -12, order.join(" ") + ", r min " + rMin)
+check("math: on screen about a minute", Math.abs(Fm.s - tm.sEnd) < 0.02 && tm.sEnd > 55 && tm.sEnd < 70, tm.sEnd.toFixed(1) + " s")
+check("math: the crossing joins the plunge where free flight crossed (begin at 0.6)", Fall.begin(0.6, A, true).tl.math && Math.abs(Fall.rAt(tm, Fall.tau(tm, Fall.begin(0.6, A, true).s)) - 0.6) < 1e-6)
 
 console.log(fails ? fails + " FAILED" : "all passed")
 process.exit(fails ? 1 : 0)

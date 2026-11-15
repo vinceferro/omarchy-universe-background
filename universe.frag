@@ -86,6 +86,10 @@ layout(std140, binding = 0) uniform buf {
     vec4 galFlow;    // galactic view: interstellar dust drift (xy offset), direction it streams (zw)
     float gxFallE;   // > 0: the camera is falling into Sgr A* with this energy per unit mass (hole.frag)
     float gxFallFade; // 0..1: the fall's fade to black (and back, beside the Sun)
+    vec3 gxSpinAxis; // Sgr A*'s spin axis (world frame, unit): the gas's rotation axis, the fall's line
+    float gxSpin;    // its spin a, in Schwarzschild radii (a/M = 2a; 0: Schwarzschild)
+    float gxCamSheet; // +1; -1 once the falling camera is through the disk, on the r < 0 sheet (math mode)
+    vec2 holeRes;    // the hole tracer's layer size, px
 };
 
 // NASA maps, equirectangular: Blue Marble (day), Black Marble (night lights),
@@ -94,13 +98,13 @@ layout(binding = 2) uniform sampler2D earthDay;
 layout(binding = 3) uniform sampler2D earthNight;
 layout(binding = 4) uniform sampler2D moonTex;
 layout(binding = 5) uniform sampler2D galaxyTex; // galaxy.frag: rgb light, a = transmittance
-layout(binding = 6) uniform sampler2D holeTex;
+layout(binding = 6) uniform sampler2D holeTex;   // hole.frag: the ray's bend vector, the gas's light and shift (see holeKind)
 // the real sky (NASA SVS Deep Star Maps 2020, galactic): Sky mode, and the
 // galaxy view near the Sun
 layout(binding = 8) uniform sampler2D skyFull;
 layout(binding = 9) uniform sampler2D skyStatic;  // Sky mode: the 5K render of the named view
 layout(binding = 10) uniform sampler2D photoAtlas; // real photos of the places, 4 x 4 tiles
-layout(binding = 11) uniform sampler2D photoHi;    // the chosen place's own 2048 px photo   // hole.frag: rgb flow light, a = ray bending (-1: fell in)
+layout(binding = 11) uniform sampler2D photoHi;    // the chosen place's own 2048 px photo
 
 // rgb: soft sky, a: star density (see nebula.frag), rendered OVERSCAN times
 // larger than the screen
@@ -918,21 +922,162 @@ vec3 hotspotLook(vec3 rd, float t) {
 }
 
 // ---- Sagittarius A*, up close ------------------------------------------------
-// A Schwarzschild black hole of 4.3 million Suns at the origin. Rays from the
-// camera that pass inside the critical impact parameter (3 sqrt(3)/2 Rs) fall
-// in: the shadow. The rest are bent toward the hole, weakly far out (2 Rs/b)
-// and without limit near the photon sphere (strong-deflection limit, Bozza
-// 2002), so the stars and the galaxy's glow behind it wrap into an Einstein
-// ring and mirrored images. Around the shadow, the faint hot gas glows in a
-// lopsided, flickering ring, as in the Event Horizon Telescope image.
+// A Kerr black hole of 4.3 million Suns at the origin, spin a/M = gxSpin / M
+// about gxSpinAxis (0.94, the EHT 2022 best-bet model; uncertain). hole.frag
+// traces every pixel's ray at a third of the resolution and hands over where
+// it left (a bend vector), the gas's light and its shift. Here, at full
+// resolution, the same camera frame gives each look direction its constants
+// of motion (E, L_z, Carter's K) in Kerr-Schild coordinates, and the radial
+// potential R(r) = (E (r^2 + a^2) - a L_z)^2 - Delta (Q + (L_z - a E)^2) says
+// exactly whether the ray reaches the sky: a backward ray that climbs escapes
+// iff R / r^4 > 0 at every critical point above the camera; one that dives
+// escapes iff R / r^4 < 0 at some critical point between r+ and the camera.
+// R has no r^3 term, so the critical points are the two roots of a
+// quadratic: the shadow's edge (D-shaped at high spin, seen from the side)
+// is a closed form here, the tracer is read only from the sky's side of it,
+// and the photon ring is drawn on it. Rays far from the hole bend by the
+// weak-field series (2 Rs/b, Keeton & Petters 2005). Same functions as
+// hole.frag; lib/kerr.js has them in JS with the tests.
 const float RS_KPC = 4.11e-10;      // Schwarzschild radius, kpc (0.085 AU)
-const float B_CRIT = 2.5980762;     // critical impact parameter, in Rs
+const float HM = 0.5;               // the hole's mass, in Rs
+
+struct KSL { float r; float f; vec3 l; vec3 dr; float A; float D; };
+float ksRadius(vec3 x, float a, float sheet) {
+    float d = dot(x, x) - a * a;
+    float S = sqrt(d * d + 4.0 * a * a * x.z * x.z);
+    float r2 = d >= 0.0 ? 0.5 * (d + S) : 2.0 * a * a * x.z * x.z / (S - d);
+    return sheet * sqrt(r2);
+}
+// r, f, l and dr/dx at x (no second derivatives: no march here)
+KSL ksLite(vec3 x, float a, float sheet) {
+    KSL m;
+    float r = ksRadius(x, a, sheet);
+    if (abs(r) < 1e-5) r = sheet * 1e-5;
+    float r2 = r * r, r3 = r2 * r;
+    m.A = r2 + a * a;
+    m.D = max(r2 * r2 + a * a * x.z * x.z, 1e-12);
+    m.f = 2.0 * HM * r3 / m.D;
+    float cz = (r2 > 1e-6 || a == 0.0) ? x.z / r : sign(x.z) * sign(r) * sqrt(max(0.0, (r2 - dot(x, x) + a * a) / (a * a)));
+    m.l = vec3((r * x.x + a * x.y) / m.A, (r * x.y - a * x.x) / m.A, cz);
+    m.dr = vec3(r3 * x.x, r3 * x.y, r * x.z * m.A) / m.D;
+    m.r = r;
+    return m;
+}
+vec4 ksLower(KSL m, vec4 V) {
+    float lv = V.x + dot(m.l, V.yzw);
+    return vec4(-V.x + m.f * lv, V.yzw + m.f * m.l * lv);
+}
+// the camera's frame (a boost of the Kerr-Schild tetrad to u) and the photon
+// seen in look direction v, as in hole.frag: k_m, with k_t = -E
+vec4 ksCameraRay(KSL m, vec4 u, vec3 v) {
+    float f2 = 0.5 * m.f;
+    vec4 e0 = vec4(1.0 + f2, -f2 * m.l);
+    vec4 e1 = vec4(f2 * m.l.x, vec3(1.0, 0.0, 0.0) - f2 * m.l.x * m.l);
+    vec4 e2 = vec4(f2 * m.l.y, vec3(0.0, 1.0, 0.0) - f2 * m.l.y * m.l);
+    vec4 e3 = vec4(f2 * m.l.z, vec3(0.0, 0.0, 1.0) - f2 * m.l.z * m.l);
+    vec4 ul = ksLower(m, u);
+    float gamma = -dot(ul, e0);
+    vec3 beta = vec3(dot(ul, e1), dot(ul, e2), dot(ul, e3)) / gamma;
+    float b2 = dot(beta, beta);
+    vec4 be = beta.x * e1 + beta.y * e2 + beta.z * e3;
+    float k1 = b2 > 1e-12 ? (gamma - 1.0) / b2 : 0.0;
+    vec4 E1 = e1 + (k1 * beta.x) * be + (gamma * beta.x) * e0;
+    vec4 E2 = e2 + (k1 * beta.y) * be + (gamma * beta.y) * e0;
+    vec4 E3 = e3 + (k1 * beta.z) * be + (gamma * beta.z) * e0;
+    return ksLower(m, u - v.x * E1 - v.y * E2 - v.z * E3);
+}
+// the shadow's edge: signed, positive on the sky's side, (b^2/B_CRIT^2 - 1)/2
+// at a = 0 near the edge. P(r) = R(r) / (E^2 r^4) and its critical points,
+// the roots of 2 c2 r^2 + 3 c1 r + 4 c0 = 0 with R = E^2 r^4 + c2 r^2 + c1 r + c0
+float radialClass(float E, float Lz, float Kc, float a, float rCam, bool climbing, float rPlus) {
+    if (E <= 0.0) return -1.0;
+    float A0 = E * a * a - a * Lz;
+    float c2 = 2.0 * E * A0 - Kc, c1 = 2.0 * HM * Kc, c0 = A0 * A0 - a * a * Kc;
+    float qa = 2.0 * c2, qb = 3.0 * c1, qc = 4.0 * c0;
+    float lo = climbing ? rCam : rPlus, hi = climbing ? 1e30 : rCam;
+    float m = 1e30;
+    float disc = qb * qb - 4.0 * qa * qc;
+    if (abs(qa) < 1e-9 * (abs(qb) + abs(qc))) {
+        if (qb != 0.0) { float r = -qc / qb; if (r > lo && r < hi) m = min(m, ((E * E * r * r * r * r + c2 * r * r + c1 * r + c0) / (E * E * r * r * r * r))); }
+    } else if (disc >= 0.0) {
+        float sq = sqrt(disc);
+        for (int i = 0; i < 2; i++) {
+            float r = (-qb + (i == 0 ? sq : -sq)) / (2.0 * qa);
+            if (r > lo && r < hi) m = min(m, (E * E * r * r * r * r + c2 * r * r + c1 * r + c0) / (E * E * r * r * r * r));
+        }
+    }
+    if (m > 1e29) m = climbing ? 1.0 : (E * E * rCam * rCam * rCam * rCam + c2 * rCam * rCam + c1 * rCam + c0) / (E * E * rCam * rCam * rCam * rCam);
+    return climbing ? 0.5 * m : -0.5 * m;
+}
+// the basis the bend vector is written in: n1 toward the hole, perpendicular
+// to the look direction; n2 = rd x n1
+void bendBasis(vec3 toHole, vec3 rd, out vec3 n1, out vec3 n2) {
+    n1 = toHole - rd * dot(toHole, rd);
+    if (dot(n1, n1) < 1e-10) n1 = abs(rd.x) < 0.9 ? vec3(0.0, rd.z, -rd.y) : vec3(rd.z, 0.0, -rd.x);
+    n1 = normalize(n1);
+    n2 = cross(rd, n1);
+}
+vec3 bendDecode(vec3 rd, vec3 n1, vec3 n2, vec2 bv) {
+    float alpha = length(bv);
+    if (alpha < 1e-6) return rd;
+    return rd * cos(alpha) + (n1 * bv.x + n2 * bv.y) / alpha * sin(alpha);
+}
+// the inverse (hole.frag's bendEncode): alpha the angle from rd to d, psi
+// the azimuth of d's part across rd in the basis
+vec2 bendEncode(vec3 rd, vec3 n1, vec3 n2, vec3 d) {
+    float alpha = acos(clamp(dot(d, rd), -1.0, 1.0));
+    vec2 p = vec2(dot(d, n1), dot(d, n2));
+    float pl = length(p);
+    return pl < 1e-6 ? vec2(alpha, 0.0) : alpha * p / pl;
+}
+// what kind of ray the tracer wrote: 0 sky, 1 dark, 2 the other universe, 3 none
+int holeKind(vec4 t) { return t.a < 0.0 ? 1 : t.b < 0.0 ? 2 : t.a == 0.0 ? 3 : 0; }
+// the tracer at uv: bilinear where its four texels are of one kind, the
+// nearest texel otherwise, so a sky direction is never blended with a
+// sentinel or a glow. Bend vectors are blended as directions where they
+// differ by more than BEND_BLEND: the encoding folds at alpha = 180 degrees
+// (a ray turned 184 degrees is written as 176 on the other side), so two
+// neighbours like (-176, 0) and (+179, 0), 5 degrees apart as directions,
+// would average to an undeflected ray and show the sky unbent along a thin
+// contour. From the equator at spin that fold lies well outside the shadow
+// (a bend of 180 degrees is reached at xs ~ 0.1), in plain view.
+const float BEND_BLEND = 0.5;
+vec4 holeRead(vec2 uv, vec3 rd, vec3 n1, vec3 n2) {
+    vec2 st = uv * holeRes - 0.5;
+    vec2 i0 = floor(st), fr = st - i0;
+    vec4 t00 = texture(holeTex, (i0 + 0.5) / holeRes);
+    vec4 t10 = texture(holeTex, (i0 + vec2(1.5, 0.5)) / holeRes);
+    vec4 t01 = texture(holeTex, (i0 + vec2(0.5, 1.5)) / holeRes);
+    vec4 t11 = texture(holeTex, (i0 + 1.5) / holeRes);
+    vec4 nearest = fr.x < 0.5 ? (fr.y < 0.5 ? t00 : t01) : (fr.y < 0.5 ? t10 : t11);
+    int k = holeKind(t00);
+    if (holeKind(t10) != k || holeKind(t01) != k || holeKind(t11) != k) return nearest;
+    vec4 m = mix(mix(t00, t10, fr.x), mix(t01, t11, fr.x), fr.y);
+    if (k == 1 || k == 3) return m;
+    float spread = max(max(distance(t00.rg, t10.rg), distance(t00.rg, t01.rg)), distance(t00.rg, t11.rg));
+    if (spread < BEND_BLEND) return m;
+    vec3 d = mix(mix(bendDecode(rd, n1, n2, t00.rg), bendDecode(rd, n1, n2, t10.rg), fr.x),
+                 mix(bendDecode(rd, n1, n2, t01.rg), bendDecode(rd, n1, n2, t11.rg), fr.x), fr.y);
+    float dl = length(d);
+    if (dl < 0.2) return nearest;                  // directions all over the sphere: no mean to speak of
+    m.rg = bendEncode(rd, n1, n2, d / dl);
+    return m;
+}
 
 // what the sky holds in direction d: our Galaxy's stars, far galaxies
 vec3 gxSky(vec3 d) {
     float plane = 0.35 + 2.2 * exp(-abs(d.z) * 5.0);
     vec3 s = (skyStars(d, 420.0, 0.10 * plane, 0.9, 0.5) + skyStars(d, 130.0, 0.12, 1.3, 0.8)) * gxStars;
     return s + skyStars(d, 70.0, 0.025, 0.06, 6.0) * vec3(1.0, 0.92, 0.85);
+}
+// the other universe's sky (mathematics mode, r < 0): the solution says
+// nothing about what is there, so this is plainly invented and plainly not
+// ours: a tenth of the stars, no Milky Way, cold violet-white and amber only,
+// a faint large-scale gradient, no galaxies
+vec3 otherSky(vec3 d) {
+    vec3 cold = skyStars(d, 300.0, 0.012, 1.2, 0.6) * vec3(0.75, 0.72, 1.25);
+    vec3 warm = skyStars(d, 110.0, 0.02, 1.0, 1.2) * vec3(1.25, 0.78, 0.45);
+    return cold + warm + vec3(0.004, 0.002, 0.009) * (0.6 + 0.4 * d.y) + vec3(0.006, 0.003, 0.001) * max(-d.x, 0.0) * 0.5;
 }
 
 // the scene seen along direction d, re-sampled from this frame's galaxy render
@@ -958,59 +1103,108 @@ vec3 shifted(vec3 c, float g) {
                         : mix(vec3(1.35, 0.62, 0.40), vec3(1.0), clamp(k * 1.6 - 0.4, 0.0, 1.0));
     return c * tint * min(k * k * k, 10.0);
 }
+// the gas's false colour for its mean shift g: hotter-looking where boosted,
+// deep red where redshifted (the g^3.5 weight is already in the intensity)
+vec3 gasTint(float g) {
+    vec3 tint = mix(vec3(1.0, 0.36, 0.10), vec3(1.0, 0.80, 0.55), smoothstep(0.5, 1.2, g));
+    return mix(tint, vec3(0.92, 0.94, 1.0), smoothstep(1.2, 1.9, g));
+}
 
-// The fall: the camera is falling freely, outside or inside the horizon.
-// The look direction's ray is found in the falling observer's frame exactly
-// as in hole.frag (same formulas, the same E), which tells whether it is
-// sky or darkness and with what shift; the tracer's exit angle says where
-// on the sky. The sky's edge (the shadow seen from outside, or the horizon
-// line below which everything is dark once inside) is known exactly here,
-// so the tracer is read from the sky's side of it: a crisp edge at full
-// resolution. Near the singularity the whole sky squeezes into a thin,
-// bright, blue band on that line, red and dim straight overhead. The dark
-// side holds the faint glow of the gas falling in ahead of us (hole.frag,
-// infallGlow), which the tracer hands over already shifted, with a = -1.
-vec3 blackHoleFall(vec3 rd, vec2 uv) {
-    float rk = length(gxCam);
-    float r = rk / RS_KPC;
-    vec3 xh = gxCam / rk;
-    float f = 1.0 - 1.0 / r;
-    float vr = dot(rd, xh);
-    vec3 vt = rd - xh * vr;
-    float nt = length(vt);
-    vec3 th = nt > 1e-4 ? vt / nt : normalize(cross(xh, abs(xh.x) < 0.9 ? vec3(1, 0, 0) : vec3(0, 1, 0)));
-    nt = max(nt, 1e-3);
-    float w = sqrt(max(gxFallE * gxFallE - f, 0.0));
-    float n1 = -vr;
-    float e = gxFallE - n1 * w;
-    float s = w - n1 * gxFallE;
-    float b = r * nt / max(e, 1e-6);
-    // signed distance from the sky's edge, positive on the sky's side: light
-    // from the hole (e <= 0) is dark; a ray that was climbing out from
-    // below 1.5 Rs needs b < B_CRIT, one that was diving in needs b > B_CRIT
-    // and to be above 1.5 Rs
-    float xs = e <= 0.0 ? -1.0 : s < 0.0 ? (r < 1.5 ? -1.0 : b / B_CRIT - 1.0) : r < 1.5 ? 1.0 - b / B_CRIT : 1.0;
-    // on screen, the sky lies away from the hole's position (as in
-    // blackHole below; with the hole behind us the projection flips)
-    float fz = dot(-xh, gxFwd);
+// one pixel of the hole, hovering or falling: the look direction's constants
+// in the camera's frame, the edge, the tracer read from the sky's side of it,
+// the sky where the ray left (ours, or the other universe's), the gas's light
+// and the photon ring on the edge. camPos in Rs, rCam signed (sheet).
+vec3 holePixel(vec3 rd, vec2 uv, vec3 camPos, float sheet, bool falling) {
+    float a = gxSpin;
+    float rPlus = HM + sqrt(max(HM * HM - a * a, 0.0)), rMinus = HM - sqrt(max(HM * HM - a * a, 0.0));
+    // the hole's frame: the spin axis along z
+    vec3 e1 = normalize(cross(gxSpinAxis, abs(gxSpinAxis.x) < 0.9 ? vec3(1, 0, 0) : vec3(0, 1, 0)));
+    vec3 e2 = cross(gxSpinAxis, e1);
+    mat3 W2K = transpose(mat3(e1, e2, gxSpinAxis));
+    vec3 x = W2K * camPos, v = W2K * rd;
+    KSL m = ksLite(x, a, sheet);
+    float rCam = m.r;
+    vec4 u;
+    if (falling) {
+        float fa = 2.0 * HM * rCam / (rCam * rCam + a * a);
+        float w = sqrt(max(gxFallE * gxFallE - 1.0 + fa, 0.0));
+        u = vec4((gxFallE * gxFallE * (1.0 + fa) + fa * fa) / (gxFallE + fa * w), -w * sheet * normalize(x));
+    } else u = vec4(inversesqrt(max(1.0 - m.f, 1e-4)), 0.0, 0.0, 0.0);
+    vec4 k4 = ksCameraRay(m, u, v);
+    float E = -k4.x;
+    vec3 k = k4.yzw;
+    float Lz = x.x * k.y - x.y * k.x;
+    float lp = E + dot(m.l, k);
+    vec3 dx = k - m.f * lp * m.l;                 // the photon's coordinate velocity
+    float rdot = -dot(m.dr, dx);                  // backward along the light: > 0 climbing
+    float Kc;
+    if (falling) Kc = m.A * dot(k.xy, k.xy);
+    else {
+        float Sigma = m.D / (rCam * rCam), Delta = rCam * rCam - 2.0 * HM * rCam + a * a;
+        float EA = E * m.A - a * Lz;
+        Kc = (EA * EA - Sigma * Sigma * rdot * rdot) / Delta;
+    }
+    // the sky's edge, signed: outside r+ by the potential; between the
+    // horizons every backward ray climbs, E > 0 crosses r+; inside r- (math)
+    // the tracer alone decides
+    float xs;
+    if (rCam > rPlus) xs = radialClass(E, Lz, Kc, a, rCam, rdot > 0.0, rPlus);
+    else if (rCam > rMinus) xs = radialClass(E, Lz, Kc, a, rPlus, true, rPlus);
+    else xs = 1.0;
+    // on screen, the sky lies away from the hole's position (with the hole
+    // behind us the projection flips)
+    vec3 toHole = -camPos;
+    float fz = dot(normalize(toHole), gxFwd);
     fz = abs(fz) < 1e-6 ? 1e-6 : fz;
-    vec2 cuv = vec2(dot(-xh, gxRight), -dot(-xh, gxUp)) / fz / vec2(resolution.x / resolution.y, 1.0) + 0.5;
+    vec2 cuv = vec2(dot(normalize(toHole), gxRight), -dot(normalize(toHole), gxUp)) / fz / vec2(resolution.x / resolution.y, 1.0) + 0.5;
     vec2 outward = normalize(uv - cuv + 1e-9) * sign(fz);
-    vec2 texel = 3.0 / resolution;
+    vec2 texel = 1.0 / holeRes;
+    // the tracer runs at a third of the resolution; the edge is known exactly
+    // here, so near it the tracer is read only from the same side: a crisp
+    // rim at full resolution, no bleeding
     float nudge = (xs <= 0.0 ? -2.0 : 2.0) * (1.0 - smoothstep(0.0, 0.15, abs(xs)));
-    vec4 traced = texture(holeTex, uv + outward * texel * nudge);
-    float g = 1.0 / max(e, 1e-3);
+    vec3 n1, n2;
+    bendBasis(toHole, rd, n1, n2);
+    vec4 traced = holeRead(uv + outward * texel * nudge, rd, n1, n2);
+    int kind = holeKind(traced);
+    float g = 1.0 / max(E, 1e-3);                // the sky's shift, seen over emitted
     vec3 col = vec3(0.0);
-    if (xs > 0.0 && traced.a >= 0.0) {
-        vec3 d = xh * cos(traced.a) + th * sin(traced.a);
+    if (xs > 0.0 && kind == 2) {
+        col = shifted(otherSky(bendDecode(rd, n1, n2, traced.rg)), g);
+    } else if (xs > 0.0 && kind != 1) {
+        float B = length(toHole - rd * dot(toHole, rd));   // the flat impact parameter, Rs
+        vec3 d;
+        if (!falling && (kind == 3 || B > 55.0)) {
+            // far from the hole: the weak-field series (Keeton & Petters 2005)
+            float alpha = 2.0 / B + 0.9817477 / (B * B) + 5.3333 / (B * B * B);
+            d = rd * cos(alpha) + n1 * sin(alpha);
+        } else if (xs < 0.04 && rCam > rPlus && a < 0.01) {
+            // right at the edge of a non-spinning hole: the strong-deflection
+            // limit (Bozza 2002), alpha = -log(b/b_c - 1) - 0.4002, sharp at
+            // full resolution, along the tracer's azimuth; blended into the
+            // trace over the band's outer half, so it ends without a seam.
+            // Only at a = 0: with spin, xs is no longer b/b_c - 1 (its scale
+            // differs between the approaching and the receding side) and the
+            // formula would paint the ring instead of tracing it (from the
+            // equator at a/M = 0.94 it is 144 degrees off at the band's edge)
+            float alpha = -log(xs) - 0.4002;
+            vec2 bv = traced.rg;
+            float bl = length(bv);
+            vec2 az = bl > 1e-6 ? bv / bl : vec2(1.0, 0.0);
+            vec3 dF = rd * cos(alpha) + (n1 * az.x + n2 * az.y) * sin(alpha);
+            d = normalize(mix(bendDecode(rd, n1, n2, bv), dF, 1.0 - smoothstep(0.02, 0.04, xs)));
+        } else d = bendDecode(rd, n1, n2, traced.rg);
         col = shifted(gxSceneAlong(d), g);
     }
-    // the hot gas's light, shifted along with everything else we see; a dark
-    // ray (a < 0) carries the infall's glow instead, shifted sample by sample
-    col += traced.a >= 0.0 ? shifted(max(traced.rgb, 0.0), g) : max(traced.rgb, 0.0);
-    // the photon ring on the sky's edge, as from outside
-    if (xs > 0.0) {
-        vec3 rim = max(texture(holeTex, uv + outward * texel * 3.0).rgb, 0.0);
+    // the hot gas's light (see-through), tinted by its mean shift; a dark ray
+    // carries the infall's glow instead, already shifted sample by sample
+    if (kind == 0) col += gasTint(traced.a) * max(traced.b, 0.0);
+    else if (kind == 1) col += max(traced.rgb, 0.0);
+    // the photon ring: the gas's light, wrapped once more around the hole,
+    // squeezed into a thin line on the shadow's edge (drawn at full resolution)
+    if (xs > 0.0 && rCam > rMinus) {
+        vec4 rimT = holeRead(uv + outward * texel * 3.0, rd, n1, n2);
+        vec3 rim = holeKind(rimT) == 0 ? gasTint(rimT.a) * max(rimT.b, 0.0) : vec3(0.0);
         col += (rim * 0.9 + vec3(0.02, 0.012, 0.006)) * exp(-xs / 0.006);
     }
     return col;
@@ -1019,44 +1213,10 @@ vec3 blackHoleFall(vec3 rd, vec2 uv) {
 // returns the lensed colour, or a negative red channel when the hole is too
 // far away to matter
 vec3 blackHole(vec3 rd, vec2 uv) {
-    if (gxFallE > 0.0) return blackHoleFall(rd, uv);
+    if (gxFallE > 0.0) return holePixel(rd, uv, gxCam / RS_KPC, gxCamSheet, true);
     vec3 toBH = -gxCam;
-    float along = dot(toBH, rd);
-    if (length(gxCam) > 2e-4 || along <= 0.0) return vec3(-1.0);
-    vec3 perp = toBH - rd * along;            // from the ray's closest point to the hole
-    float B = length(perp) / RS_KPC;          // impact parameter in Rs
-    float x = B / B_CRIT - 1.0;
-    // The tracer runs at a third of the resolution; the shadow's edge is
-    // known exactly here (x = 0), so near it, read the tracer only from the
-    // same side of the edge: a crisp rim at full resolution, no bleeding.
-    vec3 c3 = toBH;
-    vec2 cuv = vec2(dot(c3, gxRight), -dot(c3, gxUp)) / max(dot(c3, gxFwd), 1e-30)
-             / vec2(resolution.x / resolution.y, 1.0) + 0.5;
-    vec2 outward = normalize(uv - cuv + 1e-9);
-    vec2 texel = 3.0 / resolution;
-    float nudge = (x <= 0.0 ? -2.0 : 2.0) * (1.0 - smoothstep(0.0, 0.15, abs(x)));
-    vec4 traced = texture(holeTex, uv + outward * texel * nudge);
-    vec3 col = vec3(0.0);
-    if (x > 0.0) {
-        // how far this ray bends: exact from the tracer where it ran, the
-        // strong-deflection limit right at the shadow edge (sharp at full
-        // resolution), the weak-field series far out (Keeton & Petters 2005)
-        float alpha;
-        if (x < 0.04) alpha = -log(x) - 0.4002;
-        else if (B < 55.0 && traced.a > 0.0) alpha = traced.a;
-        else alpha = 2.0 / B + 0.9817477 / (B * B) + 5.3333 / (B * B * B);
-        vec3 n = perp / max(length(perp), 1e-30);
-        col = gxSceneAlong(rd * cos(alpha) + n * sin(alpha));
-    }
-    // the hot gas: light from the traced flow (it is see-through)
-    col += max(traced.rgb, 0.0);
-    // the photon ring: the gas's light, wrapped once more around the hole,
-    // squeezed into a thin line on the shadow's edge (drawn at full resolution)
-    if (x > 0.0) {
-        vec3 rim = max(texture(holeTex, uv + outward * texel * 3.0).rgb, 0.0);
-        col += (rim * 0.9 + vec3(0.02, 0.012, 0.006)) * exp(-x / 0.006);
-    }
-    return col;
+    if (length(gxCam) > 2e-4 || dot(toBH, rd) <= 0.0) return vec3(-1.0);
+    return holePixel(rd, uv, gxCam / RS_KPC, 1.0, false);
 }
 
 void main() {
