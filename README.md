@@ -59,8 +59,11 @@ Plugin only:
 
 ```bash
 omarchy plugin add https://github.com/vinceferro/omarchy-universe-background.git --enable
+omarchy plugin disable omarchy.background   # the stock background, replaced by this
 omarchy restart shell
 ```
+
+Updates: `omarchy plugin update universe.background`.
 
 Then set any `-live.webp` background (double-click the wallpaper to open the
 picker). Pairs well with the
