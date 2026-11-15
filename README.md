@@ -196,7 +196,8 @@ angular size, north up. Near the Sun the model blends into the real sky.
 | `Tab` / `Shift+Tab` | next / previous place |
 | click | fly to the place under the pointer |
 | `0` | back to the Sun |
-| `B` | the black hole at the centre; `B` again goes down to 6 Schwarzschild radii, and parked there `B` (or one more scroll in) lets go and falls in |
+| `B` | the black hole at the centre; `B` again goes down to 6 Schwarzschild radii on its spin axis, and parked there `B` (or one more scroll in) lets go and falls in |
+| `K` | mathematics mode on / off: the fall follows the extended Kerr solution through the ring into the other universe (not physics; takes effect at the next fall) |
 | `V` | the Milky Way from Andromeda (scroll in to cross the gap along that line) |
 | `L` | labels on / off (on, they show for 8 s after each interaction, then fade) |
 | drag / arrows | orbit the camera (falling into the hole: look around) |
@@ -215,41 +216,86 @@ shear, and the HUD says so.
 
 `B` in the Milky Way view (scrolling in goes down to 6 Schwarzschild radii).
 Every pixel's light ray is traced backward through the curved spacetime of a
-Schwarzschild black hole of 4.3 million solar masses: the shadow at 2.6 Rs,
-the photon ring, the stars and the Galaxy's glow lensed around it. The gas is
-a thin, hot flow orbiting at the local circular speed, Doppler-beamed on the
-approaching side and reddened and dimmed by gravitational redshift deep in
-the well, its spin axis about 30 degrees off the line of sight as the EHT
-2022 image and GRAVITY's flare loops suggest.
+spinning (Kerr) black hole of 4.3 million solar masses, in Kerr-Schild
+coordinates (`hole.frag`; the same march in JS with its tests in
+`lib/kerr.js`): the shadow, the photon ring, the stars and the Galaxy's glow
+lensed around it, the twist that frame dragging gives the lensed sky, and the
+flattening of the shadow's one side at high spin, all from the tracing,
+nothing painted. The spin is a/M = 0.94, the Event Horizon Telescope's 2022
+best-bet model for Sgr A* (a magnetically arrested flow seen 30 degrees from
+its axis; Daly et al. 2024 find about 0.9 another way, Fragione & Loeb 2020
+argue for under 0.1 from the S stars' orbits): it is not measured, one number
+in `Background.qml` (`holeSpin`) changes it, and 0 gives the Schwarzschild
+hole this replaced. Its horizons are at 0.67 and 0.33 Rs; the shadow's edge
+is found in closed form at full resolution from the ray's constants of
+motion (the critical points of the Kerr radial potential), so it stays
+crisp. The gas is a thick, hot torus on prograde Kerr circular orbits
+(Bardeen, Press & Teukolsky 1972) down to the innermost stable orbit at
+1.01 Rs, each sample's shift the one dot product of the ray's and the gas's
+4-velocities: Doppler beaming on the approaching side, gravitational
+redshift deep in the well, frame dragging. The spin axis is about 30 degrees
+off the line of sight from the Sun's side, as the EHT image and GRAVITY's
+flare loops suggest, so the D-shaped flattening is subtle from there; orbit
+the camera round to the equator to see it in full.
 
 The colours are a false-colour impression. The real flow around Sgr A* emits
 mostly in radio and infrared and is far too faint to see by eye; visible
 light does not reach us through the dust at all. The gas motion is also
 sped up 30 times so an orbit at the innermost stable radius takes about a
-minute rather than half an hour.
+minute rather than half an hour. Where both sides of the torus lie on one
+ray (the photon ring) the hue is the mean shift's, not the mix.
 
-**The fall.** `B` flies to the hole and `B` again down to 6 Rs; parked
-there, `B` lets go (so does one more scroll in,
-and so does free flight that carries the camera below the horizon: there is
-no flying through). The camera is then in radial free fall from rest at 6 Rs
-(`lib/fall.js`): the way down to the photon sphere is shown 45 times faster
-than real, the last stretch to the horizon in 4 s, and the inside at the
-true rate, 28.7 s of proper time for 4.15 million solar masses (the most any
-observer can last below the horizon is pi GM/c^3 = 64 s, with an ideal
-rocket). The ray tracer takes the falling observer's frame: aberration
-shrinks the shadow to a disc 46 degrees in radius at the horizon, and once inside the
-dark fills the half of the sky toward the centre while the outside squeezes
-into an ever thinner, blueshifted band on the horizon line, red and dim
-straight behind. Nothing steers on the way down, but drag or the arrows
-look around (right looks right, up looks up; all the way round, short of
-straight up or down): back at the hole, or up at the shrinking sky. Only the
-camera turns; the fall stays radial, and the ray tracer's frame with it.
-After a few seconds without input the view eases back to the scripted one,
-which turns from the hole to the side so that at the horizon the dark is
-below and the sky above. Near the singularity the screen fades to black, holds two
-seconds, and the camera is back beside the Sun. Esc gives up the same way;
-nothing leaves the camera inside the hole. The HUD counts the proper time
-left; the maths has its own checks in `tests/test_fall.js`.
+**The fall.** `B` flies to the hole and `B` again down to 6 Rs on the spin
+axis (the descent steers to the pole on the camera's side); parked there,
+`B` lets go (so does one more scroll in, and so does free flight that
+carries the camera below the horizon: there is no flying through; if the
+camera was dragged off the pole it glides there first). The camera is then
+in free fall down the axis from rest at 6 Rs (`lib/fall.js`): the way down
+to the polar photon orbit (1.25 Rs) is shown 45 times faster than real, the
+last stretch to the outer horizon in 4 s, and the inside at the true rate,
+14.9 s of proper time between the two horizons (28.7 s to the singularity
+for a non-spinning hole, which `holeSpin = 0` still gives). The ray tracer
+takes the falling observer's frame: aberration shrinks the shadow, and once
+inside the dark fills the half of the sky toward the centre while the
+outside squeezes into an ever thinner, blueshifted band, red and dim
+straight behind. Nothing marks the outer horizon but the HUD. Nothing
+steers on the way down, but drag or the arrows look around (right looks
+right, up looks up; all the way round, short of straight up or down): back
+at the hole, or up at the shrinking sky. Only the camera turns; the fall
+stays on the axis, and the ray tracer's frame with it. After a few seconds
+without input the view eases back to the scripted one, which turns from the
+hole to the side so that at the horizon the dark is below and the sky above.
+
+The fall ends at the inner (Cauchy) horizon, because the physics does: the
+Kerr solution continues through it, but a real hole's inner horizon is
+unstable (Penrose 1968; Poisson & Israel 1990, "mass inflation"; Ori 1991):
+light falling in after us arrives there blueshifted without bound, and what
+the solution says beyond it describes nothing observed. In the last second
+the glow below brightens and turns blue-white (a labelled cartoon of that),
+the screen fades to black, holds two seconds, and the camera is back beside
+the Sun. Esc gives up the same way; nothing leaves the camera inside the
+hole. The HUD names the phase and counts the proper time left; `status`
+reports both; the maths has its own checks in `tests/test_fall.js` and
+`tests/test_kerr.js`.
+
+**Mathematics mode** (`K`, or `mathMode true` over IPC; off by default, not
+remembered, takes effect at the next fall). What the maximally extended Kerr
+solution says, followed past where physics stops: through the inner horizon,
+through the disk inside the ring singularity (on the axis the ring is never
+touched; r passes through 0 to r < 0) into the negative-r sheet, an
+asymptotically flat universe where the hole's gravity repels. The view there
+is traced like everything else, in the r < 0 sheet: our own sky through the
+throat inside the ring, and around it the other universe's sky, which the
+solution says nothing about and which is therefore plainly invented (sparse,
+cold violet-white and amber stars, no Milky Way). The camera is pushed away
+(the repulsion is gentle: 444 s of proper time to -10 Rs, shown in 20 s), and
+then the usual fade returns to the Sun. One honesty the maths forces: an
+observer from rest at 6 Rs can never get there. The potential peaks at
+r = -a with 1 + M/a > E^2, so a from-rest fall turns back inside the inner
+horizon at r = a^2/r0 = 0.037 Rs and is thrown out into a new positive-r
+universe instead; reaching r < 0 needs E >= sqrt(1 + M/a) = 1.44, and the
+mode starts with E = 1.5, an impossible shove of 0.75 c down the axis. The
+HUD, the card and `status` all say so.
 
 **What you see below you.** The dark toward the centre, the shadow from
 outside and the whole lower half of the sky once inside, is not quite black:
@@ -352,13 +398,14 @@ Everything is reachable through the shell's IPC, `omarchy-shell background <func
 | `labels <true/false>` | the label layer (place markers and names, planet names): on, it shows for 8 s after each interaction and fades; off, it stays away (not remembered) |
 | `hole` | the same step as `B`: to Sgr A*, down to 6 Rs, let go |
 | `fallLook <yaw> <pitch>` | falling into the hole: look this many degrees right and up from the scripted view, held until the next drag or arrow (for tests and filming) |
+| `mathMode <true/false>` | mathematics mode: the fall follows the extended Kerr solution through the inner horizon and the ring into the other universe (not physics); takes effect at the next fall |
 | `sky` | Sky mode, at the last view |
 | `skyView <1-7>` | Sky mode at a named view |
 | `hud <0..1>` | HUD brightness until the shell restarts (default 0.38) |
 | `toggleHud` | hide / show the HUD; hidden is remembered across restarts |
 | `film <true/false>` | film mode for recording: the HUD, key hints, place labels, markers and mode captions fade out, the scene stays (not remembered) |
 | `caption <title> <body>` | a quiet lower-third caption that fades in, replacing the last one; `caption "" ""` fades it out |
-| `status` | prints `<view> <fall phase or -> <radius in Rs>`, e.g. `galaxy falling 1.84`, for scripts |
+| `status` | prints `<view> <fall phase or -> <radius in Rs, signed> <real/math>`, e.g. `galaxy outer-horizon 0.52 real`, for scripts; the phases are `falling`, `outer-horizon`, `inner-horizon`, `ring`, `other-universe`, `out`, `in` |
 | `refresh`, `set <path>`, `setInstant <path>`, `transition <from> <to>`, `themeTransition ...` | the stock background plugin's functions, unchanged |
 
 ## Real data and accuracy
@@ -398,9 +445,11 @@ What is real:
 - **Sky**: NASA SVS Deep Star Maps 2020 (Gaia DR2), the Milky Way core in the
   everyday view, the full sky near the Sun in the Milky Way view and in Sky
   mode, and 1:1 pixels in the seven named views.
-- **Sagittarius A***: Schwarzschild light bending (photon sphere at 1.5 Rs,
-  shadow edge at 2.6 Rs), Doppler beaming and gravitational redshift, mass
-  4.3 million Suns, 26,600 ly away.
+- **Sagittarius A***: exact Kerr light bending (Kerr-Schild coordinates,
+  spin a/M = 0.94 from the EHT 2022 best-bet model: horizons at 0.67 and
+  0.33 Rs, prograde photon orbit 0.71 Rs, ISCO 1.01 Rs), gas on Kerr circular
+  orbits with Doppler, gravitational and frame-dragging shifts, the axis fall
+  from the geodesic equation, mass 4.3 million Suns, 26,600 ly away.
 
 What is simplified or invented:
 
@@ -412,8 +461,14 @@ What is simplified or invented:
   body.
 - The Sun's vertical bobbing through the plane is an approximation fitted to
   today's height and velocity.
-- Sgr A* is drawn as a non-spinning (Schwarzschild) hole; the gas colours are
-  a false-colour impression and its motion runs 30 times faster than real.
+- Sgr A*'s spin is a model preference, not a measurement; the gas colours are
+  a false-colour impression, its motion runs 30 times faster than real, off
+  the plane the thick torus keeps the plane's orbital speed, inside the ISCO
+  real gas plunges rather than orbits, the glow of infalling gas is a
+  spherical Schwarzschild cartoon, and the inner horizon's flash is a cartoon
+  of an instability the solution cannot show. Mathematics mode is the exact
+  solution, not physics, with an invented far sky and a plunge no observer at
+  rest could make.
 - The soft gas layer of the everyday sky and the far galaxies are procedural
   and theme-tinted; the stars are procedural too, except where the real sky
   map shows through.
@@ -425,8 +480,11 @@ Measured on an RTX 3080 Ti driving 5120x2160 at 165 Hz:
 - live background with the animated sky: about 160-180 W board power (it
   pauses while a fullscreen window is visible);
 - Milky Way overview: about 140 W;
-- near the black hole: about 300 W (the ray tracer runs at half resolution
-  only while the camera is near the hole).
+- near the black hole: about 300 W measured for the Schwarzschild tracer (the
+  ray tracer runs at a third of the resolution only while the camera is near
+  the hole). The Kerr tracer takes about 4 metric evaluations per step but a
+  typical ray needs 20-60 steps instead of 200, so its cost is estimated at
+  1-1.5x the old one; to be measured.
 
 The soft sky layer re-renders about ten times a second at half resolution;
 the Milky Way volume renders at a third of the screen size and only when the
@@ -510,7 +568,10 @@ keys and flings settle), `W_MODE` (fades, the field-of-view morph, the
 true-scale blend), `FLING_TAU` (how far a released drag coasts) and the
 flight's `rho` (how high a long hop rises). Its numeric checks run with
 `node tests/test_camera.js lib/camera.js`; the fall's trajectory and timeline
-(`lib/fall.js`) with `node tests/test_fall.js lib/fall.js`; the dwarf galaxy
+(`lib/fall.js`) with `node tests/test_fall.js lib/fall.js`; the Kerr hole's
+numbers, metric, frames, march, shadow edge, gas orbits and axis fall
+(`lib/kerr.js`, what the shaders port) with `node tests/test_kerr.js
+lib/kerr.js`; the dwarf galaxy
 table (`lib/dwarfs.js`) with `node tests/test_dwarfs.js lib/dwarfs.js`; the
 Local Group's geometry, hand-off and photometry (`lib/localgroup.js`, and the
 dwarf texture against the table) with `node tests/test_localgroup.js

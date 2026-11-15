@@ -546,6 +546,64 @@ modes, `status()` through every phase.
 - `status()` gains a fourth field; scripts that split on spaces and read
   the first three keep working, ones that compare the whole string do not.
 
+## 12. Implementation notes (what the code does where it differs from the plan)
+
+Written after the implementation (branch `kerr`); the plan above is left as
+it was.
+
+- **The weak-field tail** at R_OUT is not the Newtonian (2M/b)(1 - sqrt(1 -
+  b^2/R^2)): the coordinate direction at finite R is already tilted toward
+  the asymptote (the coordinate radial speed is sqrt(E^2 - f L^2/r^2), not
+  the flat one), and the remaining turn is a tenth of that estimate. To
+  first order in M, with s = b/R, it is (M/b)(2 - (2 - s^2 - s^4)/sqrt(1 -
+  s^2)) ~ 3 M b^3 / (4 R^4), toward the hole. With it the march agrees with
+  the exact Schwarzschild integral to 0.005 degrees from 20 Rs; without it,
+  0.15 degrees for the widest traced rays.
+- **The step rule** has no upper clamp: ds = max(0.02, 0.12 (|r| - 0.3)).
+  Far out the steps grow with r, so a far camera starts its march where it
+  stands (33 steps from 3000 Rs to 60 Rs) instead of sliding to the R_OUT
+  entry with the flat direction, which was the old tracer's approximation
+  (up to 0.5 degrees off the exact deflection for the widest rays).
+- **Lost rays are cut early**: outside r+ a backward ray diving below 0.98
+  of the prograde photon orbit radius can never come back out, so it stops
+  there instead of spiralling to the horizon for 30 stalled steps. E <= 0
+  rays are dark without a march.
+- **The old hovering camera** read the Euclidean look direction as the
+  coordinate direction; the new one is the proper static frame, b = r sin(a)
+  / sqrt(1 - 1/r) at a = 0. The shadow seen from 20 Rs is 2.6 % larger than
+  before, which is the correct aberration; the a = 0 regression is
+  therefore ray-by-ray (bend angle for a given impact parameter against the
+  exact integral and the old Verlet march) rather than pixel-by-pixel.
+- **The layer's layout**: rg is a "bend vector" (alpha cos psi, alpha sin
+  psi) about the look direction in the basis (toward the hole, its
+  perpendicular), not an octahedral map: at a = 0 it is the old bend angle
+  with psi = 0, so bilinear interpolation of the layer behaves as it did,
+  and frame dragging only twists psi smoothly. Dark rays keep their glow
+  colour in rgb with a = -1 (no bend vector is needed for them); the other
+  universe is b = -1; a = 0 means no trace. universe.frag reads the layer
+  through a four-texel gather that falls back to the nearest texel where the
+  four are not of one kind, so a sky direction is never blended with a
+  sentinel.
+- **Between the horizons** the design's rule "E > 0 crosses r+" is exact
+  for the axis camera because L_z = 0 there (in general the horizon's
+  Killing energy E - Omega_H L_z decides). The design's face-on gas shift
+  "sqrt(1 - 3M/r + 2a sqrt(M)/r^1.5)" was wrong; the code and test use 1/u^t
+  with Bardeen, Press & Teukolsky's u^t.
+- **Carter's constant** is computed in two regular forms: from the radial
+  equation (dividing by Delta) for the hovering camera, and as p_theta^2 =
+  (r^2 + a^2)(k_x^2 + k_y^2) for the axis camera, which is finite at both
+  horizons.
+- **The fall table** integrates r'' = M (a^2 - r^2)/(r^2 + a^2)^2 with RK4
+  (regular everywhere, through the disk) and interpolates with cubic
+  Hermite; a = 0 keeps the cycloid in closed form so `test_fall.js`'s old
+  numbers are untouched to the last digit.
+- **Letting go off the pole** glides there by steering the orbit camera's
+  yaw/pitch targets (the existing easing, ~1.5 s) and lets go within half a
+  degree of the pole; the B descent aims at the pole from the start.
+- **The inner-horizon flash** is a `flash` uniform of hole.frag, sqrt(0.5 s /
+  time left) in the last second, applied to the glow through `shifted()`.
+- **status()** prints `<view> <phase or -> <r signed> <real|math>`.
+
 ## Design page: Sgr A* as a Kerr black hole
 
 **What is modelled.** Sagittarius A* as a Kerr black hole with spin
