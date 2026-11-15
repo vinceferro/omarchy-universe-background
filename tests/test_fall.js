@@ -4,7 +4,7 @@ const fs = require("fs"), path = require("path")
 const kerrSrc = fs.readFileSync(path.join(path.dirname(process.argv[2]), "kerr.js"), "utf8").replace(".pragma library", "")
 const src = fs.readFileSync(process.argv[2], "utf8").replace(".pragma library", "").replace(/^\.import .*$/m, "")
 const Fall = new Function(kerrSrc + "\nconst Kerr = { horizons, polarPhotonOrbit, axisEnergyFromRest, axisSpeed, axisFall, tableR, tableTau };\n" + src
-  + "\nreturn { GM_C3, RS_C, TAU_MAX_INSIDE, S_PHOTON, S_HORIZON, S_OTHER, E_MATH, R_END_MATH, timeline, tauAtR, rAt, speedAt, tau, rate, sAtTau, phase, begin, step };")()
+  + "\nreturn { GM_C3, RS_C, TAU_MAX_INSIDE, S_PHOTON, S_HORIZON, S_OTHER, E_MATH, R_END_MATH, T_INNER, timeline, tauAtR, rAt, speedAt, tau, rate, sAtTau, phase, begin, step };")()
 let fails = 0
 function check(name, ok, info) { console.log((ok ? "ok   " : "FAIL ") + name + (info !== undefined ? "  " + info : "")); if (!ok) fails++ }
 
@@ -325,11 +325,14 @@ check("chi = 0.94: tau(s) strictly increasing, rate without jumps", kMono && kC1
 check("chi = 0.94: r(tau(r)) round trip, speed = sqrt(E^2 - 1 + 2Mr/(r^2+a^2))", kInv < 1e-7 && kV < 1e-4, kInv.toExponential(1) + " " + kV.toExponential(1))
 check("chi = 0.94: at r+ the fall is at 0.91 c; the clock runs in real time there", Math.abs(Fall.speedAt(tk, tk.rPlus) - Math.sqrt(1 - 1e-12)) < 0.1 && Fall.rate(tk, 30) === 1)
 // phases
-check("phases: falling above r+, outer-horizon between, inner-horizon in the last second", Fall.phase(tk, 2, 0) === "falling" && Fall.phase(tk, 0.5, Fall.tauAtR(tk, 0.5)) === "outer-horizon" && Fall.phase(tk, 0.34, tk.tauEnd - 0.5) === "inner-horizon")
+check("phases: falling above r+, outer-horizon between, inner-horizon in the last seconds", Fall.phase(tk, 2, 0) === "falling" && Fall.phase(tk, 0.5, Fall.tauAtR(tk, 0.5)) === "outer-horizon" && Fall.phase(tk, 0.34, tk.tauEnd - 0.5) === "inner-horizon" && Fall.phase(tk, 0.5, tk.tauEnd - Fall.T_INNER - 0.5) === "outer-horizon")
 const Fk = Fall.begin(6, A)
-let lastPhase = "", order = []
-for (let i = 0; i < 165 * 60; i++) { const o = Fall.step(Fk, 1 / 165); if (o.phase !== lastPhase) { order.push(o.phase); lastPhase = o.phase } if (o.left === 0) break }
+let lastPhase = "", order = [], innerSeen = 0
+for (let i = 0; i < 165 * 60; i++) { const o = Fall.step(Fk, 1 / 165); if (o.phase !== lastPhase) { order.push(o.phase); lastPhase = o.phase } if (o.phase === "inner-horizon" && o.left >= 2.2) innerSeen += 1 / 165; if (o.left === 0) break }
 check("stepping the realistic fall: falling -> outer-horizon -> inner-horizon, ends at r-", order.join(" ") === "falling outer-horizon inner-horizon" && Math.abs(Fk.s - tk.sEnd) < 0.02, order.join(" ") + ", " + Fk.s.toFixed(2) + " s on screen")
+// Background.qml starts the fade when 2.2 s are left and stops taking phases
+// then: the inner horizon must be reported for a readable while before that
+check("realistic: inner-horizon is reported for > 1.5 s before the fade begins", innerSeen > 1.5 && innerSeen < Fall.T_INNER, innerSeen.toFixed(2) + " s")
 check("a = 0 through the general path gives the cycloid's numbers", Math.abs(Fall.timeline(6, 0).tauEnd - tl.tauEnd) < 1e-12 && Fall.timeline(6, 0).rPhoton === 1.5)
 // the mathematics mode
 const tm = Fall.timeline(6, A, true)

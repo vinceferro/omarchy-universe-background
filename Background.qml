@@ -9,6 +9,7 @@ import qs.Commons
 import qs.Ui
 import "lib/camera.js" as Cam
 import "lib/fall.js" as Fall
+import "lib/kerr.js" as Kerr
 import "lib/localgroup.js" as LG
 import "lib/dwarfs.js" as Dw
 import "lib/labels.js" as Lb
@@ -614,6 +615,7 @@ Item {
   // orbits). It is not measured: one number here changes it, and 0 gives
   // the Schwarzschild hole this replaced. In Schwarzschild radii, M = 0.5.
   readonly property real holeSpin: 0.94 * 0.5
+  readonly property real holeRPlus: Kerr.horizons(holeSpin).rPlus   // the outer horizon, Rs (0.67 at this spin; 1 at a = 0)
   // the spin axis, 30 degrees off our line of sight from the Sun's side, the
   // gas turning clockwise on the sky (EHT 2022; GRAVITY flare loops); the
   // fall goes down this line, from the pole on the camera's side
@@ -624,7 +626,9 @@ Item {
   // cannot even get there (fall.js), so the mode plunges at 0.75 c. Off by
   // default, not remembered; a change takes effect at the next fall.
   property bool mathMode: false
-  property string fallPhase: ""
+  property string fallPhase: ""         // the fall's phase, then the fade: "out" (to black) and "in" (back beside the Sun)
+  property string fallWhere: ""         // the fall's phase alone (fall.js), kept through the fade: the hint and the card describe where the fall ended
+  property bool fallMath: false         // the running (or just finished) fall's mode: K mid-fall applies to the next one, the captions keep this
   property var fallState: null          // Fall.begin() state, plus x (the pole we fell from) and the eased fwd/up
   property real fallR: 6                // radius, Schwarzschild radii, signed: negative on the far sheet
   property bool fallInside: false       // below the outer horizon (set once, not per frame: the hints bind to it)
@@ -678,6 +682,15 @@ Item {
     const side = cam[0] * ax[0] + cam[1] * ax[1] + cam[2] * ax[2] >= 0 ? 1 : -1
     return [ax[0] * side, ax[1] * side, ax[2] * side]
   }
+  // the Kerr (Boyer-Lindquist) radius of a point p (world, Rs) on our sheet:
+  // the horizon is a surface of constant r, not of constant distance (r+ is
+  // 0.67 Rs on the axis and the Cartesian distance sqrt(r+^2 + a^2) = 0.82
+  // on the equator)
+  function kerrRadius(p) {
+    const z = p[0] * holeSpinAxis.x + p[1] * holeSpinAxis.y + p[2] * holeSpinAxis.z
+    const rho2 = p[0] * p[0] + p[1] * p[1] + p[2] * p[2]
+    return Kerr.ksRadius([Math.sqrt(Math.max(rho2 - z * z, 0)), 0, z], holeSpin, 1)
+  }
   // is the orbit camera on the pole (within half a degree)?
   function gxAtPole() {
     const o = [Math.cos(gxPitch) * Math.sin(gxYaw), Math.cos(gxPitch) * Math.cos(gxYaw), Math.sin(gxPitch)]
@@ -713,6 +726,8 @@ Item {
     fallState = F
     fallLookReset()
     fallPhase = "falling"
+    fallWhere = "falling"
+    fallMath = F.tl.math
     gxFallArmed = false
     fallHold = 0
     gxCamSheet = 1
@@ -975,9 +990,11 @@ Item {
       ["H", "hide / show the HUD"],
       ["ESC / RIGHT-CLICK", "back to the universe"]
     ] : explore === "galaxy" && fallState ? [
-      ["", fallPhase === "other-universe" ? "the other universe of the Kerr solution: mathematics, not physics"
-         : fallPhase === "ring" ? "through the inner horizon and the disk inside the ring: the solution, not physics"
-         : fallPhase === "inner-horizon" ? (mathMode ? "the inner horizon" : "the inner horizon: here the Kerr solution stops being trustworthy")
+      // fallWhere, not fallPhase: the hint stays through the fade; the mode is
+      // the running fall's, not the K key's current setting
+      ["", fallWhere === "other-universe" ? "the other universe of the Kerr solution: mathematics, not physics"
+         : fallWhere === "ring" ? "through the inner horizon and the disk inside the ring: the solution, not physics"
+         : fallWhere === "inner-horizon" ? (fallMath ? "the inner horizon" : "the inner horizon: here the Kerr solution stops being trustworthy")
          : fallInside ? "below the horizon there is no way out" : "falling down the spin axis: nothing steers now"],
       ["DRAG / ARROWS", "look around: you cannot steer"],
       ["H", "hide / show the HUD"],
@@ -1538,8 +1555,9 @@ Item {
           const dd = d[0] * d[0] + d[1] * d[1] + d[2] * d[2]
           const t = dd > 0 ? Math.max(0, Math.min(1, -(p0[0] * d[0] + p0[1] * d[1] + p0[2] * d[2]) / dd)) : 1
           const q = [p0[0] + d[0] * t, p0[1] + d[1] * t, p0[2] + d[2] * t]   // the path's closest point to the hole
-          const ql = Math.hypot(q[0], q[1], q[2])
-          if (ql < rsKpc) fallBegin(ql / rsKpc, q)
+          // judged by the Kerr radius against r+ (the horizon is not a sphere of 1 Rs)
+          const qr = kerrRadius([q[0] / rsKpc, q[1] / rsKpc, q[2] / rsKpc])
+          if (qr < holeRPlus) fallBegin(qr, q)
         }
         gxCamJumped = false
       }
@@ -1567,11 +1585,16 @@ Item {
         // a cartoon of the unbounded blueshift there (Poisson & Israel 1990)
         const flash = F.tl.math ? 1 : Math.max(1, Math.sqrt(2.5 / Math.max(o.left, 0.05)))
         if (Math.abs(flash - fallFlash) > 1e-3) fallFlash = flash
+        // the fall's own phase, kept through the fade (fall.js turns it to
+        // "inner-horizon" 4 s before r-, so it is seen before the fade starts)
+        if (fallWhere !== o.phase) fallWhere = o.phase
         // the fade is black 2.0 s after it starts: begin it so the camera is
         // still moving when the screen goes dark (at the inner horizon, or at
         // the mathematics mode's end on the far sheet)
-        if (fallPhase !== "out" && fallPhase !== "in" && fallPhase !== o.phase && o.left >= 2.2) fallPhase = o.phase
-        if (fallPhase !== "out" && fallPhase !== "in" && o.left < 2.2) { fallPhase = "out"; fallHold = 0; fallHoldFor = 2 }
+        if (fallPhase !== "out" && fallPhase !== "in") {
+          if (o.left < 2.2) { fallPhase = "out"; fallHold = 0; fallHoldFor = 2 }
+          else if (fallPhase !== o.phase) fallPhase = o.phase
+        }
         // the view turns from the hole to the side over the approach (in log
         // r, a right angle at r+); past the disk it turns on to look back at
         // the ring, which is behind us now
@@ -1910,8 +1933,10 @@ Item {
             // the fall: where we are in radii, the phase, and our own clock
             const left = fallLeft >= 60 ? fmtNum(Math.floor(fallLeft / 60)) + " MIN " + fmtNum(Math.floor(fallLeft % 60), 0) + " S" : fmtNum(fallLeft, 1) + " S"
             const tl = fallState.tl
+            // the realistic fall ends exactly at r-: that is "at", not "inside"
             const where = fallR > tl.rPlus ? "OUTSIDE THE OUTER HORIZON (" + fmtNum(tl.rPlus, 2) + ")"
                         : fallR > tl.rMinus ? "BETWEEN THE HORIZONS  ·  NO WAY OUT"
+                        : fallR >= tl.rMinus - 1e-6 ? "AT THE INNER HORIZON (" + fmtNum(tl.rMinus, 2) + ")"
                         : fallR > 0 ? "INSIDE THE INNER HORIZON (" + fmtNum(tl.rMinus, 2) + ")"
                         : fallR > -tl.a ? "THROUGH THE DISK INSIDE THE RING" : "THE OTHER UNIVERSE  ·  REPELLED"
             rows = [
@@ -2247,9 +2272,12 @@ Item {
 
     // for scripts: "<view> <fall phase or -> <radius in Rs, signed> <real|math>",
     // e.g. "galaxy outer-horizon 0.52 real"; the phases are falling,
-    // outer-horizon, inner-horizon, ring, other-universe, out, in
+    // outer-horizon, inner-horizon, ring, other-universe, out, in. The mode
+    // is the running fall's, through its fade (a K press mid-fall applies to
+    // the next one); with no fall, the mode the next fall would use
     function status(): string {
-      return root.explore + " " + (root.fallPhase || "-") + " " + root.fallR.toFixed(2) + " " + (root.mathMode ? "math" : "real")
+      const math = root.fallPhase !== "" ? root.fallMath : root.mathMode
+      return root.explore + " " + (root.fallPhase || "-") + " " + root.fallR.toFixed(2) + " " + (math ? "math" : "real")
     }
 
     function themeTransition(fromPath: string, path: string, finalPath: string, colorsB64: string, shellB64: string): void {
@@ -2431,6 +2459,9 @@ Item {
               width: near ? Math.ceil(panel.width / 3) : 4
               height: near ? Math.ceil(panel.height / 3) : 4
               layer.enabled: true
+              // one texel per logical pixel whatever the monitor's scale:
+              // universe.frag's four-texel gather (holeRes) counts on it
+              layer.textureSize: Qt.size(width, height)
               layer.format: ShaderEffectSource.RGBA16F
               layer.smooth: true
               fragmentShader: Qt.resolvedUrl("hole.qsb")
@@ -3212,7 +3243,7 @@ Item {
             width: parent.width
             wrapMode: Text.WordWrap
             text: parent.h ? (parent.h.kind === "blackhole" && root.fallPhase !== ""
-                               ? (root.mathMode
+                               ? (root.fallMath
                                   ? "Mathematics mode: the maximally extended Kerr solution, not physics. A plunge down the spin axis at 0.75 c (from rest the fall would turn back inside the inner horizon), through both horizons and the disk inside the ring singularity into the negative-r universe, where the hole repels and the sky is not ours. The sky there is invented; the solution says nothing about it."
                                   : "Letting go from 6 radii on the spin axis: free fall, the way down shown 45 times faster, the inside at the true rate. Nothing marks the outer horizon; below it every direction leads inward and the outside sky squeezes into a thin bright band. The fall ends at the inner horizon, where light falling in behind us arrives blueshifted without bound: beyond it the Kerr solution describes nothing real.")
                                : parent.h.kind === "blackhole"
