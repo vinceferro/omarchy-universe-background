@@ -570,20 +570,38 @@ it was.
   rays are dark without a march.
 - **The old hovering camera** read the Euclidean look direction as the
   coordinate direction; the new one is the proper static frame, b = r sin(a)
-  / sqrt(1 - 1/r) at a = 0. The shadow seen from 20 Rs is 2.6 % larger than
-  before, which is the correct aberration; the a = 0 regression is
-  therefore ray-by-ray (bend angle for a given impact parameter against the
-  exact integral and the old Verlet march) rather than pixel-by-pixel.
+  / sqrt(1 - 1/r) at a = 0. The shadow seen from 20 Rs is 2.5 % smaller
+  than before (7.274 degrees, the exact static-observer value, against
+  7.464 in the old flat mapping; the JS tracer puts the edge at 7.27-7.28),
+  which is the correct aberration, and the widest rays bend up to 0.9
+  degrees differently. So "a = 0 reproduces today's image" holds for the
+  fall and ray by ray (bend angle for a given impact parameter against the
+  exact integral and the old Verlet march), not pixel by pixel for the
+  hovering camera.
+- **The strong-deflection band** (the old code's Bozza 2002 formula for the
+  sky within xs < 0.04 of the shadow's edge) is kept only at a = 0, where
+  xs is b/b_c - 1, and is now blended into the trace over the band's outer
+  half (the old hard edge was 5 degrees). With spin, xs is not on that scale
+  and differs between the approaching and the receding side: at a/M = 0.94
+  the formula would be 144 degrees off at the band's edge seen from the
+  equator, 67 off from the default 30 degree view. There the ring comes
+  from the trace alone, read through the nudge below.
 - **The layer's layout**: rg is a "bend vector" (alpha cos psi, alpha sin
   psi) about the look direction in the basis (toward the hole, its
   perpendicular), not an octahedral map: at a = 0 it is the old bend angle
-  with psi = 0, so bilinear interpolation of the layer behaves as it did,
-  and frame dragging only twists psi smoothly. Dark rays keep their glow
-  colour in rgb with a = -1 (no bend vector is needed for them); the other
-  universe is b = -1; a = 0 means no trace. universe.frag reads the layer
-  through a four-texel gather that falls back to the nearest texel where the
-  four are not of one kind, so a sky direction is never blended with a
-  sentinel.
+  with psi = 0, and frame dragging only twists psi smoothly. The encoding
+  folds at alpha = 180 degrees (the old scalar angle did not: a ray turned
+  184 degrees is written as 176 on the other side), so bilinear blending of
+  the raw components fails there: two neighbours 5 degrees apart as
+  directions average to an undeflected ray, a thin wrong contour that from
+  the equator at spin sits at xs ~ 0.1, in plain view. Dark rays keep their
+  glow colour in rgb with a = -1 (no bend vector is needed for them); the
+  other universe is b = -1; a = 0 means no trace. universe.frag reads the
+  layer through a four-texel gather that falls back to the nearest texel
+  where the four are not of one kind, so a sky direction is never blended
+  with a sentinel, and that blends the four as unit directions (decoded,
+  mixed, re-encoded) where their bend vectors differ by more than 0.5 rad,
+  which covers the fold.
 - **Between the horizons** the design's rule "E > 0 crosses r+" is exact
   for the axis camera because L_z = 0 there (in general the horizon's
   Killing energy E - Omega_H L_z decides). The design's face-on gas shift
@@ -603,7 +621,21 @@ it was.
 - **The inner-horizon flash** is a `flash` uniform of hole.frag, sqrt(2.5 s /
   time left) over the last 2.5 s (it runs through the 2 s fade, so it is
   seen), applied to the glow through `shifted()`. Below r- the glow is off.
-- **status()** prints `<view> <phase or -> <r signed> <real|math>`.
+- **status()** prints `<view> <phase or -> <r signed> <real|math>`; the mode
+  is the running fall's (`fallMath`, through its fade), not the K key's
+  current setting, which only the next fall takes. The
+  "inner-horizon" phase begins 4 s of proper time before r- (`T_INNER` in
+  fall.js): the fade starts 2.2 s before the end and takes no new phase, so
+  a phase that began in the last second was never reported by the realistic
+  fall. The hint and the card follow the fall's own phase (`fallWhere`)
+  through the fade, so the realistic ending is named while the screen goes
+  dark.
+- **Free flight into the hole** starts the fall when the camera's path
+  reaches Kerr radius r+ (0.67 Rs on the axis, a Cartesian 0.82 Rs on the
+  equator), not the old Cartesian 1 Rs.
+- **The hole layer's texture** is pinned to the item's logical size
+  (`layer.textureSize`), so `holeRes` and the four-texel gather agree on a
+  scaled monitor too.
 
 ## Design page: Sgr A* as a Kerr black hole
 
