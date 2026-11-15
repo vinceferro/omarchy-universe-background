@@ -1022,22 +1022,46 @@ vec3 bendDecode(vec3 rd, vec3 n1, vec3 n2, vec2 bv) {
     if (alpha < 1e-6) return rd;
     return rd * cos(alpha) + (n1 * bv.x + n2 * bv.y) / alpha * sin(alpha);
 }
+// the inverse (hole.frag's bendEncode): alpha the angle from rd to d, psi
+// the azimuth of d's part across rd in the basis
+vec2 bendEncode(vec3 rd, vec3 n1, vec3 n2, vec3 d) {
+    float alpha = acos(clamp(dot(d, rd), -1.0, 1.0));
+    vec2 p = vec2(dot(d, n1), dot(d, n2));
+    float pl = length(p);
+    return pl < 1e-6 ? vec2(alpha, 0.0) : alpha * p / pl;
+}
 // what kind of ray the tracer wrote: 0 sky, 1 dark, 2 the other universe, 3 none
 int holeKind(vec4 t) { return t.a < 0.0 ? 1 : t.b < 0.0 ? 2 : t.a == 0.0 ? 3 : 0; }
 // the tracer at uv: bilinear where its four texels are of one kind, the
 // nearest texel otherwise, so a sky direction is never blended with a
-// sentinel or a glow
-vec4 holeRead(vec2 uv) {
+// sentinel or a glow. Bend vectors are blended as directions where they
+// differ by more than BEND_BLEND: the encoding folds at alpha = 180 degrees
+// (a ray turned 184 degrees is written as 176 on the other side), so two
+// neighbours like (-176, 0) and (+179, 0), 5 degrees apart as directions,
+// would average to an undeflected ray and show the sky unbent along a thin
+// contour. From the equator at spin that fold lies well outside the shadow
+// (a bend of 180 degrees is reached at xs ~ 0.1), in plain view.
+const float BEND_BLEND = 0.5;
+vec4 holeRead(vec2 uv, vec3 rd, vec3 n1, vec3 n2) {
     vec2 st = uv * holeRes - 0.5;
     vec2 i0 = floor(st), fr = st - i0;
     vec4 t00 = texture(holeTex, (i0 + 0.5) / holeRes);
     vec4 t10 = texture(holeTex, (i0 + vec2(1.5, 0.5)) / holeRes);
     vec4 t01 = texture(holeTex, (i0 + vec2(0.5, 1.5)) / holeRes);
     vec4 t11 = texture(holeTex, (i0 + 1.5) / holeRes);
+    vec4 nearest = fr.x < 0.5 ? (fr.y < 0.5 ? t00 : t01) : (fr.y < 0.5 ? t10 : t11);
     int k = holeKind(t00);
-    if (holeKind(t10) == k && holeKind(t01) == k && holeKind(t11) == k)
-        return mix(mix(t00, t10, fr.x), mix(t01, t11, fr.x), fr.y);
-    return fr.x < 0.5 ? (fr.y < 0.5 ? t00 : t01) : (fr.y < 0.5 ? t10 : t11);
+    if (holeKind(t10) != k || holeKind(t01) != k || holeKind(t11) != k) return nearest;
+    vec4 m = mix(mix(t00, t10, fr.x), mix(t01, t11, fr.x), fr.y);
+    if (k == 1 || k == 3) return m;
+    float spread = max(max(distance(t00.rg, t10.rg), distance(t00.rg, t01.rg)), distance(t00.rg, t11.rg));
+    if (spread < BEND_BLEND) return m;
+    vec3 d = mix(mix(bendDecode(rd, n1, n2, t00.rg), bendDecode(rd, n1, n2, t10.rg), fr.x),
+                 mix(bendDecode(rd, n1, n2, t01.rg), bendDecode(rd, n1, n2, t11.rg), fr.x), fr.y);
+    float dl = length(d);
+    if (dl < 0.2) return nearest;                  // directions all over the sphere: no mean to speak of
+    m.rg = bendEncode(rd, n1, n2, d / dl);
+    return m;
 }
 
 // what the sky holds in direction d: our Galaxy's stars, far galaxies
@@ -1139,10 +1163,10 @@ vec3 holePixel(vec3 rd, vec2 uv, vec3 camPos, float sheet, bool falling) {
     // here, so near it the tracer is read only from the same side: a crisp
     // rim at full resolution, no bleeding
     float nudge = (xs <= 0.0 ? -2.0 : 2.0) * (1.0 - smoothstep(0.0, 0.15, abs(xs)));
-    vec4 traced = holeRead(uv + outward * texel * nudge);
-    int kind = holeKind(traced);
     vec3 n1, n2;
     bendBasis(toHole, rd, n1, n2);
+    vec4 traced = holeRead(uv + outward * texel * nudge, rd, n1, n2);
+    int kind = holeKind(traced);
     float g = 1.0 / max(E, 1e-3);                // the sky's shift, seen over emitted
     vec3 col = vec3(0.0);
     if (xs > 0.0 && kind == 2) {
@@ -1154,14 +1178,21 @@ vec3 holePixel(vec3 rd, vec2 uv, vec3 camPos, float sheet, bool falling) {
             // far from the hole: the weak-field series (Keeton & Petters 2005)
             float alpha = 2.0 / B + 0.9817477 / (B * B) + 5.3333 / (B * B * B);
             d = rd * cos(alpha) + n1 * sin(alpha);
-        } else if (xs < 0.04 && rCam > rPlus) {
-            // right at the edge: the strong-deflection limit (Bozza 2002), sharp
-            // at full resolution, along the tracer's azimuth
+        } else if (xs < 0.04 && rCam > rPlus && a < 0.01) {
+            // right at the edge of a non-spinning hole: the strong-deflection
+            // limit (Bozza 2002), alpha = -log(b/b_c - 1) - 0.4002, sharp at
+            // full resolution, along the tracer's azimuth; blended into the
+            // trace over the band's outer half, so it ends without a seam.
+            // Only at a = 0: with spin, xs is no longer b/b_c - 1 (its scale
+            // differs between the approaching and the receding side) and the
+            // formula would paint the ring instead of tracing it (from the
+            // equator at a/M = 0.94 it is 144 degrees off at the band's edge)
             float alpha = -log(xs) - 0.4002;
             vec2 bv = traced.rg;
             float bl = length(bv);
             vec2 az = bl > 1e-6 ? bv / bl : vec2(1.0, 0.0);
-            d = rd * cos(alpha) + (n1 * az.x + n2 * az.y) * sin(alpha);
+            vec3 dF = rd * cos(alpha) + (n1 * az.x + n2 * az.y) * sin(alpha);
+            d = normalize(mix(bendDecode(rd, n1, n2, bv), dF, 1.0 - smoothstep(0.02, 0.04, xs)));
         } else d = bendDecode(rd, n1, n2, traced.rg);
         col = shifted(gxSceneAlong(d), g);
     }
@@ -1172,7 +1203,7 @@ vec3 holePixel(vec3 rd, vec2 uv, vec3 camPos, float sheet, bool falling) {
     // the photon ring: the gas's light, wrapped once more around the hole,
     // squeezed into a thin line on the shadow's edge (drawn at full resolution)
     if (xs > 0.0 && rCam > rMinus) {
-        vec4 rimT = holeRead(uv + outward * texel * 3.0);
+        vec4 rimT = holeRead(uv + outward * texel * 3.0, rd, n1, n2);
         vec3 rim = holeKind(rimT) == 0 ? gasTint(rimT.a) * max(rimT.b, 0.0) : vec3(0.0);
         col += (rim * 0.9 + vec3(0.02, 0.012, 0.006)) * exp(-xs / 0.006);
     }
