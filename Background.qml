@@ -13,6 +13,7 @@ import "lib/kerr.js" as Kerr
 import "lib/localgroup.js" as LG
 import "lib/dwarfs.js" as Dw
 import "lib/labels.js" as Lb
+import "lib/drag.js" as Dr
 
 Item {
   id: root
@@ -98,7 +99,7 @@ Item {
     running: root.animate && root.explore !== "universe"
     onTriggered: {
       root.lastFrameAt = Date.now()
-      root.tick()
+      root.tick(frameTime)
     }
   }
   Timer {
@@ -490,6 +491,18 @@ Item {
   property real gxYawTarget: 0.35
   property real gxPitch: 0.95
   property real gxPitchTarget: 0.95
+  // the orbit's angles glide to their targets on critically damped springs
+  // (lib/camera.js): keys move the targets at input stiffness, the drag writes
+  // the state and throws it on release (lib/drag.js), a flight aims (gxAim)
+  // at a one-second glide that keeps pace with the distance, restored once it
+  // lands
+  readonly property var gxOrbit: ({ yaw: new Cam.Spring(0.35, Cam.W_INPUT), pitch: new Cam.Spring(0.95, Cam.W_INPUT) })
+  readonly property real wGlide: 4.75   // 95% of a flight's turn in 1 s
+  function gxAim(yaw, pitch) {
+    gxYawTarget = yaw + Math.round((gxYawTarget - yaw) / (2 * Math.PI)) * 2 * Math.PI
+    gxPitchTarget = Math.max(-1.45, Math.min(1.45, pitch))
+    gxOrbit.yaw.w = wGlide; gxOrbit.pitch.w = wGlide
+  }
   property int gxSel: -1           // hotspot index; -1 the Sun, -2 free flight
   property real gxMyr: 0           // time-lapse, million years from now
   property int gxRateIndex: 0
@@ -553,8 +566,7 @@ Item {
     gxSel = -2
     gxFree = v.at.slice()
     gxView = i
-    gxYawTarget = o.yaw + Math.round((gxYawTarget - o.yaw) / (2 * Math.PI)) * 2 * Math.PI
-    gxPitchTarget = o.pitch
+    gxAim(o.yaw, o.pitch)
     gxDistGoal = o.dist
     touchLabels()
   }
@@ -701,9 +713,7 @@ Item {
   function gxAimAtPole() {
     const o = [Math.cos(gxPitch) * Math.sin(gxYaw), Math.cos(gxPitch) * Math.cos(gxYaw), Math.sin(gxPitch)]
     const pole = holePole(o)
-    const yaw = Math.atan2(pole[0], pole[1])
-    gxYawTarget = yaw + Math.round((gxYawTarget - yaw) / (2 * Math.PI)) * 2 * Math.PI
-    gxPitchTarget = Math.max(-1.45, Math.min(1.45, Math.asin(pole[2])))
+    gxAim(Math.atan2(pole[0], pole[1]), Math.asin(pole[2]))
     gxView = -1
   }
   // at: where the fall starts (kpc), when not the camera's last position. The
@@ -762,6 +772,7 @@ Item {
     gxTarget = sp.slice(); gxFree = sp.slice()
     gxDist = gxDistGoal
     gxYaw = gxYawTarget; gxPitch = gxPitchTarget
+    gxOrbit.yaw.set(gxYaw); gxOrbit.pitch.set(gxPitch)
     gxPrevCam = null; gxSpeed = 0   // an 8 kpc jump is not a speed
     gxCamJumped = true
     fallHoldFor = 2
@@ -783,8 +794,7 @@ Item {
       const P = hotspotPos(i), Sn = sunPosAt(gxMyr)
       const o = [Sn[0] - P[0], Sn[1] - P[1], Sn[2] - P[2]]
       const ol = Math.hypot(o[0], o[1], o[2])
-      gxYawTarget = Math.atan2(o[0], o[1]) + Math.round((gxYawTarget - Math.atan2(o[0], o[1])) / (2 * Math.PI)) * 2 * Math.PI
-      gxPitchTarget = Math.max(-1.45, Math.min(1.45, Math.asin(o[2] / ol)))
+      gxAim(Math.atan2(o[0], o[1]), Math.asin(o[2] / ol))
       gxSel = i
       gxDistGoal = Math.max(photoWidthKpc(i) / 0.85, gxMinDist())
       return
@@ -795,8 +805,7 @@ Item {
       // home: inside the disk just behind the Sun, looking toward the Centre,
       // the way we see our own Galaxy: a band of light across the sky with
       // the bulge glowing through the dust lanes
-      gxYawTarget = sunOmega * gxMyr + Math.round((gxYawTarget - sunOmega * gxMyr) / (2 * Math.PI)) * 2 * Math.PI
-      gxPitchTarget = 0.05
+      gxAim(sunOmega * gxMyr, 0.05)
     }
   }
   // entered the Milky Way from the solar system: stepping back returns there
@@ -815,9 +824,9 @@ Item {
     gxTarget = sunPosAt(0)
     gxDist = 0.0008
     gxDistGoal = 34
-    gxYaw = gxYawTarget = 0.35
-    gxPitch = 0.25
-    gxPitchTarget = 1.0
+    gxYaw = 0.35; gxPitch = 0.25
+    gxOrbit.yaw.set(gxYaw); gxOrbit.pitch.set(gxPitch)
+    gxAim(0.35, 1.0)
   }
   function sizeText(pc) {
     const ly = pc * 3.26156
@@ -856,6 +865,11 @@ Item {
   property real skyVfovTarget: 46
   property int skyView: 0
   property bool skyDragging: false
+  // l and b (degrees) glide to their targets on springs, as the Milky Way's
+  // orbit does (gxOrbit): keys and the named views move the targets, the drag
+  // writes the state and throws it
+  readonly property var skyOrbit: ({ l: new Cam.Spring(0, Cam.W_INPUT), b: new Cam.Spring(-1.5, Cam.W_INPUT) })
+  function skyFocal() { return 0.5 / Math.tan(skyVfov * Math.PI / 360) }
   property real skyStaticMix: 0
   property vector3d skyFwd: Qt.vector3d(0, -1, 0)
   property vector3d skyRight: Qt.vector3d(-1, 0, 0)
@@ -875,7 +889,8 @@ Item {
     skyLTarget = l
     skyBTarget = v.b
     skyVfovTarget = 46
-    if (jump) { skyL = l; skyB = v.b; skyVfov = 46 }
+    if (jump) { skyL = l; skyB = v.b; skyVfov = 46; skyOrbit.l.set(l); skyOrbit.b.set(v.b) }
+    else { skyOrbit.l.w = wGlide; skyOrbit.b.w = wGlide }
   }
 
   // real photos of the places (textures/photos.jpg, tools/make_atlas.py):
@@ -1050,8 +1065,8 @@ Item {
       ["I", root.guides ? "hide orbit lines" : "show orbit lines"],
       ["L", labelsOn ? "labels off" : "labels on (they fade after " + Lb.HOLD_S + " s)"],
       ["SCROLL / Q E", "zoom"],
-      ["DRAG / WASD", "pan"],
-      ["RIGHT-DRAG", "orbit the camera"],
+      ["DRAG", "orbit the camera (a release coasts)"],
+      ["RIGHT-DRAG / WASD", "pan (Shift-drag too)"],
       ["ARROWS", "orbit / tilt the camera"],
       ["O", "auto orbit"],
       ["[  ]", "slower / faster time"],
@@ -1272,9 +1287,12 @@ Item {
   // slowly (OLED) and leaning toward the pointer.
   property vector2d hudCenter: Qt.vector2d(0.57, 0.02)
 
-  function tick() {
+  // frameDt: the FrameAnimation's own clock (monotonic, sub-millisecond); the
+  // fallback Timer passes nothing and the wall clock serves (whole milliseconds:
+  // a 6 ms frame measured as 6 or 7 is a 16% jitter in every spring step)
+  function tick(frameDt) {
     const now = Date.now()
-    const dt = Math.min(0.1, (now - lastTick) / 1000)
+    const dt = Math.min(0.1, frameDt !== undefined ? frameDt : (now - lastTick) / 1000)
     lastTick = now
     shaderTime = ((now - shaderEpoch) / 1000) % 600
 
@@ -1474,8 +1492,9 @@ Item {
         if (zk !== 0) skyVfovTarget = Math.max(8, Math.min(130, skyVfovTarget * Math.pow(2, -zk * dt)))
       }
       const sk = Math.min(1, dt * 3)
-      skyL += (skyLTarget - skyL) * sk
-      skyB += (skyBTarget - skyB) * sk
+      skyOrbit.l.g = skyLTarget; skyOrbit.b.g = skyBTarget
+      skyL = skyOrbit.l.step(dt, 1e-5); skyB = skyOrbit.b.step(dt, 1e-5)
+      if (!skyOrbit.l.moving() && !skyOrbit.b.moving()) { skyOrbit.l.w = Cam.W_INPUT; skyOrbit.b.w = Cam.W_INPUT }
       skyVfov += (skyVfovTarget - skyVfov) * sk
       const l = skyL * Math.PI / 180, b = skyB * Math.PI / 180
       const fw = Qt.vector3d(Math.cos(b) * Math.sin(l), -Math.cos(b) * Math.cos(l), Math.sin(b))
@@ -1486,10 +1505,11 @@ Item {
       // exactly on a named view: its native 5K render
       const v = skyViews[skyView]
       let dl = ((skyL - v.l) % 360 + 540) % 360 - 180
-      // close to a named view and not being moved: settle exactly onto it
+      // close to a named view and not being moved (nor coasting through it): settle exactly onto it
       const still = !key("left") && !key("right") && !key("up") && !key("down") && !key("q") && !key("e")
+                 && !skyDragging && Math.abs(skyOrbit.l.v) < 2 && Math.abs(skyOrbit.b.v) < 2
       const near = Math.abs(dl) < 0.5 && Math.abs(skyB - v.b) < 0.5 && Math.abs(skyVfov - 46) < 1.0
-      if (near && still && !skyDragging) {
+      if (near && still) {
         skyLTarget = skyL - dl
         skyBTarget = v.b
         skyVfovTarget = 46
@@ -1514,8 +1534,9 @@ Item {
         if (zk > 0) gxFallArmed = false
       }
       const ek = Math.min(1, dt * 3)
-      gxYaw += (gxYawTarget - gxYaw) * ek
-      gxPitch += (gxPitchTarget - gxPitch) * ek
+      gxOrbit.yaw.g = gxYawTarget; gxOrbit.pitch.g = gxPitchTarget
+      gxYaw = gxOrbit.yaw.step(dt, 1e-7); gxPitch = gxOrbit.pitch.step(dt, 1e-7)
+      if (!gxOrbit.yaw.moving() && !gxOrbit.pitch.moving()) { gxOrbit.yaw.w = Cam.W_INPUT; gxOrbit.pitch.w = Cam.W_INPUT }
       const cp = Math.cos(gxPitch), sp = Math.sin(gxPitch)
       const off = [cp * Math.sin(gxYaw), cp * Math.cos(gxYaw), sp]
       const fwd = Qt.vector3d(-off[0], -off[1], -off[2])
@@ -3362,6 +3383,7 @@ Item {
       }
 
       Item {
+        id: keyTaker
         focus: root.explore !== "universe"
         Keys.onPressed: function(event) {
           root.touchLabels()
@@ -3480,90 +3502,147 @@ Item {
         anchors.fill: parent
         acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
         hoverEnabled: true
-        property point pressAt: Qt.point(0, 0)
-        property point lastAt: Qt.point(0, 0)
-        property real lastT: 0
-        property bool dragged: false
-        property bool orbiting: false
+        // One gesture for every view (lib/drag.js): the pointer holds something,
+        // it follows the pointer 1:1, and a release throws it with the measured
+        // velocity onto the springs; a press stops a coast dead, where it is
+        // (a flight's turn goes on until the drag moves, then it is taken over
+        // from the pose it has reached). What is held:
+        //   sky      the direction under the pointer (an exact angular grab)
+        //   galaxy   the orbit about the focus, arcball: half a screen height of
+        //            drag is a right angle (falling: look around, the far field
+        //            under the pointer)
+        //   system   left button: the same arcball orbit about the focus, in every
+        //            view; right or middle button, or Shift: grab the ecliptic
+        //            and pan (the chase and galactic views have nothing to pan:
+        //            they orbit on any button)
+        // A click (under 4 px and 0.35 s) picks; a drag never does. Event times
+        // are the wall clock in seconds: nothing divides by one event's dt.
+        property var gesture: null
+        property string mode: ""          // "sky", "look", "gxorbit", "orbit", "pan"
+        property bool wasClick: false
+        property bool focusing: false     // the press is bringing keyboard focus to the wallpaper
+        function now() { return Date.now() / 1000 }
         onPressed: function(mouse) {
           root.touchLabels()
-          pressAt = Qt.point(mouse.x, mouse.y)
-          lastAt = pressAt
-          lastT = Date.now() / 1000
-          dragged = false
+          const pt = root.toP(mouse.x, mouse.y, width, height), t = now()
+          focusing = !keyTaker.activeFocus
+          wasClick = false
+          gesture = null
+          if (root.explore === "sky") {
+            mode = "sky"
+            root.skyOrbit.l.hold(); root.skyOrbit.b.hold()   // a coast stops dead; a glide to a view goes on until the drag moves
+            root.skyLTarget = root.skyOrbit.l.g; root.skyBTarget = root.skyOrbit.b.g
+            gesture = new Dr.Gesture(pt, t, 1 / height, [root.skyL, root.skyB])
+            gesture.held = Dr.skyRay(root.skyL * Math.PI / 180, root.skyB * Math.PI / 180, pt, root.skyFocal())
+          } else if (root.explore === "galaxy") {
+            mode = root.fallState ? "look" : "gxorbit"
+            root.gxOrbit.yaw.hold(); root.gxOrbit.pitch.hold()
+            root.gxYawTarget = root.gxOrbit.yaw.g; root.gxPitchTarget = root.gxOrbit.pitch.g
+            gesture = new Dr.Gesture(pt, t, 1 / height, [root.gxYaw, root.gxPitch])
+          } else if (root.explore === "system") {
+            const pan = (mouse.button !== Qt.LeftButton || (mouse.modifiers & Qt.ShiftModifier)) && !root.chasing && !root.galactic
+            mode = pan ? "pan" : "orbit"
+            root.sysCam.stop()
+            gesture = new Dr.Gesture(pt, t, 1 / height, pan ? root.sysCam.F.x : [root.sysCam.yaw.x, root.sysCam.pitch.x])
+          }
         }
         onPositionChanged: function(mouse) {
           if (root.explore !== "universe") root.touchLabels()
+          const pt = root.toP(mouse.x, mouse.y, width, height)
           if (root.explore === "galaxy" && !pressed) {
             // hovering: the tick finds the place under the pointer (gxHover)
-            const pt = root.toP(mouse.x, mouse.y, width, height)
             root.gxPointer = [pt[0], pt[1], 1 / height]
           } else if (root.explore !== "galaxy" && root.gxPointer) root.gxPointer = null
-          if (root.explore === "sky" && pressed) {
-            root.skyDragging = true
-            if (Math.hypot(mouse.x - pressAt.x, mouse.y - pressAt.y) > 4) dragged = true
-            // drag the sky: it follows the pointer
-            const degPerPx = root.skyVfov / height
-            root.skyLTarget += (mouse.x - lastAt.x) * degPerPx
-            root.skyBTarget = Math.max(-89, Math.min(89, root.skyBTarget + (mouse.y - lastAt.y) * degPerPx))
-            root.skyL = root.skyLTarget
-            root.skyB = root.skyBTarget
-            lastAt = Qt.point(mouse.x, mouse.y)
-          } else if (root.explore === "galaxy" && pressed) {
-            if (Math.hypot(mouse.x - pressAt.x, mouse.y - pressAt.y) > 4) dragged = true
-            // falling: look around instead, the view following the drag as
-            // the orbit does (right looks right, down looks down)
-            if (root.fallState) {
-              root.gxLookDragging = true
-              root.fallLookBy((mouse.x - lastAt.x) * 0.005, -(mouse.y - lastAt.y) * 0.004)
-            } else {
-              root.gxYawTarget += (mouse.x - lastAt.x) * 0.005
-              root.gxPitchTarget = Math.max(-1.45, Math.min(1.45, root.gxPitchTarget + (mouse.y - lastAt.y) * 0.004))
-              root.gxView = -1   // orbiting leaves a named viewpoint's line
-            }
-            lastAt = Qt.point(mouse.x, mouse.y)
-          } else if (root.explore === "system" && pressed) {
-            // The scene sticks to the pointer 1:1 and coasts on release. Right-drag
-            // orbits (so does left-drag while a body is pinned: it stays centred
-            // and pinned; panning would cast the view adrift); left-drag otherwise
-            // grabs the ecliptic and pans.
-            const t = Date.now() / 1000
-            if (!dragged && Math.hypot(mouse.x - pressAt.x, mouse.y - pressAt.y) > 4) dragged = true
-            if (dragged) {
-              if ((mouse.buttons & Qt.RightButton) || root.chasing || root.galactic || (root.follow > 0 && (mouse.buttons & Qt.LeftButton))) {
-                // in the chase and galactic views the pitch is a real elevation: drag down to look down
-                const sgn = root.chasing || root.galactic ? 1 : -1
-                root.sysCam.orbit((mouse.x - lastAt.x) / height * 8.6, sgn * (mouse.y - lastAt.y) / height * 4.3, true, t - lastT)
-                root.autoOrbit = false
-                orbiting = true
-              } else if (mouse.buttons & Qt.LeftButton) {
-                if (!root.sysCam.grab) { root.follow = -1; root.sysCam.grabBegin(root.toP(pressAt.x, pressAt.y, width, height), lastT, root.ecliptic) }
-                root.sysCam.grabMove(root.toP(mouse.x, mouse.y, width, height), t)
-              }
-            }
-            lastAt = Qt.point(mouse.x, mouse.y)
-            lastT = t
-          } else if (root.explore === "universe") {
+          if (root.explore === "universe") {
             root.viewTarget = Qt.vector2d(mouse.x / width - 0.5, mouse.y / height - 0.5)
-            root.hoverSystem = root.overSystem(root.toP(mouse.x, mouse.y, width, height))
+            root.hoverSystem = root.overSystem(pt)
+            return
+          }
+          if (!pressed || !gesture) return
+          const g = gesture, prev = g.s
+          const drag = g.move(pt, now())
+          if (mode === "sky") {
+            // the patch of sky pressed on goes back under the pointer (lib/drag.js skyAnglesFor)
+            root.skyDragging = true
+            const a = Dr.skyAnglesFor(g.held, pt, root.skyFocal(), root.skyL * Math.PI / 180, root.skyB * Math.PI / 180, 89 * Math.PI / 180)
+            root.skyL = root.skyLTarget = a.l * 180 / Math.PI
+            root.skyB = root.skyBTarget = a.b * 180 / Math.PI
+            root.skyOrbit.l.set(root.skyL); root.skyOrbit.b.set(root.skyB)
+            g.record([root.skyL, root.skyB])
+          } else if (mode === "look") {
+            // falling: look around, the far field following the pointer
+            root.gxLookDragging = true
+            root.fallLookBy((pt[0] - prev[0]) * Dr.LOOK_RATE, -(pt[1] - prev[1]) * Dr.LOOK_RATE)
+          } else if (mode === "gxorbit") {
+            // the pose at press plus the pointer's offset: a clamp loses nothing
+            const o = g.offset()
+            root.gxYaw = root.gxYawTarget = g.x0[0] + o[0] * Dr.ORBIT_RATE
+            root.gxPitch = root.gxPitchTarget = Math.max(-1.45, Math.min(1.45, g.x0[1] + o[1] * Dr.ORBIT_RATE))
+            root.gxOrbit.yaw.set(root.gxYaw); root.gxOrbit.pitch.set(root.gxPitch)
+            root.gxOrbit.yaw.w = Cam.W_INPUT; root.gxOrbit.pitch.w = Cam.W_INPUT
+            if (drag) root.gxView = -1   // orbiting leaves a named viewpoint's line
+            g.record([root.gxYaw, root.gxPitch])
+          } else if (mode === "orbit") {
+            // by steps: the chase's yaw rides the tracked azimuth, so there is no
+            // absolute pose to hold. In the chase and galactic views the pitch is
+            // a real elevation: drag down to look down
+            const sgn = root.chasing || root.galactic ? 1 : -1
+            root.sysCam.orbit((pt[0] - prev[0]) * Dr.ORBIT_RATE, sgn * (pt[1] - prev[1]) * Dr.ORBIT_RATE, true)
+            root.autoOrbit = false
+            g.record([root.sysCam.yaw.x, root.sysCam.pitch.x])
+          } else if (mode === "pan" && drag) {
+            // the ecliptic point under the pointer sticks to it. The grab begins
+            // past the click threshold, on the point under the pointer NOW (so
+            // nothing jumps), and unpins the body: a wobbly click unpins nothing
+            if (!root.sysCam.grab) { root.follow = -1; root.sysCam.grabBegin(pt, root.ecliptic) }
+            root.sysCam.grabMove(pt)
+            g.record(root.sysCam.F.x)
           }
         }
         onReleased: {
           root.skyDragging = false
           root.gxLookDragging = false
-          if (root.sysCam.grab) root.sysCam.grabEnd()
-          if (orbiting) { root.sysCam.orbitEnd(); orbiting = false }
+          const g = gesture, t = now()
+          gesture = null
+          wasClick = g ? g.isClick(t) : true
+          if (!g) return
+          // the throw: the state's velocity over the last 60 ms of the drag,
+          // then the spring coasts it v tau and stops (camera.js fling)
+          const v = g.velocity(t, Cam.FLING_TAU)
+          if (mode === "sky") {
+            root.skyOrbit.l.set(root.skyL, v[0]); root.skyOrbit.b.set(root.skyB, v[1])
+            root.skyOrbit.l.fling(); root.skyOrbit.b.fling()
+            root.skyLTarget = root.skyOrbit.l.g
+            root.skyBTarget = Math.max(-89, Math.min(89, root.skyOrbit.b.g))
+          } else if (mode === "gxorbit") {
+            root.gxOrbit.yaw.set(root.gxYaw, v[0]); root.gxOrbit.pitch.set(root.gxPitch, v[1])
+            root.gxOrbit.yaw.fling(); root.gxOrbit.pitch.fling()
+            root.gxYawTarget = root.gxOrbit.yaw.g
+            root.gxPitchTarget = Math.max(-1.45, Math.min(1.45, root.gxOrbit.pitch.g))
+          } else if (mode === "orbit") root.sysCam.orbitEnd(v[0], v[1])
+          else if (mode === "pan" && root.sysCam.grab) root.sysCam.grabEnd(v)
+          mode = ""
         }
-        onCanceled: root.gxLookDragging = false
+        onCanceled: {
+          gesture = null; mode = ""; wasClick = false
+          root.skyDragging = false
+          root.gxLookDragging = false
+          if (root.sysCam.grab) root.sysCam.grabEnd()
+        }
         onExited: {
           root.viewTarget = Qt.vector2d(0, 0)
           root.hoverSystem = false
           root.gxPointer = null
         }
         onClicked: function(mouse) {
-          if (dragged) return
+          if (!wasClick) return
+          wasClick = false
           if (mouse.button === Qt.RightButton) { if (root.explore !== "universe") root.back(); return }
           if (mouse.button !== Qt.LeftButton) return
+          // the click that brought keyboard focus back to the wallpaper (a
+          // window had it) only focuses: it was aimed at the desk, not at a
+          // marker or a planet
+          if (focusing && keyTaker.activeFocus && root.explore !== "universe") return
           const pt = root.toP(mouse.x, mouse.y, width, height)
           if (root.explore === "galaxy") {
             // fly to the nearest marked place under the pointer (a dwarf
