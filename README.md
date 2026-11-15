@@ -433,13 +433,21 @@ python3 -I tools/gen_milkyway.py 2048
 
 # textures/photos.jpg and photos.json from the source photos (img1.jpg ... in a download dir; URLs in textures/CREDITS.md)
 python3 -I tools/make_atlas.py /path/to/downloads
+
+# textures/m31-faceon.jpg and m33-faceon.jpg: each galaxy's photo unfolded face-on
+# (distance, inclination, position angle as arguments; prints the disk axes for Background.qml)
+python3 -I tools/deproject_galaxy.py m31
+python3 -I tools/deproject_galaxy.py m33 --src /path/to/eso1424a.jpg
+
+# lib/dwarfs.js, the Local Group's dwarf galaxies, from McConnachie 2012 (VizieR J/AJ/144/4, URL in the script)
+python3 -I tools/gen_dwarfs.py /path/to/catalogue.tsv
 ```
 
 ## Credits
 
 All imagery is real data used under its licence: NASA SVS, NASA Earth
 Observatory, LRO, ESO, NOIRLab, Hubble and Webb images, and the Gaia
-catalogue by ESA/Gaia/DPAC. The full list with licences and source links is in
+catalogue by ESA/Gaia/DPAC. The dwarf galaxies are McConnachie 2012 (AJ 144, 4). The full list with licences and source links is in
 [textures/CREDITS.md](textures/CREDITS.md).
 
 ## Tuning
@@ -466,7 +474,8 @@ keys and flings settle), `W_MODE` (fades, the field-of-view morph, the
 true-scale blend), `FLING_TAU` (how far a released drag coasts) and the
 flight's `rho` (how high a long hop rises). Its numeric checks run with
 `node tests/test_camera.js lib/camera.js`; the fall's trajectory and timeline
-(`lib/fall.js`) with `node tests/test_fall.js lib/fall.js`.
+(`lib/fall.js`) with `node tests/test_fall.js lib/fall.js`; the dwarf galaxy
+table (`lib/dwarfs.js`) with `node tests/test_dwarfs.js lib/dwarfs.js`.
 
 ## Notes
 
