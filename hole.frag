@@ -1,48 +1,83 @@
 #version 440
 
 // Sagittarius A* up close: every pixel's light ray is traced backward through
-// the curved spacetime of a Schwarzschild black hole, at half resolution,
-// only while the camera is near the hole.
+// the curved spacetime of a spinning (Kerr) black hole, at a third of the
+// resolution, only while the camera is near the hole.
 //
 // Units: Schwarzschild radii (Rs = 2GM/c^2 = 0.085 AU for 4.3 million Suns),
-// centred on the hole. A light ray's path obeys u'' + u = 3/2 u^2 (u = 1/r);
-// written for a 3D position x it is the "Newtonian" acceleration
-// a = -3/2 h^2 x / r^5 with h = |x cross v| conserved, which bends rays
-// exactly as the Schwarzschild metric does (photon sphere at 1.5 Rs, shadow
-// edge at 2.6 Rs). Rays that cross the horizon are lost: the shadow.
+// centred on the hole, so the mass is M = 0.5 and the spin a = (a/M) M is in
+// Rs too. Sgr A*'s spin is not measured; a/M = 0.94 (Background.qml) is the
+// EHT 2022 Paper V best-bet model (a MAD flow at 30 degrees inclination),
+// with Daly et al. 2024 near 0.9 and Fragione & Loeb 2020 arguing for < 0.1
+// from the S stars' orbits: one uniform, `spin`, changes it; 0 gives the
+// Schwarzschild picture this replaced.
+//
+// The geometry is written in Kerr-Schild Cartesian coordinates (Kerr &
+// Schild 1965; Visser 2007), g = eta + f l l with
+//   f = 2 M r^3 / (r^4 + a^2 z^2)
+//   l = (1, (r x + a y)/(r^2 + a^2), (r y - a x)/(r^2 + a^2), z/r)
+// and r the Boyer-Lindquist radius, the root of r^4 - (rho^2 - a^2) r^2 -
+// a^2 z^2 = 0, with the spin axis along z (the world's `spinAxis`). It is one
+// Cartesian chart that the camera and the gas already live in, regular at
+// both horizons r+- = M +- sqrt(M^2 - a^2), and it extends through the disk
+// r = 0 (x^2 + y^2 < a^2 on the plane z = 0; its rim is the ring singularity)
+// to negative r, the other asymptotically flat universe of the maximally
+// extended solution, by the same formulas with r signed. The point does not
+// say which side of the disk a ray is on, so each ray carries `sheet` (+1 or
+// -1), flipped when it crosses the plane inside the ring. Light rays are the
+// Hamiltonian flow of H = 1/2 g^mn p_m p_n, which needs no Christoffel
+// symbols: with l.p = E + l_i k_i (p_t = -E is conserved),
+//   dx^i/dL = k_i - f (l.p) l_i
+//   dk_i/dL = 1/2 (l.p)^2 df/dx^i + f (l.p) (dl_j/dx^i) k_j
+// stepped with RK4 (lib/kerr.js has the same march in double precision, and
+// tests/test_kerr.js checks it against the exact Schwarzschild integral at
+// a = 0 and the conserved quantities at a/M = 0.94). The shadow, the photon
+// ring, the D-shaped flattening of the shadow at high spin seen from the side,
+// and the twist frame dragging gives the lensed sky all come out of this
+// tracing; nothing is painted.
+//
+// The observer. A screen direction becomes a photon through the camera's
+// orthonormal frame: because l is null, e_a = delta_a - (f/2) l_a l is a
+// tetrad everywhere, and the camera's frame is a local boost of it to its
+// 4-velocity u (hovering: u = (1/sqrt(1-f), 0, 0, 0); falling down the axis:
+// u^t = (E^2 (1 + f) + f^2) / (E + f w), spatial speed w = sqrt(E^2 - 1 + f)
+// along the axis, f = 2Mr/(r^2+a^2) there, regular at both horizons). The
+// photon seen in look direction v is k = u - v^i E_i (observed frequency 1);
+// E = -k_t is its energy at infinity, so the sky's frequency ratio seen over
+// emitted is 1/E (universe.frag applies it). At a = 0 this reproduces the old
+// e = E - n_r w, b = r n_t / e, s = w - n_r E of the radial infaller exactly.
+// Between the horizons a ray with E <= 0 is light that would have to come
+// out of the hole: dark.
 //
 // The gas: Sgr A* is fed by a faint, hot, geometrically thick flow (it emits
-// mostly in radio and infrared). It is drawn as a thick turbulent torus
-// orbiting at the local circular speed, so its light is Doppler-boosted on the
-// approaching side and dimmed and reddened deep in the gravity well (g^3.5).
-// The flow's far side, lensed over the top of the shadow, and the photon ring
-// are not painted: they come out of the ray tracing.
+// mostly in radio and infrared). It is drawn as a thick turbulent torus on
+// prograde circular orbits of the Kerr metric (Bardeen, Press & Teukolsky
+// 1972), Omega = sqrt(M) / (r^1.5 + a sqrt(M)), with its inner edge at the
+// innermost stable orbit (3 Rs at a = 0, 1.01 Rs at a/M = 0.94). A sample of
+// gas turning with the plane's Omega(r) about the axis has 4-velocity
+// u = N (d_t + Omega (x d_y - y d_x)), N from g(u, u) = -1, and sees our ray
+// with frequency -k.u = N (E - Omega L_z): Doppler, transverse Doppler, the
+// gravitational shift and frame dragging in one line (L_z = x k_y - y k_x is
+// conserved). Its light is weighted g^3.5 (I_nu / nu^3 is invariant, spectral
+// index 0.5); the flow's far side lensed over the shadow and the photon ring
+// are not painted either.
 //
-// Output: rgb = light from the gas along the ray (optically thin: it does not
-// hide what is behind), a = how far the ray was bent in total (radians), or
-// -1 if it fell in. universe.frag lenses the sky with that angle at full
-// resolution, so the stars stay sharp.
-//
-// The fall (fallE > 0): the camera is no longer standing still but falling
-// freely, from rest at 6 Rs, with energy per unit mass E = sqrt(1 - 1/r0)
-// (lib/fall.js). What such an observer sees in a given direction is a
-// different light ray from what a hovering one sees: aberration, and below
-// the horizon no observer can hover at all. So the look direction is first
-// turned into the ray's constants of motion in the falling observer's own
-// frame (the radially infalling tetrad of the Schwarzschild metric):
-//   e = E - n_r sqrt(E^2 - f)       the ray's energy at infinity (f = 1 - 1/r)
-//   b = r n_t / e                   its impact parameter (Rs)
-//   s = sqrt(E^2 - f) - n_r E       sign: traced backward, does it climb (> 0)?
-// with n the direction the light travels (opposite to the look direction),
-// n_r its outward radial part and n_t its transverse part. e <= 0 is light
-// that would have to come out of the hole: dark. Below 1.5 Rs any ray
-// heading inward is lost, and so is one with b > B_CRIT. Where a ray left
-// is not left to the step-limited march (from deep inside, rays crawl out
-// too slowly for 200 steps): it is the exact integral of the shape
-// equation, phi = ∫ du / sqrt(1/b^2 - u^2 + u^3) along the ray, as an angle
-// from the outward radial in the ray's own plane (a). universe.frag reads
-// the sky there and applies the frequency shift 1/e: blue toward the
-// horizon line, red behind. The march then only collects the gas's light.
+// Output (RGBA16F), read by universe.frag at full resolution:
+//   a sky ray     rg = where it left, as a "bend vector" (alpha cos psi,
+//                 alpha sin psi) about the look direction in the basis
+//                 (toward the hole, perpendicular to it); b = the gas's light
+//                 along the way (intensity); a = its intensity-weighted mean
+//                 shift g (> 0), for the tint (where both sides of the torus
+//                 lie on one ray the hue is the mean, not the mix)
+//   a dark ray    rgb = the glow of the gas falling in ahead (below), a = -1
+//   other universe (math mode: the ray ran to r -> -infinity)  rg = the bend
+//                 vector, b = -1, a = 1
+//   no trace      0 (the ray never came within R_OUT: universe.frag uses the
+//                 weak-field series)
+// Beyond R_OUT the direction still turns, but less than the Newtonian estimate
+// says: the coordinate direction at R is already tilted toward the asymptote.
+// The remaining turn toward the hole is, to first order in M (s = b/R),
+//   delta = (M/b) (2 - (2 - s^2 - s^4) / sqrt(1 - s^2))  ~  3 M b^3 / (4 R^4)
 //
 // What lies below (infallGlow): the dark directions, the shadow from outside
 // and the cap toward the centre once inside, are not quite black. Gas that
@@ -52,8 +87,14 @@
 // that light does. The model gas is a steady spherical inflow from rest far
 // out (energy per unit mass 1, dr/dtau = -1/sqrt(r)), optically thin, with
 // emissivity r^-3 (density squared, for a constant mass flux through
-// 4 pi r^2) inside the torus's inner edge, where the drawn flow ends. Its
-// light comes out already shifted (a = -1 tells universe.frag so), faint.
+// 4 pi r^2) inside the torus's inner edge, where the drawn flow ends. It is
+// kept as the Schwarzschild cartoon it was (the ray's E and sqrt(K) stand in
+// for e and L), a hint of light rather than a model, and is off on the far
+// sheet. Its light comes out already shifted (a = -1 tells universe.frag
+// so), faint. `flash` (> 1 in the last second before the inner horizon)
+// shifts it blue and bright: a labelled cartoon of the inner horizon's
+// instability, where infalling light is blueshifted without bound (Penrose
+// 1968; Poisson & Israel 1990).
 
 layout(location = 0) in vec2 qt_TexCoord0;
 layout(location = 0) out vec4 fragColor;
@@ -63,59 +104,110 @@ layout(std140, binding = 0) uniform buf {
     float qt_Opacity;
     vec2 resolution;
     float shown;      // 0: not near the hole, draw nothing
-    vec3 camPos;      // camera, in Schwarzschild radii from the hole
+    vec3 camPos;      // camera, in Schwarzschild radii from the hole (world frame)
     vec3 camFwd;
     vec3 camRight;
     vec3 camUp;
     float aspect;
-    vec3 spinAxis;    // the flow's rotation axis (world frame)
+    vec3 spinAxis;    // the hole's spin axis = the flow's rotation axis (world frame, unit)
     float flowTime;   // seconds of gas motion (in Rs/c units: 1 Rs/c = 42 s)
-    float fallE;      // 0: the camera hovers; else it falls, with this energy per unit mass
+    float fallE;      // 0: the camera hovers; else it falls down the axis, with this energy per unit mass
+    float spin;       // a, in Rs (a/M = 2 a)
+    float camSheet;   // +1: our side of the disk; -1: the camera is on the r < 0 sheet (math mode)
+    float flash;      // 1; > 1 in the last second before the inner horizon (the glow's blueshift)
 };
 
-const float R_OUT = 60.0;   // beyond this, bending is left to the weak-field formula
-const float R_IN = 1.0;     // the horizon
-const float B_CRIT = 2.598076211;   // 3 sqrt(3) / 2: the impact parameter of the photon sphere
+const float M = 0.5;        // the mass, in Rs
+const float R_OUT = 60.0;   // beyond this, the remaining bend is the weak-field tail
+const int STEPS = 180;
+const float B_CRIT = 2.598076211;   // 3 sqrt(3) / 2: Schwarzschild's critical impact parameter (the glow cartoon)
 
-// The fall's exit angle: the midpoint rule on stretches of the ray's path
-// chosen so that the integrand stays smooth (u = 1/r, c = 1/b^2; checked
-// against a fine reference in tests/test_fall.js).
-// from infinity in to u = umax (<= 1) with no turning point on the way
-float sweepOut(float umax, float c) {
-    float h = umax / 48.0, acc = 0.0;
-    for (int i = 0; i < 48; i++) {
-        float u = (float(i) + 0.5) * h;
-        acc += inversesqrt(max(c - u * u * (1.0 - u), 1e-12));
-    }
-    return acc * h;
+// ---- the Kerr-Schild metric ----
+struct KS {
+    float r;    // Boyer-Lindquist radius, signed by the sheet
+    float f;
+    vec3 l;     // l_i
+    vec3 dr;    // dr/dx_i
+    vec3 df;    // df/dx_i
+    mat3 dl;    // dl[i] = (dl_x, dl_y, dl_z)/dx_i
+    float A;    // r^2 + a^2
+    float D;    // r^4 + a^2 z^2
+};
+
+// the root of r^4 - (rho^2 - a^2) r^2 - a^2 z^2 = 0, both branches without cancellation
+float ksRadius(vec3 x, float sheet) {
+    float d = dot(x, x) - spin * spin;
+    float S = sqrt(d * d + 4.0 * spin * spin * x.z * x.z);
+    float r2 = d >= 0.0 ? 0.5 * (d + S) : 2.0 * spin * spin * x.z * x.z / (S - d);
+    return sheet * sqrt(r2);
 }
-// on from the horizon (u = 1) down to r < 1: with u = 1/x^2 the integrand
-// is 2 / sqrt(1 - x^2 + c x^6), x from sqrt(r) to 1
-float sweepIn(float r, float c) {
-    float x0 = sqrt(r), h = (1.0 - x0) / 24.0, acc = 0.0;
-    for (int i = 0; i < 24; i++) {
-        float x = x0 + (float(i) + 0.5) * h, x2 = x * x;
-        acc += inversesqrt(max(1.0 - x2 + c * x2 * x2 * x2, 1e-12));
-    }
-    return 2.0 * acc * h;
+// the sheet after moving from x0 (on s0) to x1: flipped if the segment crosses the plane inside the ring
+float sheetAt(vec3 x0, float s0, vec3 x1) {
+    if (x0.z == 0.0 || (x0.z > 0.0) == (x1.z > 0.0)) return s0;
+    float t = x0.z / (x0.z - x1.z);
+    vec2 c = x0.xy + (x1.xy - x0.xy) * t;
+    return dot(c, c) < spin * spin ? -s0 : s0;
 }
-// b > B_CRIT outside the photon sphere: the ray turns at ua, the smallest
-// root of u^3 - u^2 + c; the whole sweep is 2 ∫_0^ua, minus (climbing) or
-// plus (diving) ∫_u^ua. With u = ua (1 - t^2) the square-root end is
-// smooth: ∫ du / sqrt(P) = 2 sqrt(ua) ∫ dt / sqrt(Q), Q = P / (ua - u)
-float sweepTurn(float u, float c, bool diving) {
-    float ua = 1.0 / 3.0 + 2.0 / 3.0 * cos(acos(clamp(1.0 - 13.5 * c, -1.0, 1.0)) / 3.0 - 2.0943951);
-    float tu = sqrt(max(1.0 - u / ua, 0.0));
-    float h1 = 1.0 / 32.0, h2 = tu / 32.0, a1 = 0.0, a2 = 0.0;
-    for (int i = 0; i < 32; i++) {
-        float t = (float(i) + 0.5) * h1, q = ua * (1.0 - t * t);
-        a1 += inversesqrt(max(-q * q + (1.0 - ua) * q + ua * (1.0 - ua), 1e-12));
-        t = (float(i) + 0.5) * h2; q = ua * (1.0 - t * t);
-        a2 += inversesqrt(max(-q * q + (1.0 - ua) * q + ua * (1.0 - ua), 1e-12));
-    }
-    return 2.0 * sqrt(ua) * (a1 * h1 + (diving ? a2 * h2 : -a2 * h2));
+// r, f, l and their gradients at x: from the quartic,
+//   dr/dx = r^3 x / D   dr/dy = r^3 y / D   dr/dz = r z (r^2 + a^2) / D
+KS ksMetric(vec3 x, float sheet) {
+    KS m;
+    float a = spin;
+    float r = ksRadius(x, sheet);
+    if (abs(r) < 1e-5) r = sheet * 1e-5;       // the disk's centre: the 1/r terms below stay finite times f
+    float r2 = r * r, r3 = r2 * r;
+    m.A = r2 + a * a;
+    m.D = max(r2 * r2 + a * a * x.z * x.z, 1e-12);
+    m.f = 2.0 * M * r3 / m.D;
+    // z / r, guarded where both vanish near the disk: (z/r)^2 = (r^2 - rho^2 + a^2) / a^2
+    float cz = (r2 > 1e-6 || a == 0.0) ? x.z / r
+             : sign(x.z) * sign(r) * sqrt(max(0.0, (r2 - dot(x, x) + a * a) / (a * a)));
+    m.l = vec3((r * x.x + a * x.y) / m.A, (r * x.y - a * x.x) / m.A, cz);
+    m.dr = vec3(r3 * x.x, r3 * x.y, r * x.z * m.A) / m.D;
+    // f = 2 M r^3 / D: df = (6 M r^2 dr - f dD) / D, dD = 4 r^3 dr + 2 a^2 z dz
+    vec3 dD = 4.0 * r3 * m.dr + vec3(0.0, 0.0, 2.0 * a * a * x.z);
+    m.df = (6.0 * M * r2 * m.dr - m.f * dD) / m.D;
+    vec3 q = 2.0 * r * m.dr / m.A;              // the derivative of 1/A, relative
+    m.r = r;
+    // dl[i] = d l / d x_i
+    m.dl[0] = vec3((x.x * m.dr.x + r) / m.A - m.l.x * q.x, (x.y * m.dr.x - a) / m.A - m.l.y * q.x, -cz * m.dr.x / r);
+    m.dl[1] = vec3((x.x * m.dr.y + a) / m.A - m.l.x * q.y, (x.y * m.dr.y + r) / m.A - m.l.y * q.y, -cz * m.dr.y / r);
+    m.dl[2] = vec3((x.x * m.dr.z) / m.A - m.l.x * q.z, (x.y * m.dr.z) / m.A - m.l.y * q.z, (1.0 - cz * m.dr.z) / r);
+    return m;
+}
+// V_m = eta_mn V^n + f l_m (l_n V^n), l_t = 1
+vec4 lower(KS m, vec4 V) {
+    float lv = V.x + dot(m.l, V.yzw);
+    return vec4(-V.x + m.f * lv, V.yzw + m.f * m.l * lv);
+}
+// the photon's own motion (forward in its affine parameter), covariant k_i, energy E
+void motion(KS m, vec3 k, float E, out vec3 dx, out vec3 dk) {
+    float lp = E + dot(m.l, k);
+    float flp = m.f * lp;
+    dx = k - flp * m.l;
+    dk = 0.5 * lp * lp * m.df + flp * vec3(dot(m.dl[0], k), dot(m.dl[1], k), dot(m.dl[2], k));
+}
+// the camera's frame, boosted from the Kerr-Schild tetrad to its 4-velocity
+// u, and the photon seen in look direction v: k^m = u^m - v^i E_i^m, lowered
+vec4 cameraRay(KS m, vec4 u, vec3 v) {
+    float f2 = 0.5 * m.f;
+    vec4 e0 = vec4(1.0 + f2, -f2 * m.l);
+    vec4 e1 = vec4(f2 * m.l.x, vec3(1.0, 0.0, 0.0) - f2 * m.l.x * m.l);
+    vec4 e2 = vec4(f2 * m.l.y, vec3(0.0, 1.0, 0.0) - f2 * m.l.y * m.l);
+    vec4 e3 = vec4(f2 * m.l.z, vec3(0.0, 0.0, 1.0) - f2 * m.l.z * m.l);
+    vec4 ul = lower(m, u);
+    float gamma = -dot(ul, e0);
+    vec3 beta = vec3(dot(ul, e1), dot(ul, e2), dot(ul, e3)) / gamma;
+    float b2 = dot(beta, beta);
+    vec4 be = beta.x * e1 + beta.y * e2 + beta.z * e3;
+    float k1 = b2 > 1e-12 ? (gamma - 1.0) / b2 : 0.0;
+    vec4 E1 = e1 + (k1 * beta.x) * be + (gamma * beta.x) * e0;
+    vec4 E2 = e2 + (k1 * beta.y) * be + (gamma * beta.y) * e0;
+    vec4 E3 = e3 + (k1 * beta.z) * be + (gamma * beta.z) * e0;
+    return lower(m, u - v.x * E1 - v.y * E2 - v.z * E3);
 }
 
+// ---- the gas ----
 float hash31(vec3 p) {
     p = fract(p * 0.1031);
     p += dot(p, p.zyx + 31.32);
@@ -132,19 +224,22 @@ float noise3(vec3 p) {
                    mix(hash31(i + vec3(0, 1, 1)), hash31(i + vec3(1, 1, 1)), f.x), f.y), f.z);
 }
 
-// emissivity of the hot flow at x (Rs), before Doppler and redshift
-float flowDensity(vec3 x, vec3 e1, vec3 e2) {
-    float r = length(x);
-    float h = dot(x, spinAxis);                 // height above the mid-plane
-    float rc = length(x - spinAxis * h);        // cylindrical radius
-    // thick torus, inner edge near the innermost stable orbit (3 Rs)
-    float radial = smoothstep(2.6, 3.6, rc) * pow(max(rc, 1.0), -2.2) * (1.0 - smoothstep(14.0, 30.0, rc));
+// the gas's angular velocity at Boyer-Lindquist radius r (prograde, BPT 1972), rad per Rs/c
+float gasOmega(float r, float isco) {
+    return sqrt(M) / (pow(max(r, isco), 1.5) + spin * sqrt(M));
+}
+// emissivity of the hot flow at x (Kerr-Schild coordinates, the spin axis
+// along z; r its Boyer-Lindquist radius), before Doppler and redshift
+float flowDensity(vec3 x, float r, float isco) {
+    float h = x.z;                              // height above the mid-plane
+    float rc = length(x.xy);                    // cylindrical radius
+    // thick torus, inner edge at the innermost stable orbit
+    float radial = smoothstep(isco - 0.1, isco + 0.9, r) * pow(max(rc, 1.0), -2.2) * (1.0 - smoothstep(14.0, 30.0, rc));
     float thick = exp(-(h * h) / (0.18 * rc * rc + 0.05));
     if (radial * thick < 2e-4) return 0.0; // no gas here: skip the turbulence
     // turbulence, sheared by the orbit: inner gas laps the outer
-    float ang = atan(dot(x, e2), dot(x, e1));
-    float omega = 0.7071 / pow(max(rc, 1.5), 1.5); // Kepler, in rad per Rs/c
-    float a = ang - omega * flowTime;
+    float ang = atan(x.y, x.x);
+    float a = ang - gasOmega(r, isco) * flowTime;
     vec3 q = vec3(cos(a) * rc, sin(a) * rc, h * 1.6);
     float turb = 0.45 + 1.1 * noise3(q * 0.9) * (0.6 + 0.8 * noise3(q * 2.3 + 7.0));
     return radial * thick * turb;
@@ -159,11 +254,11 @@ vec3 shifted(vec3 c, float g) {
     return c * tint * min(k * k * k, 10.0);
 }
 
-// The gas falling in ahead of us, seen along one of our light rays. The ray
-// is given by its constants of motion per unit of the frequency we measure
-// (so that we measure 1): e, its energy at infinity, and L, its angular
-// momentum; both come out of the tetrad formulas in main (e = E - n_r w,
-// L = r n_t). At radius r the ray's radial speed is
+// The gas falling in ahead of us, seen along one of our light rays (the
+// Schwarzschild cartoon; r is |r|). The ray is given by its constants of
+// motion per unit of the frequency we measure (so that we measure 1): e, its
+// energy at infinity, and L, its angular momentum. At radius r the ray's
+// radial speed is
 //   K = |dr/dlambda| = sqrt(e^2 - f L^2 / r^2)                 f = 1 - 1/r
 // and gas falling there with energy 1 and speed w_g = 1/sqrt(r), 4-velocity
 // (1/f, -w_g) in t and r, measures the ray's frequency
@@ -245,9 +340,19 @@ vec3 infallGlow(float r0, float E, float w, float e, float s, float L, vec3 dir)
         I = glowLegS(rt, 1.0, e, L, 1.0) + glowLegS(rt, r0, e, L, -1.0);
     }
     I *= 0.7 + 0.6 * noise3(dir * 3.0);   // fixed on the sky: the gas ahead falls much as we do
+    I = shifted(I, flash);                // the inner horizon's flash (1 otherwise)
     // faint: the bright rim near the singularity is softly clipped
     float lum = dot(I, vec3(0.2126, 0.7152, 0.0722));
     return I / (1.0 + lum / 0.25);
+}
+
+// the escape direction's bend vector about the look direction v: alpha the
+// angle between them, psi its azimuth in the basis (n1 toward the hole, n2)
+vec2 bendEncode(vec3 v, vec3 n1, vec3 n2, vec3 d) {
+    float alpha = acos(clamp(dot(d, v), -1.0, 1.0));
+    vec2 p = vec2(dot(d, n1), dot(d, n2));
+    float pl = length(p);
+    return pl < 1e-6 ? vec2(alpha, 0.0) : alpha * p / pl;
 }
 
 void main() {
@@ -255,111 +360,157 @@ void main() {
         fragColor = vec4(0.0, 0.0, 0.0, 0.0);
         return;
     }
+    float a = spin;
     vec2 p = (qt_TexCoord0 - 0.5) * vec2(aspect, 1.0);
-    vec3 v = normalize(camFwd + camRight * p.x - camUp * p.y);
-    vec3 v0 = v;
-    vec3 x = camPos;
-    // the falling camera: the ray this look direction really belongs to
-    float fallPhi = -1.0;   // its exit angle (-1: no sky this way)
-    if (fallE > 0.0) {
-        float r = length(x);
-        vec3 xh = x / r;
-        float f = 1.0 - 1.0 / r;
-        float vr = dot(v, xh);
-        vec3 vt = v - xh * vr;
-        float nt = length(vt);
-        vec3 th = nt > 1e-4 ? vt / nt : normalize(cross(xh, abs(xh.x) < 0.9 ? vec3(1, 0, 0) : vec3(0, 1, 0)));
-        nt = max(nt, 1e-3);
-        float w = sqrt(max(fallE * fallE - f, 0.0));   // the observer's speed, dr/dtau
-        float n1 = -vr;                                 // the light's outward component
-        float e = fallE - n1 * w;
-        float s = w - n1 * fallE;
-        float c = e * e / (r * r * nt * nt);            // 1/b^2
-        // where the ray left, exactly (e <= 0 is light that would have to
-        // come out of the hole); a lost ray never climbs past 1.5 Rs, so it
-        // sees none of the flow: only the gas falling in ahead of us
-        if (e > 0.0) {
-            if (r * nt < B_CRIT * e) { if (s > 0.0) fallPhi = sweepOut(min(1.0 / r, 1.0), c) + (r < 1.0 ? sweepIn(r, c) : 0.0); }
-            else if (r >= 1.5) fallPhi = sweepTurn(1.0 / r, c, s < 0.0);
-        }
-        if (fallPhi < 0.0) { fragColor = vec4(infallGlow(r, fallE, w, e, s, r * nt, v0), -1.0); return; }
-        // the march for the gas starts along that ray: transverse speed 1,
-        // radial speed from (dr/dphi)^2 = r^2 (r^2/b^2 - f), the whole scaled
-        // to unit speed far out so the steps below keep their meaning
-        v = (xh * (sign(s) * sqrt(max(r * r * c - f, 0.0))) + th) * (nt / e);
+    vec3 vW = normalize(camFwd + camRight * p.x - camUp * p.y);   // the look direction, world
+    // a ray from a far camera that never comes near the hole: nothing to trace
+    {
+        float b = dot(camPos, vW);
+        float c = dot(camPos, camPos) - R_OUT * R_OUT;
+        if (c > 0.0 && (b > 0.0 || b * b - c < 0.0)) { fragColor = vec4(0.0, 0.0, 0.0, 0.0); return; }
     }
-
-    // start where the ray enters the region of strong bending
-    float b = dot(x, v);
-    float c = dot(x, x) - R_OUT * R_OUT;
-    if (c > 0.0) {
-        float disc = b * b - c;
-        if (b > 0.0 || disc < 0.0) { fragColor = vec4(0.0, 0.0, 0.0, 0.0); return; }
-        x += v * (-b - sqrt(disc));
-    }
-
+    // the hole's own frame: the spin axis along z
     vec3 e1 = normalize(cross(spinAxis, abs(spinAxis.x) < 0.9 ? vec3(1, 0, 0) : vec3(0, 1, 0)));
     vec3 e2 = cross(spinAxis, e1);
-    vec3 h3 = cross(x, v);
-    float h2 = dot(h3, h3);
-    vec3 L = vec3(0.0);
-    bool fell = false;
-    float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+    mat3 K2W = mat3(e1, e2, spinAxis);
+    mat3 W2K = transpose(K2W);
+    vec3 x = W2K * camPos;
+    vec3 v = W2K * vW;
+    float sheet = camSheet;
+    // the basis universe.frag decodes the bend vector in (world)
+    vec3 toHole = -camPos;
+    vec3 n1 = toHole - vW * dot(toHole, vW);
+    if (dot(n1, n1) < 1e-10) n1 = abs(vW.x) < 0.9 ? vec3(0.0, vW.z, -vW.y) : vec3(vW.z, 0.0, -vW.x);
+    n1 = normalize(n1);
+    vec3 n2 = cross(vW, n1);
 
-    for (int i = 0; i < 200; i++) {
-        float r = length(x);
-        if (fallE > 0.0 ? (r < 1.5 && dot(x, v) < 0.0) : (r < R_IN)) { fell = true; break; }
-        if (r > R_OUT + 1.0 && dot(x, v) > 0.0) break;
-        // smaller steps near the hole, where paths curve hardest; the fall's
-        // rays can be fast near the centre, so there the steps go by distance
-        float dt = clamp(0.11 * (r - 0.9), 0.025, 3.0);
-        if (fallE > 0.0) dt = (r < 1.5 ? 0.05 * r : dt) / max(length(v), 1.0);
-        dt *= (i == 0 ? jitter + 0.5 : 1.0);
-        // velocity Verlet on a = -3/2 h^2 x / r^5
-        float r2 = r * r;
-        vec3 a0 = -1.5 * h2 * x / (r2 * r2 * r);
-        vec3 vh = v + a0 * dt * 0.5;
-        x += vh * dt;
-        float r1 = length(x);
-        float r12 = r1 * r1;
-        v = vh - 1.5 * h2 * x / (r12 * r12 * r1) * dt * 0.5;
+    // the hole's numbers
+    float rPlus = M + sqrt(max(M * M - a * a, 0.0)), rMinus = M - sqrt(max(M * M - a * a, 0.0));
+    float rPh = 0.98 * 2.0 * M * (1.0 + cos(2.0 / 3.0 * acos(clamp(-a / M, -1.0, 1.0))));   // just inside the prograde photon orbit
+    float chi = a / M;
+    float Z1 = 1.0 + pow(1.0 - chi * chi, 1.0 / 3.0) * (pow(1.0 + chi, 1.0 / 3.0) + pow(1.0 - chi, 1.0 / 3.0));
+    float Z2 = sqrt(3.0 * chi * chi + Z1 * Z1);
+    float isco = M * (3.0 + Z2 - sqrt(max(0.0, (3.0 - Z1) * (3.0 + Z1 + 2.0 * Z2))));
 
-        float j = flowDensity(x, e1, e2);
-        if (j > 1e-4) {
-            // Doppler and gravitational shift: the gas orbits at the local
-            // circular speed; light climbing out of the well loses energy
-            float hgt = dot(x, spinAxis);
-            vec3 cyl = x - spinAxis * hgt;
-            float rc = max(length(cyl), 1.6);
-            vec3 orbit = normalize(cross(spinAxis, cyl));
-            float beta = min(0.75, sqrt(0.5 / (rc - 1.0)));
-            float gamma = inversesqrt(1.0 - beta * beta);
-            vec3 toCam = -normalize(v);
-            float g = sqrt(max(1.0 - 1.0 / r1, 0.02)) / (gamma * (1.0 - beta * dot(orbit, toCam)));
-            float boost = pow(g, 3.5);
-            // hotter-looking where boosted, deep red where redshifted
-            vec3 tint = mix(vec3(1.0, 0.36, 0.10), vec3(1.0, 0.80, 0.55), smoothstep(0.5, 1.2, g));
-            tint = mix(tint, vec3(0.92, 0.94, 1.0), smoothstep(1.2, 1.9, g));
-            float dl = dt * length(v);
-            L += tint * j * boost * dl * 1.6;
-        }
+    // the camera's ray
+    KS m = ksMetric(x, sheet);
+    float rCam = m.r;
+    vec4 u;
+    float w = 0.0;
+    if (fallE > 0.0) {
+        float fa = 2.0 * M * rCam / (rCam * rCam + a * a);
+        w = sqrt(max(fallE * fallE - 1.0 + fa, 0.0));
+        vec3 pole = sheet * normalize(x);     // the pole we fell from; the fall goes on in the same direction
+        u = vec4((fallE * fallE * (1.0 + fa) + fa * fa) / (fallE + fa * w), -w * pole);
+    } else {
+        u = vec4(inversesqrt(max(1.0 - m.f, 1e-4)), 0.0, 0.0, 0.0);
     }
-    if (fallE > 0.0) { fragColor = vec4(L, fallPhi); return; }
-    if (fell) {
-        // the shadow, seen hovering: lit only by the gas falling in ahead; a
-        // hovering observer at r0 has E = sqrt(f), w = 0, and a ray with unit
-        // frequency here has e = sqrt(f). Its impact parameter is the march's
-        // h (the one universe.frag draws the shadow's edge with), so L = e h:
-        // with L = h instead, b = h / sqrt(f) > B_CRIT for the outermost
-        // fallen rays, which never reach 1.5 Rs, and the glow blew up into a
-        // ring there. A hair short of B_CRIT: the grazing ray circles the
-        // photon sphere (the log-divergent photon ring), beyond 12 samples
-        float r0 = length(camPos);
-        float e0 = sqrt(max(1.0 - 1.0 / max(r0, 1.0001), 1e-6));
-        float b = min(sqrt(h2), B_CRIT * 0.999);
-        fragColor = vec4(L + infallGlow(r0, e0, 0.0, e0, -1.0, e0 * b, v0), -1.0);
+    vec4 k4 = cameraRay(m, u, v);
+    float E = -k4.x;
+    vec3 k = k4.yzw;
+    float Lz = x.x * k.y - x.y * k.x;
+    bool camInside = fallE > 0.0 && rCam < rPlus;
+    // the ray's constants for the glow cartoon: Carter's K (= L^2 at a = 0)
+    // from the axis form when falling, from the radial equation when hovering
+    vec3 dx0, dk0;
+    motion(m, k, E, dx0, dk0);
+    float rdot = -dot(m.dr, dx0);               // backward: > 0 climbing
+    float Kc;
+    if (fallE > 0.0) Kc = m.A * dot(k.xy, k.xy);
+    else {
+        float Sigma = m.D / (rCam * rCam), Delta = rCam * rCam - 2.0 * M * rCam + a * a;
+        float EA = E * m.A - a * Lz;
+        Kc = (EA * EA - Sigma * Sigma * rdot * rdot) / Delta;
+    }
+    float Lg = sqrt(max(Kc, 0.0));
+    if (E <= 0.0) {                              // light that would have to come out of the hole
+        fragColor = vec4(rCam > 0.0 ? infallGlow(abs(rCam), fallE, w, E, sign(rdot), Lg, vW) : vec3(0.0), -1.0);
         return;
     }
-    float bend = acos(clamp(dot(normalize(v), v0), -1.0, 1.0));
-    fragColor = vec4(L, bend);
+
+    // the march
+    float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+    int outcome = 0;                             // 0 lost, 1 our sky, 2 the other universe
+    int stall = 0;
+    float I = 0.0, Ig = 0.0;                     // the gas's light, and its shift-weighted sum
+    vec3 dir = -dx0;
+    for (int i = 0; i < STEPS; i++) {
+        float r = m.r;
+        motion(m, k, E, dx0, dk0);
+        dx0 = -dx0; dk0 = -dk0;                  // backward along the light
+        if (dot(x, x) > (R_OUT + 1.0) * (R_OUT + 1.0) && dot(x, dx0) > 0.0) { outcome = sheet > 0.0 ? 1 : 2; dir = dx0; break; }
+        float rc = length(x.xy);
+        if ((rc - a) * (rc - a) + x.z * x.z < 2.5e-5) break;                      // the ring singularity
+        // outside r+ and diving below the innermost photon orbit: no way back out
+        // (and from a camera outside, nothing below r+ at all)
+        float rd = dot(m.dr, dx0);
+        if (r > rPlus - 0.01 && r < rPh && rd < 0.0) break;
+        if (!camInside && r < rPlus - 0.01) break;
+        // stuck at a horizon: the chart's edge (light from a universe we do not model)
+        if (abs(r - rPlus) < 0.03 || abs(r - rMinus) < 0.03) { stall++; if (stall > 30) break; } else stall = 0;
+        // smaller steps near the horizons and the ring, where paths curve hardest
+        float ds = max(0.02, 0.12 * (abs(r) - 0.3)) * (i == 0 ? jitter + 0.5 : 1.0);
+        float hh = ds / max(length(dx0), 1e-6);
+        // RK4 on (x, k), the sheet rule at every stage
+        vec3 dx1, dk1, dx2, dk2, dx3, dk3;
+        vec3 x1 = x + 0.5 * hh * dx0, k1 = k + 0.5 * hh * dk0;
+        motion(ksMetric(x1, sheetAt(x, sheet, x1)), k1, E, dx1, dk1);
+        vec3 x2 = x - 0.5 * hh * dx1, k2 = k - 0.5 * hh * dk1;
+        motion(ksMetric(x2, sheetAt(x, sheet, x2)), k2, E, dx2, dk2);
+        vec3 x3 = x - hh * dx2, k3 = k - hh * dk2;
+        motion(ksMetric(x3, sheetAt(x, sheet, x3)), k3, E, dx3, dk3);
+        vec3 xn = x + hh / 6.0 * (dx0 - 2.0 * dx1 - 2.0 * dx2 - dx3);
+        k += hh / 6.0 * (dk0 - 2.0 * dk1 - 2.0 * dk2 - dk3);
+        sheet = sheetAt(x, sheet, xn);
+        x = xn;
+        m = ksMetric(x, sheet);
+        // the gas (our sheet only)
+        if (sheet > 0.0 && m.r > isco - 0.2 && m.r < 32.0) {
+            float j = flowDensity(x, m.r, isco);
+            if (j > 1e-4) {
+                // the sample's 4-velocity N (d_t + Omega d_phi) and the shift it sees
+                float Om = gasOmega(m.r, isco);
+                float rc2 = dot(x.xy, x.xy);
+                float lV = 1.0 - a * Om * rc2 / m.A;
+                float gVV = -1.0 + Om * Om * rc2 + m.f * lV * lV;
+                if (gVV < -1e-3) {
+                    float g = 1.0 / (inversesqrt(-gVV) * (E - Om * Lz));
+                    g = clamp(g, 0.02, 8.0);
+                    float boost = pow(g, 3.5);
+                    float dl = ds * j * boost * 1.6;
+                    I += dl;
+                    Ig += dl * g;
+                }
+            }
+        }
+    }
+    if (outcome == 0) {
+        // the shadow, or the dark below: lit only by the gas falling in ahead.
+        // Hovering, the Schwarzschild cartoon takes e = E (= sqrt(f) at a = 0)
+        // and L = e b, b a hair under B_CRIT at most: the grazing ray circles
+        // the photon sphere (the log-divergent photon ring), beyond 12 samples
+        vec3 glow = vec3(0.0);
+        if (rCam > 0.0) {
+            if (fallE > 0.0) glow = infallGlow(abs(rCam), fallE, w, E, sign(rdot), Lg, vW);
+            else glow = infallGlow(rCam, E, 0.0, E, -1.0, E * min(Lg / E, B_CRIT * 0.999), vW);
+        }
+        fragColor = vec4(glow, -1.0);
+        return;
+    }
+    dir = normalize(dir);
+    if (outcome == 1) {
+        // the weak-field tail: the direction still turns toward the hole beyond R_OUT
+        float R = length(x);
+        float along = dot(x, dir);
+        vec3 perp = x - dir * along;
+        float b = length(perp);
+        if (b > 1e-6) {
+            float s2 = min(b * b / (R * R), 0.81);
+            float delta = (M / b) * (2.0 - (2.0 - s2 - s2 * s2) * inversesqrt(1.0 - s2));
+            dir = dir * cos(delta) - perp / b * sin(delta);
+        }
+    }
+    vec2 bend = bendEncode(vW, n1, n2, K2W * dir);
+    if (outcome == 2) { fragColor = vec4(bend, -1.0, 1.0); return; }
+    fragColor = vec4(bend, I, I > 0.0 ? Ig / I : 1.0);
 }
