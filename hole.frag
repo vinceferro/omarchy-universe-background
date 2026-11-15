@@ -91,7 +91,7 @@
 // kept as the Schwarzschild cartoon it was (the ray's E and sqrt(K) stand in
 // for e and L), a hint of light rather than a model, and is off on the far
 // sheet. Its light comes out already shifted (a = -1 tells universe.frag
-// so), faint. `flash` (> 1 in the last second before the inner horizon)
+// so), faint. `flash` (> 1 in the last seconds before the inner horizon)
 // shifts it blue and bright: a labelled cartoon of the inner horizon's
 // instability, where infalling light is blueshifted without bound (Penrose
 // 1968; Poisson & Israel 1990).
@@ -114,7 +114,7 @@ layout(std140, binding = 0) uniform buf {
     float fallE;      // 0: the camera hovers; else it falls down the axis, with this energy per unit mass
     float spin;       // a, in Rs (a/M = 2 a)
     float camSheet;   // +1: our side of the disk; -1: the camera is on the r < 0 sheet (math mode)
-    float flash;      // 1; > 1 in the last second before the inner horizon (the glow's blueshift)
+    float flash;      // 1; > 1 in the last seconds before the inner horizon (the glow's blueshift)
 };
 
 const float M = 0.5;        // the mass, in Rs
@@ -424,7 +424,7 @@ void main() {
     }
     float Lg = sqrt(max(Kc, 0.0));
     if (E <= 0.0) {                              // light that would have to come out of the hole
-        fragColor = vec4(rCam > 0.0 ? infallGlow(abs(rCam), fallE, w, E, sign(rdot), Lg, vW) : vec3(0.0), -1.0);
+        fragColor = vec4(rCam > rMinus ? infallGlow(rCam, fallE, w, E, sign(rdot), Lg, vW) : vec3(0.0), -1.0);
         return;
     }
 
@@ -488,10 +488,11 @@ void main() {
         // the shadow, or the dark below: lit only by the gas falling in ahead.
         // Hovering, the Schwarzschild cartoon takes e = E (= sqrt(f) at a = 0)
         // and L = e b, b a hair under B_CRIT at most: the grazing ray circles
-        // the photon sphere (the log-divergent photon ring), beyond 12 samples
+        // the photon sphere (the log-divergent photon ring), beyond 12 samples.
+        // Below the inner horizon (math mode) there is no modelled gas: black.
         vec3 glow = vec3(0.0);
-        if (rCam > 0.0) {
-            if (fallE > 0.0) glow = infallGlow(abs(rCam), fallE, w, E, sign(rdot), Lg, vW);
+        if (rCam > rMinus) {
+            if (fallE > 0.0) glow = infallGlow(rCam, fallE, w, E, sign(rdot), Lg, vW);
             else glow = infallGlow(rCam, E, 0.0, E, -1.0, E * min(Lg / E, B_CRIT * 0.999), vW);
         }
         fragColor = vec4(glow, -1.0);

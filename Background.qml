@@ -632,7 +632,7 @@ Item {
   property real fallRate: 1             // proper seconds per screen second (the approach is compressed)
   property real gxFallE: 0              // the observer's energy per unit mass, for the shaders (0: not falling)
   property real gxCamSheet: 1           // -1 once through the disk: the shaders' r < 0 sheet
-  property real fallFlash: 1            // > 1 in the last second before the inner horizon: the glow's blueshift (cartoon)
+  property real fallFlash: 1            // > 1 in the last seconds before the inner horizon: the glow's blueshift (cartoon)
   property real fallFade: 0             // 0..1 black
   property real fallHold: 0             // seconds spent black
   property real fallHoldFor: 2
@@ -1562,10 +1562,10 @@ Item {
         if ((r < F.tl.rPlus) !== fallInside) fallInside = r < F.tl.rPlus
         const sheet = r < 0 ? -1 : 1
         if (sheet !== gxCamSheet) gxCamSheet = sheet
-        // the inner horizon's flash (realistic mode, the last second): the
-        // glow below shifted blue by sqrt(0.5 s / time left), a cartoon of
-        // the unbounded blueshift there (Poisson & Israel 1990)
-        const flash = F.tl.math ? 1 : Math.max(1, Math.sqrt(0.5 / Math.max(o.left, 0.02)))
+        // the inner horizon's flash (realistic mode, the last 2.5 s, through
+        // the fade): the glow below shifted blue by sqrt(2.5 s / time left),
+        // a cartoon of the unbounded blueshift there (Poisson & Israel 1990)
+        const flash = F.tl.math ? 1 : Math.max(1, Math.sqrt(2.5 / Math.max(o.left, 0.05)))
         if (Math.abs(flash - fallFlash) > 1e-3) fallFlash = flash
         // the fade is black 2.0 s after it starts: begin it so the camera is
         // still moving when the screen goes dark (at the inner horizon, or at

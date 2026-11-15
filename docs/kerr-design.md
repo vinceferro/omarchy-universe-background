@@ -600,8 +600,9 @@ it was.
 - **Letting go off the pole** glides there by steering the orbit camera's
   yaw/pitch targets (the existing easing, ~1.5 s) and lets go within half a
   degree of the pole; the B descent aims at the pole from the start.
-- **The inner-horizon flash** is a `flash` uniform of hole.frag, sqrt(0.5 s /
-  time left) in the last second, applied to the glow through `shifted()`.
+- **The inner-horizon flash** is a `flash` uniform of hole.frag, sqrt(2.5 s /
+  time left) over the last 2.5 s (it runs through the 2 s fade, so it is
+  seen), applied to the glow through `shifted()`. Below r- the glow is off.
 - **status()** prints `<view> <phase or -> <r signed> <real|math>`.
 
 ## Design page: Sgr A* as a Kerr black hole
