@@ -3042,9 +3042,9 @@ Item {
         }
         visible: root.liveBackground && opacity > 0
         opacity: 0
-        width: Math.round(panel.width * 0.5)
+        width: Math.round(panel.width * 0.56)
         anchors.horizontalCenter: parent.horizontalCenter
-        y: Math.round(panel.height * 0.74)
+        y: Math.round(panel.height * 0.72)
         spacing: Math.round(panel.height * 0.008)
         Text {
           width: parent.width
@@ -3053,8 +3053,9 @@ Item {
           text: filmCaption.title.toUpperCase()
           color: Qt.alpha(Color.foreground, 0.7)
           font.family: Style.resolvedFontFamily
-          font.pixelSize: Math.round(panel.height * 0.0145)
-          font.letterSpacing: Math.round(panel.height * 0.0045)
+          // sized to read on a phone or a 1080p player, not just on the desk
+          font.pixelSize: Math.round(panel.height * 0.026)
+          font.letterSpacing: Math.round(panel.height * 0.007)
         }
         Text {
           width: parent.width
@@ -3063,9 +3064,9 @@ Item {
           lineHeight: 1.25
           visible: text !== ""
           text: filmCaption.body
-          color: Qt.alpha(Color.foreground, 0.45)
+          color: Qt.alpha(Color.foreground, 0.55)
           font.family: Style.resolvedFontFamily
-          font.pixelSize: Math.round(panel.height * 0.0105)
+          font.pixelSize: Math.round(panel.height * 0.0185)
           font.letterSpacing: 1
         }
         Connections {
