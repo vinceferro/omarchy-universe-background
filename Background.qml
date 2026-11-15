@@ -445,7 +445,7 @@ Item {
     {"name": "Andromeda Galaxy", "kind": "galaxy", "label": "spiral galaxy (Local Group)", "pos": [605.53871, 374.44407, -279.75147], "dpc": 761000, "size": 46000, "color": "#fff0d8", "blurb": "The nearest large spiral, approaching the Milky Way at about 110 km/s."},
     {"name": "Triangulum Galaxy", "kind": "galaxy", "label": "spiral galaxy (Local Group)", "pos": [519.51912, 503.0543, -436.751], "dpc": 840000, "size": 18700, "color": "#dfe6ff", "blurb": "A smaller, loosely wound spiral rich in star-forming regions like NGC 604."},
     {"name": "Gum Nebula", "kind": "remnant", "label": "ionised shell / old supernova remnant region", "pos": [-0.4399, 8.2435, 0.0051], "dpc": 450, "size": 290, "color": "#c85a6a", "blurb": "A faint 36-degree bubble of ionised gas around the Vela pulsar region."}]
-  // from tools/deproject_m31.py: in-plane axes signed like the photo
+  // from tools/deproject_galaxy.py: in-plane axes signed like the photo
   readonly property var m31Disk: {"major": [-0.09263, 0.69656, 0.71149], "minor": [0.64068, 0.58869, -0.49293], "normal": [-0.76220, 0.41018, -0.50080]}
   property real m31Fade: 1
   readonly property var m33Disk: {"major": [0.22554, 0.50077, 0.83568], "normal": [0.97135, -0.18151, -0.15339]}

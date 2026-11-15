@@ -32,7 +32,7 @@ layout(std140, binding = 0) uniform buf {
     float aspect;
     vec4 m31Pos;      // centre (kpc), scale (1: its own map is in true kpc)
     vec3 m31Major;
-    vec3 m31Minor;    // in-plane axes signed like the photo (tools/deproject_m31.py)
+    vec3 m31Minor;    // in-plane axes signed like the photo (tools/deproject_galaxy.py)
     vec3 m31Normal;
     float m31Fade;    // 1 drawn here, 0 where its photo card has taken over (Earth's view)
     vec4 m33Pos;
@@ -47,7 +47,7 @@ layout(std140, binding = 0) uniform buf {
 
 layout(binding = 1) uniform sampler2D youngTex;
 layout(binding = 2) uniform sampler2D dustTex;
-// Andromeda face-on, unfolded from its real photo (tools/deproject_m31.py), +-24 kpc
+// Andromeda face-on, unfolded from its real photo (tools/deproject_galaxy.py), +-24 kpc
 layout(binding = 3) uniform sampler2D m31Tex;
 
 const float EXT = 16.0;          // the maps cover +-16 kpc
