@@ -1406,16 +1406,19 @@ Item {
     const cb = sysCam.update(cdt)
     const camF = cb.F
     {
-      // the skip-box for the idle view: Saturn's whole orbit at the current
-      // tilt, the bodies' sizes, the Sun's glow, turned by the screen spin,
-      // as a box around the Sun on screen; computed each frame so tilting or
-      // true scale never slices a planet
-      const st = Math.sin(sysCam.pitch.x), ct = Math.cos(sysCam.pitch.x)
-      const reach = dispA[5] * 1.06
-      const pad = 3 * Math.max(...disp.map(b => b[3])) + sunR * 12 + 0.01
-      const bx = reach + pad, by = reach * st + ct * moonOrbit + pad
-      const sp = sysCam.project([0, 0, 0])
-      sysBound = Qt.vector4d(sp.x, sp.y, (bx + 0.1 * by) / cb.h * 1.1, (by + 0.1 * bx) / cb.h * 1.1)
+      // the skip-box: the system's whole volume (Saturn's orbit, the bodies'
+      // drawn sizes, the Sun's glow, the Moon's orbit above and below the
+      // ecliptic) projected corner by corner, so close-ups and true scale never
+      // slice a planet. A corner behind the eye means the volume can wrap the
+      // screen (mirrored), so then nothing is skipped (z = 0); the old box,
+      // sized at the focus plane around the Sun's mirrored projection, dropped
+      // the pinned body whenever the Sun went behind the camera.
+      const r = dispA[5] * 1.06 + 3 * Math.max(...disp.map(b => b[3])) + sunR * 12 + 0.01
+      const yh = dispA[5] * 0.13 + moonOrbit + 3 * Math.max(...disp.map(b => b[3])) + sunR * 12 + 0.01
+      const corners = []
+      for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) corners.push([sx * r, sy * yh, sz * r])
+      const box = sysCam.screenBox(corners, cb)
+      sysBound = box ? Qt.vector4d(box.x, box.y, box.hx * 1.05 + 0.01, box.hy * 1.05 + 0.01) : Qt.vector4d(0, 0, 0, 0)
     }
     chaseMix = mix.chase.step(dt)
     mix.gal.g = galactic ? 1 : 0

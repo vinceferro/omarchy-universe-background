@@ -116,5 +116,34 @@ check("fling coasts a little and settles", moved > 0 && cam3.settled(), moved.to
   check("start body stays near the focus during the collapse (screen heights)", maxOff < 1.5, maxOff.toFixed(3))
 }
 
+// 7. the skip-box: orbiting a pinned body all the way round, the box either
+// holds the body's whole disc or is null (nothing skipped); never a box that
+// leaves the body out, which is what happened when the Sun went behind the eye
+{
+  const camP = new Cam.Camera({ ell: [-12, 2] })
+  const body = [5.2, 0.0, 0.0], bodyR = 0.06            // a planet 5.2 units from the Sun
+  const r = 10, yh = 2                                   // the system's volume around the Sun
+  const corners = []
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) corners.push([sx * r, sy * yh, sz * r])
+  let bad = 0, nulls = 0, boxes = 0
+  // close in (h 0.05) the old box missed the body in a ~12 degree band of yaw
+  for (const h of [0.05, 0.4, 2]) for (let k = 0; k < 720; k++) for (const pitch of [-0.6, 0, 0.4]) {
+    camP.F.set(body.slice(), [0, 0, 0]); camP.ell.set(Math.log(h)); camP.yaw.set(k * Math.PI / 360); camP.pitch.set(pitch)
+    const bb = camP.update(0)
+    const box = camP.screenBox(corners, bb)
+    if (!box) { nulls++; continue }
+    boxes++
+    for (const d of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+      const q = camP.project([body[0] + d[0] * bodyR, body[1] + d[1] * bodyR, body[2] + d[2] * bodyR], bb)
+      if (q.front && (Math.abs(q.x - box.x) > box.hx || Math.abs(q.y - box.y) > box.hy)) bad++
+    }
+  }
+  check("skip-box never leaves the pinned body out, any yaw/pitch", bad === 0, bad + " misses, " + boxes + " boxes, " + nulls + " unbounded")
+  const far = new Cam.Camera({ ell: [-12, 2] })
+  far.F.set([0, 0, 0], [0, 0, 0]); far.ell.set(Math.log(60)); far.pitch.set(0.5); const fb = far.update(0)
+  const fbox = far.screenBox(corners, fb)
+  check("skip-box from afar is a real box smaller than the screen", fbox && fbox.hx < 1 && fbox.hy < 1, fbox && fbox.hx.toFixed(3) + " x " + fbox.hy.toFixed(3))
+}
+
 console.log(fails ? fails + " FAILED" : "all passed")
 process.exit(fails ? 1 : 0)
