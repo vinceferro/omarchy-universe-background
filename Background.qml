@@ -1493,7 +1493,8 @@ Item {
       }
       const sk = Math.min(1, dt * 3)
       skyOrbit.l.g = skyLTarget; skyOrbit.b.g = skyBTarget
-      skyL = skyOrbit.l.step(dt, 1e-5); skyB = skyOrbit.b.step(dt, 1e-5)
+      skyL = skyOrbit.l.step(dt, 1e-5); skyOrbit.b.step(dt, 1e-5)
+      skyB = skyOrbit.b.limit(-89, 89)   // a fling stops at the pole clamp instead of overshooting past it
       if (!skyOrbit.l.moving() && !skyOrbit.b.moving()) { skyOrbit.l.w = Cam.W_INPUT; skyOrbit.b.w = Cam.W_INPUT }
       skyVfov += (skyVfovTarget - skyVfov) * sk
       const l = skyL * Math.PI / 180, b = skyB * Math.PI / 180
@@ -1533,9 +1534,9 @@ Item {
         if (zk !== 0) gxDistGoal = Math.max(gxMinDist(), Math.min(2500, gxDistGoal * Math.pow(2.5, zk * dt)))
         if (zk > 0) gxFallArmed = false
       }
-      const ek = Math.min(1, dt * 3)
       gxOrbit.yaw.g = gxYawTarget; gxOrbit.pitch.g = gxPitchTarget
-      gxYaw = gxOrbit.yaw.step(dt, 1e-7); gxPitch = gxOrbit.pitch.step(dt, 1e-7)
+      gxYaw = gxOrbit.yaw.step(dt, 1e-7); gxOrbit.pitch.step(dt, 1e-7)
+      gxPitch = gxOrbit.pitch.limit(-1.45, 1.45)   // a fling stops at the clamp: past pi/2 the view would turn over
       if (!gxOrbit.yaw.moving() && !gxOrbit.pitch.moving()) { gxOrbit.yaw.w = Cam.W_INPUT; gxOrbit.pitch.w = Cam.W_INPUT }
       const cp = Math.cos(gxPitch), sp = Math.sin(gxPitch)
       const off = [cp * Math.sin(gxYaw), cp * Math.cos(gxYaw), sp]
@@ -3560,9 +3561,17 @@ Item {
           }
           if (!pressed || !gesture) return
           const g = gesture, prev = g.s
+          const wasDrag = g.dragging
           const drag = g.move(pt, now())
+          // nothing is written until the pointer has moved past the click
+          // threshold: a wobbly click neither stops a flight's turn nor unpins.
+          // The first move that makes it a drag takes over from the pose the
+          // view has reached by then (a glide went on under the press), with
+          // the pointer where it is now, so nothing jumps
+          if (!drag) return
           if (mode === "sky") {
-            // the patch of sky pressed on goes back under the pointer (lib/drag.js skyAnglesFor)
+            // the patch of sky under the pointer goes back under it (lib/drag.js skyAnglesFor)
+            if (!wasDrag) g.held = Dr.skyRay(root.skyL * Math.PI / 180, root.skyB * Math.PI / 180, pt, root.skyFocal())
             root.skyDragging = true
             const a = Dr.skyAnglesFor(g.held, pt, root.skyFocal(), root.skyL * Math.PI / 180, root.skyB * Math.PI / 180, 89 * Math.PI / 180)
             root.skyL = root.skyLTarget = a.l * 180 / Math.PI
@@ -3574,13 +3583,14 @@ Item {
             root.gxLookDragging = true
             root.fallLookBy((pt[0] - prev[0]) * Dr.LOOK_RATE, -(pt[1] - prev[1]) * Dr.LOOK_RATE)
           } else if (mode === "gxorbit") {
-            // the pose at press plus the pointer's offset: a clamp loses nothing
+            // the pose at the drag's start plus the pointer's offset since: a clamp loses nothing
             const o = g.offset()
+            if (!wasDrag) g.x0 = [root.gxYaw - o[0] * Dr.ORBIT_RATE, root.gxPitch - o[1] * Dr.ORBIT_RATE]
             root.gxYaw = root.gxYawTarget = g.x0[0] + o[0] * Dr.ORBIT_RATE
             root.gxPitch = root.gxPitchTarget = Math.max(-1.45, Math.min(1.45, g.x0[1] + o[1] * Dr.ORBIT_RATE))
             root.gxOrbit.yaw.set(root.gxYaw); root.gxOrbit.pitch.set(root.gxPitch)
             root.gxOrbit.yaw.w = Cam.W_INPUT; root.gxOrbit.pitch.w = Cam.W_INPUT
-            if (drag) root.gxView = -1   // orbiting leaves a named viewpoint's line
+            root.gxView = -1   // orbiting leaves a named viewpoint's line
             g.record([root.gxYaw, root.gxPitch])
           } else if (mode === "orbit") {
             // by steps: the chase's yaw rides the tracked azimuth, so there is no
@@ -3590,7 +3600,7 @@ Item {
             root.sysCam.orbit((pt[0] - prev[0]) * Dr.ORBIT_RATE, sgn * (pt[1] - prev[1]) * Dr.ORBIT_RATE, true)
             root.autoOrbit = false
             g.record([root.sysCam.yaw.x, root.sysCam.pitch.x])
-          } else if (mode === "pan" && drag) {
+          } else if (mode === "pan") {
             // the ecliptic point under the pointer sticks to it. The grab begins
             // past the click threshold, on the point under the pointer NOW (so
             // nothing jumps), and unpins the body: a wobbly click unpins nothing
@@ -3606,6 +3616,10 @@ Item {
           gesture = null
           wasClick = g ? g.isClick(t) : true
           if (!g) return
+          // no drag happened: the springs are left as they are, so a click (or
+          // a long press, or the press that only focused) does not freeze a
+          // flight's turn or a glide to a named view by setting its goal here
+          if (!g.dragging) { mode = ""; return }
           // the throw: the state's velocity over the last 60 ms of the drag,
           // then the spring coasts it v tau and stops (camera.js fling)
           const v = g.velocity(t, Cam.FLING_TAU)

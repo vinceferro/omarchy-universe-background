@@ -137,7 +137,23 @@ function drive(hz, T, scale) {
   check("sky grab: l unwrapped near the current turn", Math.abs(aw.l - 10.0) < 0.1)
 }
 
-// 7. the orbit rate: half a screen height is a right angle; the look rate is the shader's field
+// 7. a fling into a clamp stops at the wall: the goal's clamp alone lets the
+//    spring overshoot it (the galaxy's pitch would pass pi/2 and turn over)
+{
+  const s = new Cam.Spring(1.45, 22); s.set(1.45, 4.7); s.fling(Cam.FLING_TAU)   // released at the clamp, thrown at 4.7 rad/s
+  let peak = 1.45, stepsOut = 0
+  for (let i = 0; i < 200; i++) { s.step(1 / 165); const x = s.limit(-1.45, 1.45); peak = Math.max(peak, x); if (s.g > 1.45) stepsOut++ }
+  check("fling into the clamp: never past it, dead at the wall, goal inside", peak === 1.45 && s.v === 0 && !s.moving() && stepsOut === 0, peak.toFixed(4))
+  const u = new Cam.Spring(1.45, 22); u.set(1.45, 4.7); u.fling(Cam.FLING_TAU)
+  let peakU = 0
+  for (let i = 0; i < 200; i++) { u.g = Math.min(1.45, u.g); peakU = Math.max(peakU, u.step(1 / 165)) }
+  check("(the goal clamp alone overshoots: the limit is needed)", peakU > 1.5, peakU.toFixed(4))
+  const f = new Cam.Spring(0.9, 22); f.set(0.9, 1.0); f.fling(Cam.FLING_TAU)   // lands at 1.08, inside
+  for (let i = 0; i < 400; i++) { f.step(1 / 165); f.limit(-1.45, 1.45) }
+  check("a fling that stays inside the range is untouched by the limit", Math.abs(f.x - (0.9 + 1.0 * Cam.FLING_TAU)) < 1e-6 && f.w === 22)
+}
+
+// 8. the orbit rate: half a screen height is a right angle; the look rate is the shader's field
 check("arcball: half a screen height = 90 deg", Math.abs(0.5 * Dr.ORBIT_RATE - Math.PI / 2) < 1e-12)
 check("look rate = the fall shader's vertical field (focal 1)", Math.abs(Dr.LOOK_RATE - 2 * Math.atan(0.5)) < 1e-12)
 
