@@ -43,6 +43,17 @@
 // from the outward radial in the ray's own plane (a). universe.frag reads
 // the sky there and applies the frequency shift 1/e: blue toward the
 // horizon line, red behind. The march then only collects the gas's light.
+//
+// What lies below (infallGlow): the dark directions, the shadow from outside
+// and the cap toward the centre once inside, are not quite black. Gas that
+// fell in ahead of us is there, and its light reaches us: outside, climbing
+// to us from below; inside, where everything falls, light sent by gas when
+// it was still above where we are now, caught because we fall faster than
+// that light does. The model gas is a steady spherical inflow from rest far
+// out (energy per unit mass 1, dr/dtau = -1/sqrt(r)), optically thin, with
+// emissivity r^-3 (density squared, for a constant mass flux through
+// 4 pi r^2) inside the torus's inner edge, where the drawn flow ends. Its
+// light comes out already shifted (a = -1 tells universe.frag so), faint.
 
 layout(location = 0) in vec2 qt_TexCoord0;
 layout(location = 0) out vec4 fragColor;
@@ -139,6 +150,104 @@ float flowDensity(vec3 x, vec3 e1, vec3 e2) {
     return radial * thick * turb;
 }
 
+// starlight seen with a frequency shift g (seen over emitted): as in
+// universe.frag, the same formula, so the gas and the sky agree
+vec3 shifted(vec3 c, float g) {
+    float k = clamp(g, 0.05, 6.0);
+    vec3 tint = k > 1.0 ? mix(vec3(1.0), vec3(0.55, 0.78, 1.45), clamp((k - 1.0) * 1.6, 0.0, 1.0))
+                        : mix(vec3(1.35, 0.62, 0.40), vec3(1.0), clamp(k * 1.6 - 0.4, 0.0, 1.0));
+    return c * tint * min(k * k * k, 10.0);
+}
+
+// The gas falling in ahead of us, seen along one of our light rays. The ray
+// is given by its constants of motion per unit of the frequency we measure
+// (so that we measure 1): e, its energy at infinity, and L, its angular
+// momentum; both come out of the tetrad formulas in main (e = E - n_r w,
+// L = r n_t). At radius r the ray's radial speed is
+//   K = |dr/dlambda| = sqrt(e^2 - f L^2 / r^2)                 f = 1 - 1/r
+// and gas falling there with energy 1 and speed w_g = 1/sqrt(r), 4-velocity
+// (1/f, -w_g) in t and r, measures the ray's frequency
+//   omega_e = -k.u = (e + sig K w_g) / f
+// with sig the sign of dr/dlambda along the light: +1 climbing to us from gas
+// ahead, outside the horizon; -1 inside, where everything falls, and on the
+// downhill part of a ray that turned. The gas at our own radius with our own
+// energy would measure 1: a check in tests/test_fall.js. We receive its light
+// with the ratio g = 1 / omega_e, and since I_nu / nu^3 is invariant and the
+// gas is optically thin, the intensity is ∫ g^3 j dl_e = ∫ j g^3 / K dr
+// (dl_e = omega_e dlambda in the gas's frame, dlambda = dr / K). Both ends can
+// be steep (the gas is densest where we are; K vanishes at a turning point),
+// so each stretch is sampled a dozen times in a variable that flattens its
+// ends, and shifted() colours each sample as it does the sky; checked
+// against a fine quadrature in tests/test_fall.js.
+const float GLOW = 0.05;            // the inflow's emissivity at 1 Rs
+vec3 glowSample(float r, float e, float L, float sig) {
+    float f = 1.0 - 1.0 / r;
+    float K = max(sqrt(max(e * e - f * L * L / (r * r), 0.0)), 1e-5);
+    // g = 1 / omega_e = f / (e + sig K / sqrt(r)); downhill (sig < 0) the
+    // denominator cancels toward the horizon, so it is multiplied out:
+    // f / (e - K / sqrt(r)) = (e + K / sqrt(r)) / (e^2 + L^2 / r^3)
+    float kr = K * inversesqrt(r);
+    float g = sig > 0.0 ? f / (e + kr) : (e + kr) / (e * e + L * L / (r * r * r));
+    float j = GLOW / (r * r * r) * (1.0 - smoothstep(3.0, 5.0, r));
+    return shifted(vec3(1.0, 0.70, 0.40), g) * (j / K);
+}
+// a stretch of the ray from ra to rb, with r = ra + (rb - ra) (3 t^2 - 2 t^3):
+// both ends flattened, for a turning point (K ~ sqrt of the distance to it)
+// at either end, or one grazed where we stand
+vec3 glowLegS(float ra, float rb, float e, float L, float sig) {
+    if (abs(rb - ra) < 1e-6) return vec3(0.0);
+    vec3 acc = vec3(0.0);
+    for (int i = 0; i < 12; i++) {
+        float t = (float(i) + 0.5) / 12.0;
+        acc += glowSample(ra + (rb - ra) * t * t * (3.0 - 2.0 * t), e, L, sig) * 6.0 * t * (1.0 - t);
+    }
+    return acc * abs(rb - ra) / 12.0;
+}
+// inside: the dive down to us at r0, from rm, in q = r^-3.5, which makes the
+// gas's r^-4.5 rise toward us (r^-3, and g^3 / K ~ r^-3/2) flat
+vec3 glowLegQ(float r0, float rm, float e, float L) {
+    float qm = pow(rm, -3.5), h = (pow(r0, -3.5) - qm) / 8.0;
+    if (h < 1e-7) return vec3(0.0);
+    vec3 acc = vec3(0.0);
+    for (int i = 0; i < 8; i++) {
+        float q = qm + (float(i) + 0.5) * h;
+        float r = pow(q, -2.0 / 7.0);
+        acc += glowSample(r, e, L, -1.0) * (2.0 / 7.0) * r * r * r * r * sqrt(r);   // dr = 2/7 q^(-9/7) dq
+    }
+    return acc * h;
+}
+// where a ray with 1/b^2 = c, below the photon sphere, turns: the largest
+// root of u^3 - u^2 + c (u = 1/r), between 2/3 and 1
+float turnBelow(float c) {
+    return 1.0 / (1.0 / 3.0 + 2.0 / 3.0 * cos(acos(clamp(1.0 - 13.5 * c, -1.0, 1.0)) / 3.0));
+}
+// the glow along a dark ray from the observer at r0 (energy E, speed w,
+// hovering: E = sqrt(f), w = 0): e, s and L as in main, dir the look
+// direction (world), for a hint of clumpiness that is not traced
+vec3 infallGlow(float r0, float E, float w, float e, float s, float L, vec3 dir) {
+    vec3 I;
+    if (r0 < 1.0) {
+        // the dive from the horizon to us: dense at our end for the rays
+        // looking down, a broad hump higher up (near 2/3 Rs) for the rays
+        // along the cap's edge, so the stretch is split
+        float rm = min(1.0, 2.5 * r0);
+        I = glowLegQ(r0, rm, e, L) + glowLegS(rm, 1.0, e, L, -1.0);
+        if (e > 0.0) {                                    // from outside: it turned just above the horizon
+            float rt = turnBelow(e * e / (L * L));
+            I += glowLegS(rt, 1.0, e, L, 1.0) + glowLegS(rt, 1.0, e, L, -1.0);
+        }
+    } else if (s < 0.0) {
+        I = glowLegS(min(r0, 5.0), 1.0, e, L, 1.0);       // the shadow: light climbing from the gas ahead
+    } else {                                              // below 1.5 Rs, light that turned above us
+        float rt = turnBelow(e * e / (L * L));
+        I = glowLegS(rt, 1.0, e, L, 1.0) + glowLegS(rt, r0, e, L, -1.0);
+    }
+    I *= 0.7 + 0.6 * noise3(dir * 3.0);   // fixed on the sky: the gas ahead falls much as we do
+    // faint: the bright rim near the singularity is softly clipped
+    float lum = dot(I, vec3(0.2126, 0.7152, 0.0722));
+    return I / (1.0 + lum / 0.25);
+}
+
 void main() {
     if (shown < 0.5) {
         fragColor = vec4(0.0, 0.0, 0.0, 0.0);
@@ -162,14 +271,16 @@ void main() {
         float w = sqrt(max(fallE * fallE - f, 0.0));   // the observer's speed, dr/dtau
         float n1 = -vr;                                 // the light's outward component
         float e = fallE - n1 * w;
-        if (e <= 0.0) { fragColor = vec4(0.0, 0.0, 0.0, -1.0); return; }
         float s = w - n1 * fallE;
         float c = e * e / (r * r * nt * nt);            // 1/b^2
-        // where the ray left, exactly; a lost ray never climbs past 1.5 Rs,
-        // so it sees no gas either
-        if (r * nt < B_CRIT * e) { if (s > 0.0) fallPhi = sweepOut(min(1.0 / r, 1.0), c) + (r < 1.0 ? sweepIn(r, c) : 0.0); }
-        else if (r >= 1.5) fallPhi = sweepTurn(1.0 / r, c, s < 0.0);
-        if (fallPhi < 0.0) { fragColor = vec4(0.0, 0.0, 0.0, -1.0); return; }
+        // where the ray left, exactly (e <= 0 is light that would have to
+        // come out of the hole); a lost ray never climbs past 1.5 Rs, so it
+        // sees none of the flow: only the gas falling in ahead of us
+        if (e > 0.0) {
+            if (r * nt < B_CRIT * e) { if (s > 0.0) fallPhi = sweepOut(min(1.0 / r, 1.0), c) + (r < 1.0 ? sweepIn(r, c) : 0.0); }
+            else if (r >= 1.5) fallPhi = sweepTurn(1.0 / r, c, s < 0.0);
+        }
+        if (fallPhi < 0.0) { fragColor = vec4(infallGlow(r, fallE, w, e, s, r * nt, v0), -1.0); return; }
         // the march for the gas starts along that ray: transverse speed 1,
         // radial speed from (dr/dphi)^2 = r^2 (r^2/b^2 - f), the whole scaled
         // to unit speed far out so the steps below keep their meaning
@@ -232,6 +343,15 @@ void main() {
         }
     }
     if (fallE > 0.0) { fragColor = vec4(L, fallPhi); return; }
+    if (fell) {
+        // the shadow, seen hovering: lit only by the gas falling in ahead; a
+        // hovering observer at r0 has E = sqrt(f), w = 0, and a ray with unit
+        // frequency here has e = sqrt(f), L = r0 sin(a) (the march's h)
+        float r0 = length(camPos);
+        float e0 = sqrt(max(1.0 - 1.0 / max(r0, 1.0001), 1e-6));
+        fragColor = vec4(L + infallGlow(r0, e0, 0.0, e0, -1.0, sqrt(h2), v0), -1.0);
+        return;
+    }
     float bend = acos(clamp(dot(normalize(v), v0), -1.0, 1.0));
-    fragColor = vec4(L, fell ? -1.0 : bend);
+    fragColor = vec4(L, bend);
 }

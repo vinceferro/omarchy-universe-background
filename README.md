@@ -226,6 +226,26 @@ seconds, and the camera is back beside the Sun. Esc gives up the same way;
 nothing leaves the camera inside the hole. The HUD counts the proper time
 left; the maths has its own checks in `tests/test_fall.js`.
 
+**What you see below you.** The dark toward the centre, the shadow from
+outside and the whole lower half of the sky once inside, is not quite black:
+it holds the faint light of gas that fell in ahead of us. Outside the horizon
+that light climbs up to us from below. Inside, where nothing climbs, it is
+light the gas sent while it was still above where we are now, and we catch it
+because we fall faster than the light does. For every ray the frequency ratio
+comes from the two 4-velocities along it, the gas's and ours, and is drawn
+with the same colour shift as the sky: the gas just ahead of us is barely
+shifted, gas near the horizon fades to a black red, and deep inside, along
+the edge of the dark cap, it turns blue (`hole.frag`, `infallGlow`). The
+simplifications: the gas is a steady, spherical, optically thin inflow from
+rest far away (Sgr A* really swallows a thin, clumpy, slowly rotating
+trickle), its emissivity falls as r^-3 (density squared, for a constant mass
+flux) and ends at the drawn flow's inner edge, rays that reach the sky do not
+collect it, a hint of clumpiness is painted by direction rather than traced,
+and near the singularity, where the model would blaze, its brightness is
+softly clipped. It stays faint: at rest at 6 Rs the shadow is still dark to
+the eye, and the glow grows as the fall goes on. Its numbers are checked in
+`tests/test_fall.js` too.
+
 ### Sky mode
 
 `omarchy-shell background sky` (or `skyView <1-7>`). The real sky around

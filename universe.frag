@@ -967,7 +967,9 @@ vec3 shifted(vec3 c, float g) {
 // line below which everything is dark once inside) is known exactly here,
 // so the tracer is read from the sky's side of it: a crisp edge at full
 // resolution. Near the singularity the whole sky squeezes into a thin,
-// bright, blue band on that line, red and dim straight overhead.
+// bright, blue band on that line, red and dim straight overhead. The dark
+// side holds the faint glow of the gas falling in ahead of us (hole.frag,
+// infallGlow), which the tracer hands over already shifted, with a = -1.
 vec3 blackHoleFall(vec3 rd, vec2 uv) {
     float rk = length(gxCam);
     float r = rk / RS_KPC;
@@ -1003,8 +1005,9 @@ vec3 blackHoleFall(vec3 rd, vec2 uv) {
         vec3 d = xh * cos(traced.a) + th * sin(traced.a);
         col = shifted(gxSceneAlong(d), g);
     }
-    // the hot gas's light, shifted along with everything else we see
-    col += shifted(max(traced.rgb, 0.0), g);
+    // the hot gas's light, shifted along with everything else we see; a dark
+    // ray (a < 0) carries the infall's glow instead, shifted sample by sample
+    col += traced.a >= 0.0 ? shifted(max(traced.rgb, 0.0), g) : max(traced.rgb, 0.0);
     // the photon ring on the sky's edge, as from outside
     if (xs > 0.0) {
         vec3 rim = max(texture(holeTex, uv + outward * texel * 3.0).rgb, 0.0);
