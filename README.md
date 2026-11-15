@@ -120,8 +120,8 @@ past the overview's framing returns to the squeezed layout.
 | `I` | show / hide orbit lines (off by default) |
 | `L` | labels on / off (on, they show for 8 s after each interaction, then fade: nothing stands on the OLED) |
 | scroll / `Q` `E` | zoom about the point under the pointer, or about the pinned body (zooming all the way out returns to the universe) |
-| drag / `W` `A` `S` `D` | pan (the scene sticks to the pointer and coasts on release); with a body pinned, a left-drag orbits instead |
-| right-drag / arrows | orbit / tilt the camera |
+| drag / arrows | orbit / tilt the camera about what it is looking at (half a screen height of drag is a right angle; a release coasts) |
+| right-drag (or Shift-drag) / `W` `A` `S` `D` | pan: the ecliptic sticks to the pointer and coasts on release (this unpins the body) |
 | `O` | auto orbit |
 | `[` `]` | slower / faster time (live, 1 min/s, 1 hour/s ... 1 year/s) |
 | `N` | back to now |
@@ -571,7 +571,9 @@ keys and flings settle), `W_MODE` (fades, the field-of-view morph, the
 true-scale blend), `FLING_TAU` (how far a released drag coasts) and the
 flight's `rho` (how high a long hop rises). Its numeric checks run with
 `node tests/test_camera.js lib/camera.js`; the fall's trajectory and timeline
-(`lib/fall.js`) with `node tests/test_fall.js lib/fall.js`; the Kerr hole's
+(`lib/fall.js`) with `node tests/test_fall.js lib/fall.js`; the pointer
+gesture (`lib/drag.js`: click or drag, the release velocity, the sky's
+angular grab) with `node tests/test_drag.js lib/drag.js lib/camera.js`; the Kerr hole's
 numbers, metric, frames, march, shadow edge, gas orbits and axis fall
 (`lib/kerr.js`, what the shaders port) with `node tests/test_kerr.js
 lib/kerr.js`; the dwarf galaxy

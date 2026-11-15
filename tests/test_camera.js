@@ -89,12 +89,12 @@ check("chase yaw = sun azimuth + offset while the body orbits", yawErr < 1e-5, y
 // 8. drag: scene sticks to the pointer, release coasts and stops
 const cam3 = new Cam.Camera({}); cam3.ell.set(Math.log(0.3)); cam3.pitch.set(Math.asin(0.3)); cam3.update(0)
 const grabbed = cam3.unproject([0.1, 0.1], ecl)
-cam3.grabBegin([0.1, 0.1], 0, ecl)
-for (let i = 1; i <= 30; i++) { cam3.grabMove([0.1 + i * 0.01, 0.1], i / 165); cam3.update(1 / 165) }
+cam3.grabBegin([0.1, 0.1], ecl)
+for (let i = 1; i <= 30; i++) { cam3.grabMove([0.1 + i * 0.01, 0.1]); cam3.update(1 / 165) }
 const pg = cam3.project(grabbed)
 check("grabbed ecliptic point stays under the pointer", Math.hypot(pg.x - 0.4, pg.y - 0.1) < 1e-9, Math.hypot(pg.x - 0.4, pg.y - 0.1))
-cam3.grabEnd(); const xRel = cam3.F.x
-let moved = 0; for (let i = 0; i < 165; i++) { cam3.update(1 / 165); moved = Cam.len(Cam.sub(cam3.F.x, xRel)) }
+cam3.grabEnd(Cam.mul(Cam.sub(cam3.F.x, grabbed), 0.5)); const xRel = cam3.F.x
+let moved = 0; for (let i = 0; i < 330; i++) { cam3.update(1 / 165); moved = Cam.len(Cam.sub(cam3.F.x, xRel)) }
 check("fling coasts a little and settles", moved > 0 && cam3.settled(), moved.toFixed(4))
 
 // 9. exit flight under a collapsing world: the offset rides the rescale and the
