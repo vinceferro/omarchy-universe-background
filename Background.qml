@@ -9,6 +9,9 @@ import qs.Commons
 import qs.Ui
 import "lib/camera.js" as Cam
 import "lib/fall.js" as Fall
+import "lib/localgroup.js" as LG
+import "lib/dwarfs.js" as Dw
+import "lib/labels.js" as Lb
 
 Item {
   id: root
@@ -129,6 +132,16 @@ Item {
   property real filmMix: film ? 1 : 0
   Behavior on filmMix { NumberAnimation { duration: 1500; easing.type: Easing.InOutSine } }
   readonly property real unclutter: 1 - filmMix   // multiplies every overlay that film mode hides
+  // The label layer (L, IPC `labels <true/false>`): place markers and names
+  // in the Milky Way view, planet names in the system view. On, it comes up
+  // with any interaction (a key, the pointer, a flight) and fades Lb.HOLD_S
+  // seconds after the last one, so a parked view puts no standing text on
+  // the OLED; off, it stays away. Film mode hides it as before (unclutter).
+  property bool labelsOn: true
+  readonly property var labelClock: Lb.create()
+  property real labelsMix: 1
+  function touchLabels() { Lb.touch(labelClock) }
+  function setLabels(on) { labelsOn = on; touchLabels() }
   property string captionTitle: ""
   property string captionBody: ""
   property int captionSerial: 0                   // each screen's caption follows this
@@ -202,6 +215,7 @@ Item {
     hover: new Cam.Spring(0, Cam.W_MODE),
     sys: new Cam.Spring(0, Cam.W_MODE),        // overlays fade in with the system view
     chase: new Cam.Spring(0, Cam.W_MODE),      // labels give way to markers in the chase view
+    labels: new Cam.Spring(1, Cam.W_MODE),     // the label layer, up after an interaction
     exposure: new Cam.Spring(1, 1.3),          // the sky brightens slowly on an empty workspace
     fallFade: new Cam.Spring(0, 2.9)           // the fall's black, 2 s each way (0.98 at 2.0 s)
   })
@@ -447,8 +461,24 @@ Item {
     {"name": "Gum Nebula", "kind": "remnant", "label": "ionised shell / old supernova remnant region", "pos": [-0.4399, 8.2435, 0.0051], "dpc": 450, "size": 290, "color": "#c85a6a", "blurb": "A faint 36-degree bubble of ionised gas around the Vela pulsar region."}]
   // from tools/deproject_galaxy.py: in-plane axes signed like the photo
   readonly property var m31Disk: {"major": [-0.09263, 0.69656, 0.71149], "minor": [0.64068, 0.58869, -0.49293], "normal": [-0.76220, 0.41018, -0.50080]}
+  readonly property var m33Disk: {"major": [0.25011, 0.47969, 0.84103], "minor": [0.08069, 0.85529, -0.51182], "normal": [-0.96485, 0.19588, 0.17521]}
+  // the galaxies drawn in 3D from their own photos hand over to the photo
+  // card by view angle (lib/localgroup.js handoff): 1 the model, 0 the card
   property real m31Fade: 1
-  readonly property var m33Disk: {"major": [0.22554, 0.50077, 0.83568], "normal": [0.97135, -0.18151, -0.15339]}
+  property real m33Fade: 1
+  property real lmcFade: 1
+  property real smcFade: 1
+  readonly property var gxModels: ({ "Andromeda": "m31", "Triangulum": "m33", "Large Magellanic": "lmc", "Small Magellanic": "smc" })
+  function modelOf(h) { for (const k in gxModels) if (h.name.startsWith(k)) return gxModels[k]; return "" }
+  function gxResetFades() { m31Fade = 1; m33Fade = 1; lmcFade = 1; smcFade = 1 }
+  function v3(a) { return Qt.vector3d(a[0], a[1], a[2]) }
+  function v4(a) { return Qt.vector4d(a[0], a[1], a[2], a[3]) }
+  // the Large Magellanic Cloud's disk, bar and lopsidedness (lib/localgroup.js)
+  readonly property var lmcModel: LG.lmcModel(hotspots[gxIndex("Large Magellanic")].pos)
+  // Andromeda's two close ellipticals, from the dwarf table: centre and
+  // half-light radius (kpc); ellipticity, position angle (radians), M_V
+  function ellUniform(name) { const d = Dw.find(name); return Qt.vector4d(d.pos[0], d.pos[1], d.pos[2], d.rh / 1000) }
+  function ellShape(name) { const d = Dw.find(name); return Qt.vector4d(d.ell, d.pa * Math.PI / 180, d.mv, 0) }
 
   property real galaxyMix: 0
   property var gxTarget: [0, 8.15, 0.0208]
@@ -482,7 +512,41 @@ Item {
     return Qt.vector4d(h.pos[0], h.pos[1], h.pos[2], scale)
   }
   readonly property vector4d m31Pos: gxGalaxy("Andromeda", 1.0) // its own map is in true kpc
-  readonly property vector4d m33Pos: gxGalaxy("Triangulum", 0.6)
+  readonly property vector4d m33Pos: gxGalaxy("Triangulum", 1.0) // so is Triangulum's
+  // The places of the view, by one index: the hotspots, then the Sun
+  // (gxSunIndex), then the dwarf galaxies of lib/dwarfs.js as places of
+  // their own (lib/localgroup.js dwarfPlace). gxSel, gxScreen, the markers,
+  // the click and the HUD card all go through place(i); Tab cycles the
+  // hotspots only. galaxy.frag draws the dwarfs in 3D; they get a marker up
+  // close, under the pointer or when chosen, so the sky is not a field of dots.
+  readonly property var dwarfPlaces: Dw.list().map(d => LG.dwarfPlace(d))
+  readonly property int gxSunIndex: hotspots.length
+  function place(i) { return i < hotspots.length ? hotspots[i] : dwarfPlaces[i - hotspots.length - 1] }
+  property var gxPointer: null     // the pointer in p units (x, y) and the size of a pixel, while it is over the Milky Way view
+  property int gxHover: -1         // the place under it
+  // ---- named viewpoints (V, IPC `fly "Milky Way from"`): stand somewhere real and look ----
+  // From Andromeda, 761 kpc away, our Galaxy is a spindle about 2.5 degrees
+  // long (its 34 kpc of disk: five full Moons), 21 degrees from edge-on and
+  // seen from the south, since Andromeda lies at Galactic latitude -21.6.
+  // The camera stands at Andromeda's centre and looks at Sagittarius A*;
+  // scrolling in crosses the gap along that line.
+  readonly property var gxViews: [{ name: "The Milky Way from Andromeda", from: "Andromeda", at: [0, 0, 0],
+    label: "2.5 MILLION LY FROM HOME  ·  OUR GALAXY SPANS ABOUT 2.5°, FIVE FULL MOONS",
+    blurb: "Seen from Andromeda the Milky Way is a thin spindle 21 degrees from edge-on, its south side toward us, with the Magellanic Clouds beside it. The light arriving there now left the Milky Way 2.5 million years ago. Scroll in to cross the gap; the view stays on this line." }]
+  property int gxView: -1
+  function gxGoView(i) {
+    if (fallState) return
+    const v = gxViews[i]
+    const o = LG.viewFrom(hotspotPos(gxIndex(v.from)), v.at)
+    gxFallArmed = false
+    gxSel = -2
+    gxFree = v.at.slice()
+    gxView = i
+    gxYawTarget = o.yaw + Math.round((gxYawTarget - o.yaw) / (2 * Math.PI)) * 2 * Math.PI
+    gxPitchTarget = o.pitch
+    gxDistGoal = o.dist
+    touchLabels()
+  }
   readonly property vector4d lmcPos: { const h = hotspots[gxIndex("Large Magellanic")]; return Qt.vector4d(h.pos[0], h.pos[1], h.pos[2], h.size / 4000) }
   readonly property vector4d smcPos: { const h = hotspots[gxIndex("Small Magellanic")]; return Qt.vector4d(h.pos[0], h.pos[1], h.pos[2], h.size / 4000) }
 
@@ -494,7 +558,7 @@ Item {
     return [sunR0 * Math.sin(b), sunR0 * Math.cos(b), z]
   }
   function hotspotPos(i) {
-    const h = hotspots[i]
+    const h = place(i)
     const p = h.pos
     if (h.kind === "galaxy" || Math.hypot(p[0], p[1]) > 20) return p // not in the disk: not carried
     const b = sunOmega * gxMyr
@@ -505,7 +569,7 @@ Item {
   }
   function gxViewDist(i) {
     if (i < 0) return 0.0008
-    const h = hotspots[i]
+    const h = place(i)
     if (h.kind === "blackhole") return 20 * rsKpc // straight down to the event horizon
     return h.kind === "star" ? 0.0005 : Math.max(0.0015, h.size / 1000 * 3.2)
   }
@@ -514,7 +578,7 @@ Item {
   property vector3d gxCamRs: Qt.vector3d(0, 1e6, 0)   // camera from Sgr A*, in Schwarzschild radii
   property bool gxHoleNear: false
   function gxMinDist() {
-    if (gxSel >= 0 && hotspots[gxSel].kind === "blackhole") return 6 * rsKpc
+    if (gxSel >= 0 && place(gxSel).kind === "blackhole") return 6 * rsKpc
     // a place with a photo: no closer than where its 2048 px fill ~1.4 screen heights
     if (gxSel >= 0 && photoOf(gxSel)) return photoWidthKpc(gxSel) * 0.7
     return 0.0002
@@ -636,6 +700,8 @@ Item {
   function gxFlyTo(i) {
     if (fallState) return   // below the horizon, or on the way: nothing steers
     gxFallArmed = false
+    gxView = -1
+    touchLabels()
     if (i >= 0 && photoOf(i)) {
       // come in from Earth's side, as the photo was taken, framed to fill the view
       const P = hotspotPos(i), Sn = sunPosAt(gxMyr)
@@ -663,6 +729,8 @@ Item {
     if (!emptyWorkspace) return
     fallReset()
     gxFallArmed = false
+    gxView = -1
+    touchLabels()
     gxFromSystem = explore === "system"
     explore = "galaxy"
     gxMyr = 0
@@ -736,18 +804,18 @@ Item {
 
   // real photos of the places (textures/photos.jpg, tools/make_atlas.py):
   // tile and width on the sky in arcminutes
-  readonly property var photoTiles: {"Orion Nebula": [0, 35.49, "photos/orion-nebula.jpg"], "Carina Nebula": [1, 66.354, "photos/carina-nebula.jpg"], "Eagle Nebula": [2, 32.08, "photos/eagle-nebula.jpg"], "Lagoon Nebula": [3, 93.49, "photos/lagoon-nebula.jpg"], "Rosette Nebula": [4, 94.75, "photos/rosette-nebula.jpg"], "Crab Nebula": [5, 6.41, "photos/crab-nebula.jpg"], "Ring Nebula": [6, 2.484, "photos/ring-nebula.jpg"], "Helix Nebula": [7, 26.835, "photos/helix-nebula.jpg"], "Pleiades": [8, 69.321, "photos/pleiades.jpg"], "Omega Centauri": [9, 31.88, "photos/omega-centauri.jpg"], "47 Tucanae": [10, 42.067, "photos/47-tucanae.jpg"], "Westerlund 1": [11, 6.511, "photos/westerlund-1.jpg"], "Large Magellanic Cloud": [12, 266.122, "photos/large-magellanic-cloud.jpg"], "Small Magellanic Cloud": [13, 408.986, "photos/small-magellanic-cloud.jpg"], "Andromeda Galaxy": [14, 169.919, "photos/andromeda-galaxy.jpg"]} // tile, width (arcmin), 2048 px close-up
+  readonly property var photoTiles: {"Orion Nebula": [0, 35.49, "photos/orion-nebula.jpg"], "Carina Nebula": [1, 66.354, "photos/carina-nebula.jpg"], "Eagle Nebula": [2, 32.08, "photos/eagle-nebula.jpg"], "Lagoon Nebula": [3, 93.49, "photos/lagoon-nebula.jpg"], "Rosette Nebula": [4, 94.75, "photos/rosette-nebula.jpg"], "Crab Nebula": [5, 6.41, "photos/crab-nebula.jpg"], "Ring Nebula": [6, 2.484, "photos/ring-nebula.jpg"], "Helix Nebula": [7, 26.835, "photos/helix-nebula.jpg"], "Pleiades": [8, 69.321, "photos/pleiades.jpg"], "Omega Centauri": [9, 31.88, "photos/omega-centauri.jpg"], "47 Tucanae": [10, 42.067, "photos/47-tucanae.jpg"], "Westerlund 1": [11, 6.511, "photos/westerlund-1.jpg"], "Large Magellanic Cloud": [12, 266.122, "photos/large-magellanic-cloud.jpg"], "Small Magellanic Cloud": [13, 408.986, "photos/small-magellanic-cloud.jpg"], "Andromeda Galaxy": [14, 169.919, "photos/andromeda-galaxy.jpg"], "Triangulum Galaxy": [15, 68.01, "photos/triangulum-galaxy.jpg"]} // tile, width (arcmin), 2048 px close-up (Triangulum's tile is black until the atlas is rebuilt; its close-up loads in its place)
   property vector4d gxPhoto: Qt.vector4d(0, 0, 0, 0)
   readonly property var ncpDir: [0.74698, 0.48383, 0.45599] // celestial north pole (l 122.932, b 27.128), this frame
   function photoOf(i) {
     if (i < 0) return null
-    const name = hotspots[i].name
+    const name = place(i).name
     for (const k in photoTiles) if (name.startsWith(k)) return photoTiles[k]
     return null
   }
   function photoWidthKpc(i) {
     const ph = photoOf(i)
-    return ph ? hotspots[i].dpc / 1000 * ph[1] / 60 * Math.PI / 180 : 0
+    return ph ? place(i).dpc / 1000 * ph[1] / 60 * Math.PI / 180 : 0
   }
 
   // ---- chase view: two-point framing on the same camera ----
@@ -842,6 +910,7 @@ Item {
       ["1 - 7  /  TAB", "the named views"],
       ["DRAG / ARROWS", "look around (WASD too)"],
       ["SCROLL / Q E", "zoom"],
+      ["L", labelsOn ? "labels off" : "labels on (they fade after " + Lb.HOLD_S + " s)"],
       ["H", "hide / show the HUD"],
       ["ESC / RIGHT-CLICK", "back to the universe"]
     ] : explore === "galaxy" && fallState ? [
@@ -854,20 +923,22 @@ Item {
       ["0", "back to the Sun (scroll in: the solar system)"],
       gxParkedAtHole ? ["B / SCROLL IN", gxFallArmed ? "letting go in a moment (or now: B)" : "let go: fall into the black hole"]
       : gxFallArmed ? ["SCROLL OUT / Q", "on the way down: you fall on arrival (scroll out to stay)"]
-      : gxSel >= 0 && hotspots[gxSel].kind === "blackhole" ? ["B", "down to 6 radii and let go (or scroll in, and B there)"]
+      : gxSel >= 0 && place(gxSel).kind === "blackhole" ? ["B", "down to 6 radii and let go (or scroll in, and B there)"]
       : ["B", "the black hole at the centre"],
-      ["CLICK", "fly to a place"],
+      ["V", "the Milky Way from Andromeda"],
+      ["CLICK", "fly to a place (a dwarf galaxy too: hover to find them)"],
       ["DRAG / ARROWS", "orbit the camera"],
       ["SCROLL / Q E", "closer / farther"],
       ["WASD", "fly freely"],
       ["[  ]", "time-lapse: the Galaxy turns (" + gxRateNames[gxRateIndex].toLowerCase() + ")"],
       ["N", "back to now"],
       ["X", "the solar system"],
+      ["L", labelsOn ? "labels off" : "labels on (they fade after " + Lb.HOLD_S + " s)"],
       ["H", "hide / show the HUD"],
       ["ESC / RIGHT-CLICK", gxFromSystem ? "back to the solar system" : "back to the universe"]
     ] : explore !== "system" ? [] : galactic ? [
       ["-  =", galSlow === 1 ? "slow the Sun to see the coils" : "slower / faster Sun (now 1/" + galSlow + ")"],
-      ["L", root.guides ? "hide the trails" : "show 2-year trails (guide lines)"],
+      ["I", root.guides ? "hide the trails" : "show 2-year trails (guide lines)"],
       ["V", root.galBack ? "back to the side view" : "look back from the Sun along its path"],
       ["DRAG / ARROWS", "swing / tilt the camera"],
       ["SCROLL / Q E", "camera distance"],
@@ -894,7 +965,8 @@ Item {
       ["V", follow >= 0 ? "chase view behind " + followName.toUpperCase() : "chase view (pin first)"],
       ["G", "galactic motion (paths through space)"],
       ["X", "fly out to the Milky Way"],
-      ["L", root.guides ? "hide orbit lines" : "show orbit lines"],
+      ["I", root.guides ? "hide orbit lines" : "show orbit lines"],
+      ["L", labelsOn ? "labels off" : "labels on (they fade after " + Lb.HOLD_S + " s)"],
       ["SCROLL / Q E", "zoom"],
       ["DRAG / WASD", "pan"],
       ["RIGHT-DRAG", "orbit the camera"],
@@ -1368,6 +1440,7 @@ Item {
         const mv = [key("d") - key("a"), key("w") - key("s")]
         if (mv[0] !== 0 || mv[1] !== 0) {
           if (gxSel !== -2) { gxFree = gxTarget.slice(); gxSel = -2 }
+          gxView = -1
           const fh = Math.hypot(fwd.x, fwd.y) > 1e-3 ? [fwd.x / Math.hypot(fwd.x, fwd.y), fwd.y / Math.hypot(fwd.x, fwd.y)] : [up.x, up.y]
           const v = gxDist * 0.9 * dt
           gxFree = [gxFree[0] + (right.x * mv[0] + fh[0] * mv[1]) * v, gxFree[1] + (right.y * mv[0] + fh[1] * mv[1]) * v, gxFree[2]]
@@ -1388,7 +1461,7 @@ Item {
       // than the hole); parked at the hole, B or a scroll in lets go (the key
       // and wheel handlers)
       {
-        const parked = gxSel >= 0 && hotspots[gxSel].kind === "blackhole" && gxDistGoal <= 6 * rsKpc * 1.001 && gxDist < 6.5 * rsKpc
+        const parked = gxSel >= 0 && place(gxSel).kind === "blackhole" && gxDistGoal <= 6 * rsKpc * 1.001 && gxDist < 6.5 * rsKpc
         if (parked !== gxParkedAtHole) gxParkedAtHole = parked
         // asked on the way down: let go once settled at 6 Rs
         if (parked && gxFallArmed && !fallState && gxDist < 6.05 * rsKpc) fallBegin(gxDist / rsKpc)
@@ -1524,11 +1597,12 @@ Item {
       }
       // the chosen place, drawn up close in universe.frag
       if (gxSel >= 0) {
-        const h = hotspots[gxSel]
+        const h = place(gxSel)
         const hp = hotspotPos(gxSel)
         const hx = parseInt(h.color.slice(1), 16)
         const c = { r: (hx >> 16 & 255) / 255, g: (hx >> 8 & 255) / 255, b: (hx & 255) / 255 }
-        gxFocus = Qt.vector4d(hp[0], hp[1], hp[2], h.size / 1000)
+        // a dwarf galaxy is drawn in 3D by galaxy.frag: no card for it
+        gxFocus = Qt.vector4d(hp[0], hp[1], hp[2], h.dwarf ? 0 : h.size / 1000)
         gxFocusCol = Qt.vector4d(c.r, c.g, c.b, gxKinds[h.kind])
         // its photo, weighted by how close we are to Earth's line of sight
         const ph = photoOf(gxSel)
@@ -1544,47 +1618,80 @@ Item {
           const ns = [n[0] - fwd.x * fd, n[1] - fwd.y * fd, n[2] - fwd.z * fd]
           const ang = Math.atan2(ns[0] * right.x + ns[1] * right.y + ns[2] * right.z, ns[0] * up.x + ns[1] * up.y + ns[2] * up.z)
           gxPhoto = Qt.vector4d(ph[0], photoWidthKpc(gxSel), ang, Math.max(-1, Math.min(1, cosA)))
-          // Andromeda is drawn in 3D from its photo; its card takes over only near Earth's view
-          const isM31 = h.name.startsWith("Andromeda")
-          m31Fade = isM31 ? 1 - Math.min(1, Math.max(0, (cosA - 0.85) / 0.12)) : 1
-          if (isM31) gxFocusCol = Qt.vector4d(gxFocusCol.x, gxFocusCol.y, gxFocusCol.z, 7)
-        } else { gxPhoto = Qt.vector4d(0, 0, 0, 0); m31Fade = 1 }
+          // the galaxies drawn in 3D from their photos (Andromeda, Triangulum,
+          // the Magellanic Clouds) hand over to the card by view angle: the
+          // model fades out as our view nears Earth's line of sight and the
+          // card (kind 7 in universe.frag) fades in, by the same rule
+          const model = modelOf(h)
+          const fade = model ? LG.handoff(cosA).model : 1
+          m31Fade = model === "m31" ? fade : 1
+          m33Fade = model === "m33" ? fade : 1
+          lmcFade = model === "lmc" ? fade : 1
+          smcFade = model === "smc" ? fade : 1
+          if (model) gxFocusCol = Qt.vector4d(gxFocusCol.x, gxFocusCol.y, gxFocusCol.z, 7)
+        } else { gxPhoto = Qt.vector4d(0, 0, 0, 0); gxResetFades() }
       } else if (gxSel === -1) {
         gxPhoto = Qt.vector4d(0, 0, 0, 0)
+        gxResetFades()
         const sp0 = sunPosAt(gxMyr)
         gxFocus = Qt.vector4d(sp0[0], sp0[1], sp0[2], 0.00001)
         gxFocusCol = Qt.vector4d(1.0, 0.96, 0.88, 4)
       } else {
         gxFocus = Qt.vector4d(0, 0, 0, 0)
         gxPhoto = Qt.vector4d(0, 0, 0, 0)
+        gxResetFades()
       }
       // labels: projected, and laid out so none overlap (chosen place first,
-      // then the Sun, then the biggest on screen)
+      // then the Sun, then the biggest on screen). The hotspots always get
+      // their marker; a dwarf galaxy only when chosen, big enough on screen
+      // or under the pointer (dot), so the sky is not a field of dots
       const H = 1000, Wd = H * aspect, px = 8.5
       const pts = []
-      for (let i = 0; i <= hotspots.length; i++) {
-        const P = i < hotspots.length ? hotspotPos(i) : sunPosAt(gxMyr)
+      const nAll = gxSunIndex + 1 + dwarfPlaces.length
+      for (let i = 0; i < nAll; i++) {
+        const isSunI = i === gxSunIndex
+        const h = isSunI ? null : place(i)
+        if (h && h.hidden) { pts.push({ x: 0, y: 0, front: false, z: 1, apparent: 0, show: false, dot: false }); continue }
+        const P = isSunI ? sunPosAt(gxMyr) : hotspotPos(i)
         const v = [P[0] - cam[0], P[1] - cam[1], P[2] - cam[2]]
         const zc = v[0] * fwd.x + v[1] * fwd.y + v[2] * fwd.z
         const x = (v[0] * right.x + v[1] * right.y + v[2] * right.z) / Math.max(zc, 1e-9)
         const y = -(v[0] * up.x + v[1] * up.y + v[2] * up.z) / Math.max(zc, 1e-9)
-        const isSel = i < hotspots.length ? i === gxSel : gxSel === -1
-        const filling = isSel && (i < hotspots.length ? hotspots[i].size / 1000 : 0) / Math.max(zc, 1e-12) > 0.08
+        const isSel = isSunI ? gxSel === -1 : i === gxSel
+        const size = h ? h.size / 1000 : 0.0001
+        const apparent = size / Math.max(zc, 1e-12)
+        const filling = isSel && apparent > 0.08
         const front = zc > 0 && Math.abs(x) < aspect * 0.5 && Math.abs(y) < 0.5 && !filling
-        const size = i < hotspots.length ? hotspots[i].size / 1000 : 0.0001
-        pts.push({ x: x, y: y, front: front, z: zc, apparent: size / Math.max(zc, 1e-9), show: false })
+        pts.push({ x: x, y: y, front: front, z: zc, apparent: apparent, show: false, dot: front && (!h || !h.dwarf || isSel || apparent > 0.015) })
       }
-      const sel = gxSel >= 0 ? gxSel : gxSel === -1 ? hotspots.length : -1
-      const order = pts.map((_, i) => i).filter(i => pts[i].front)
-        .sort((a, b) => (b === sel) - (a === sel) || (b === hotspots.length) - (a === hotspots.length) || pts[b].apparent - pts[a].apparent)
+      // the place under the pointer (within 28 px): hovered, and marked if a dwarf
+      let hov = -1
+      if (gxPointer) {
+        let bestD = 28 * gxPointer[2]
+        for (let i = 0; i < nAll; i++) {
+          if (!pts[i].front) continue
+          const d = Math.hypot(pts[i].x - gxPointer[0], pts[i].y - gxPointer[1])
+          if (d < bestD) { bestD = d; hov = i }
+        }
+        if (hov >= 0) pts[hov].dot = true
+      }
+      if (hov !== gxHover) gxHover = hov
+      const sel = gxSel >= 0 ? gxSel : gxSel === -1 ? gxSunIndex : -1
+      const order = pts.map((_, i) => i).filter(i => pts[i].dot)
+        .sort((a, b) => (b === sel) - (a === sel) || (b === hov) - (a === hov) || (b === gxSunIndex) - (a === gxSunIndex) || pts[b].apparent - pts[a].apparent)
       const placed = []
       for (const i of order) {
-        const name = i < hotspots.length ? hotspots[i].name : "SUN · YOU ARE HERE"
+        const name = i === gxSunIndex ? "SUN · YOU ARE HERE" : place(i).name
         const bx = labelBox((pts[i].x / aspect + 0.5) * Wd + 10, (pts[i].y + 0.5) * H - px * 0.75, name.toUpperCase(), px)
         if (placed.every(o => !boxesOverlap(o, bx))) { placed.push(bx); pts[i].show = true }
       }
       gxScreen = pts
     }
+
+    // the label layer: up for Lb.HOLD_S after an interaction, then gone
+    Lb.step(labelClock, dt)
+    mix.labels.g = Lb.wanted(labelsOn, labelClock)
+    labelsMix = mix.labels.step(dt)
 
     mix.hover.g = hoverSystem && explore === "universe" ? 1 : 0
     sysHover = mix.hover.step(dt)
@@ -1690,12 +1797,12 @@ Item {
         const len = (v) => Math.hypot(v[0], v[1], v[2])
         nb[0] = beaconOf(vec(sp), R, U, F, "SUN", fmtLy(len(vec(sp)) * ly), "#ffd27a")
         nb[1] = beaconOf(vec([0, 0, 0]), R, U, F, "CENTRE", fmtLy(len(vec([0, 0, 0])) * ly), "#ffb070")
-        if (gxSel >= 0 && !hotspots[gxSel].name.startsWith("Sagittarius A")) {
+        if (gxSel >= 0 && !place(gxSel).name.startsWith("Sagittarius A")) {
           const P = hotspotPos(gxSel)
-          nb[2] = beaconOf(vec(P), R, U, F, hotspots[gxSel].name.toUpperCase(), fmtLy(len(vec(P)) * ly), root.hudHighlight)
+          nb[2] = beaconOf(vec(P), R, U, F, place(gxSel).name.toUpperCase(), fmtLy(len(vec(P)) * ly), root.hudHighlight)
         }
         const m31 = hotspots[gxIndex("Andromeda")].pos
-        if (gxSel < 0 || !hotspots[gxSel].name.startsWith("Andromeda")) nb[3] = beaconOf(vec(m31), R, U, F, "ANDROMEDA", fmtLy(len(vec(m31)) * ly), "#fff0d8")
+        if (gxSel !== gxIndex("Andromeda")) nb[3] = beaconOf(vec(m31), R, U, F, "ANDROMEDA", fmtLy(len(vec(m31)) * ly), "#fff0d8")
         // speed: how fast the camera moves, eased
         if (gxPrevCam) {
           const v = Math.hypot(cam[0] - gxPrevCam[0], cam[1] - gxPrevCam[1], cam[2] - gxPrevCam[2]) / Math.max(dt, 1e-3)
@@ -1716,7 +1823,7 @@ Item {
             { label: "SPEED", value: lyPerS < 0.01 ? "HOLDING" : fmtLy(lyPerS) + "/S  ·  " + (lyPerS * 31557600 >= 1e6 ? fmtNum(lyPerS * 31557600 / 1e6, 1) + " MILLION" : fmtNum(lyPerS * 31557600)) + " × LIGHT" },
             { label: "NEAREST", value: near >= 0 ? hotspots[near].name.toUpperCase() + "  ·  " + fmtLy(nd * ly) : "—" }
           ]
-          if (gxSel >= 0) rows.splice(0, 0, { label: "TARGET", value: hotspots[gxSel].name.toUpperCase() + "  ·  " + fmtLy(len(vec(hotspotPos(gxSel))) * ly) + " AWAY" })
+          if (gxSel >= 0) rows.splice(0, 0, { label: "TARGET", value: place(gxSel).name.toUpperCase() + "  ·  " + fmtLy(len(vec(hotspotPos(gxSel))) * ly) + " AWAY" })
           if (fallState) {
             // the fall: where we are in radii, and our own clock
             const left = fallLeft >= 60 ? fmtNum(Math.floor(fallLeft / 60)) + " MIN " + fmtNum(Math.floor(fallLeft % 60), 0) + " S" : fmtNum(fallLeft, 1) + " S"
@@ -2000,9 +2107,17 @@ Item {
       root.enterGalaxy()
     }
 
+    // a place by name prefix, the Sun, or a named viewpoint ("Milky Way from Andromeda")
     function fly(place: string): void {
       if (root.explore !== "galaxy") root.enterGalaxy()
-      root.gxFlyTo(place === "sun" ? -1 : root.gxIndex(place))
+      const v = root.gxViews.findIndex(w => w.name.toLowerCase().startsWith(place.toLowerCase()))
+      if (v >= 0) root.gxGoView(v)
+      else root.gxFlyTo(place === "sun" ? -1 : root.gxIndex(place))
+    }
+
+    // the label layer: on, it shows for a few seconds after each interaction
+    function labels(on: bool): void {
+      root.setLabels(on)
     }
 
     function hole(): void {
@@ -2185,18 +2300,28 @@ Item {
               property real m31Fade: root.m31Fade
               property var m31Tex: m31FaceTex
               property vector4d m33Pos: root.m33Pos
-              property vector3d m33Major: Qt.vector3d(root.m33Disk.major[0], root.m33Disk.major[1], root.m33Disk.major[2])
-              property vector3d m33Normal: Qt.vector3d(root.m33Disk.normal[0], root.m33Disk.normal[1], root.m33Disk.normal[2])
+              property vector3d m33Major: root.v3(root.m33Disk.major)
+              property vector3d m33Minor: root.v3(root.m33Disk.minor)
+              property vector3d m33Normal: root.v3(root.m33Disk.normal)
+              property real m33Fade: root.m33Fade
+              property var m33Tex: m33FaceTex
+              property vector4d m32: root.ellUniform("M32")
+              property vector4d m32Shape: root.ellShape("M32")
+              property vector4d n205: root.ellUniform("NGC 205")
+              property vector4d n205Shape: root.ellShape("NGC 205")
               property vector4d lmc: root.lmcPos
               property vector4d smc: root.smcPos
+              property vector3d lmcMajor: root.v3(root.lmcModel.major)
+              property vector3d lmcMinor: root.v3(root.lmcModel.minor)
+              property vector3d lmcNormal: root.v3(root.lmcModel.normal)
+              property vector4d lmcBar: root.v4(root.lmcModel.bar)
+              property vector4d lmcOff: root.v4(root.lmcModel.off)
               property real exposure: root.gxExposure
               property real spin: root.sunOmega * root.gxMyr
-              // a Magellanic Cloud's soft volume gives way to its photo as we close in
-              property vector2d cloudFade: {
-                const h = root.gxSel >= 0 ? root.hotspots[root.gxSel] : null
-                const near = h ? Math.min(1, Math.max(0, (Math.log(root.gxDist / (h.size / 1000)) - Math.log(3)) / Math.log(4))) : 1
-                return Qt.vector2d(h && h.name.startsWith("Large Magellanic") ? near : 1, h && h.name.startsWith("Small Magellanic") ? near : 1)
-              }
+              // a Magellanic Cloud's volume gives way to its photo near Earth's line of sight, like Andromeda's
+              property vector2d cloudFade: Qt.vector2d(root.lmcFade, root.smcFade)
+              property var dwarfTex: dwarfDataTex
+              property real dwarfCount: root.dwarfPlaces.length
               property var youngTex: mwYoungTex
               property var dustTex: mwDustTex
             }
@@ -2249,6 +2374,9 @@ Item {
             Image { id: mwYoungTex; source: "textures/milkyway-young.png"; visible: false; mipmap: true; smooth: true }
             Image { id: mwDustTex; source: "textures/milkyway-dust.png"; visible: false; mipmap: true; smooth: true }
             Image { id: m31FaceTex; source: "textures/m31-faceon.jpg"; visible: false; mipmap: true; smooth: true }
+            Image { id: m33FaceTex; source: "textures/m33-faceon.jpg"; visible: false; mipmap: true; smooth: true }
+            // the dwarf galaxy table as bytes (tools/gen_dwarfs.py): read exactly, so no filtering
+            Image { id: dwarfDataTex; source: "textures/dwarfs.png"; visible: false; mipmap: false; smooth: false }
 
             // the real sky (NASA SVS Deep Star Maps 2020, tools/make_sky.py)
             Image { id: skyFullTex; source: "textures/sky-full.jpg"; visible: false; smooth: true; mipmap: true }
@@ -2900,29 +3028,34 @@ Item {
         visible: root.liveBackground && root.galaxyMix > 0.01 && root.unclutter > 0
         opacity: root.galaxyMix * (1 - root.fallFade) * root.unclutter
 
+        // the label layer: every place's marker and name (the hotspots, the
+        // Sun, then the dwarf galaxies, which show up close or under the pointer)
         Repeater {
-          model: root.hotspots.length + 1
+          model: root.hotspots.length + 1 + root.dwarfPlaces.length
           Item {
             id: mark
             required property int index
-            readonly property bool isSun: index === root.hotspots.length
-            readonly property var pt: root.gxScreen[index] || ({ x: 0, y: 0, front: false, show: false })
+            readonly property bool isSun: index === root.gxSunIndex
+            readonly property var h: isSun ? null : root.place(index)
+            readonly property bool dwarf: !!h && !!h.dwarf
+            readonly property var pt: root.gxScreen[index] || ({ x: 0, y: 0, front: false, show: false, dot: false })
             readonly property bool chosen: isSun ? root.gxSel === -1 : root.gxSel === index
-            readonly property color tint: isSun ? "#fff4e0" : root.hotspots[index].color
-            visible: pt.front
+            readonly property color tint: isSun ? "#fff4e0" : h.color
+            visible: pt.dot && root.labelsMix > 0.01
+            opacity: root.labelsMix
             x: (pt.x / root.aspect + 0.5) * gxOverlay.width
             y: (pt.y + 0.5) * gxOverlay.height
             Rectangle {
-              readonly property real d: mark.chosen ? 9 : 5
+              readonly property real d: mark.chosen ? 9 : mark.dwarf ? 3.5 : 5
               x: -d / 2; y: -d / 2; width: d; height: d; radius: d / 2
               color: mark.tint
-              opacity: mark.chosen ? 0.9 : 0.6
+              opacity: mark.chosen ? 0.9 : mark.dwarf ? 0.45 : 0.6
             }
             Text {
               visible: mark.pt.show
               x: 10
               y: -height / 2
-              text: (mark.isSun ? "SUN  ·  YOU ARE HERE" : root.hotspots[mark.index].name.toUpperCase())
+              text: (mark.isSun ? "SUN  ·  YOU ARE HERE" : mark.h.name.toUpperCase())
               color: mark.chosen ? root.hudHighlight : Qt.alpha(Color.foreground, mark.isSun ? 0.85 : 0.55)
               font.family: Style.resolvedFontFamily
               font.pixelSize: Math.round(panel.height * 0.0085)
@@ -2937,17 +3070,18 @@ Item {
           y: Math.round(panel.height * 0.80)
           spacing: Math.round(panel.height * 0.005)
           width: Math.round(panel.width * 0.3)
-          readonly property var h: root.gxSel >= 0 ? root.hotspots[root.gxSel] : null
-          visible: root.gxSel !== -2
+          readonly property var h: root.gxSel >= 0 ? root.place(root.gxSel) : null
+          readonly property var vw: root.gxView >= 0 ? root.gxViews[root.gxView] : null   // a named viewpoint
+          visible: root.gxSel !== -2 || !!vw
           Text {
-            text: parent.h ? parent.h.name.toUpperCase() : "THE SUN  ·  YOU ARE HERE"
+            text: parent.h ? parent.h.name.toUpperCase() : parent.vw ? parent.vw.name.toUpperCase() : "THE SUN  ·  YOU ARE HERE"
             color: Color.accent
             font.family: Style.resolvedFontFamily
             font.pixelSize: Math.round(panel.height * 0.011)
             font.letterSpacing: 4
           }
           Text {
-            text: parent.h ? parent.h.label.toUpperCase()
+            text: parent.h ? parent.h.label.toUpperCase() : parent.vw ? parent.vw.label
                            : "26,600 LY FROM THE GALACTIC CENTRE  ·  ONE ORBIT EVERY ~203 MILLION YEARS AT 249 KM/S"
             color: Qt.alpha(Color.foreground, 0.6)
             font.family: Style.resolvedFontFamily
@@ -2974,6 +3108,7 @@ Item {
                                : parent.h.kind === "blackhole"
                                ? parent.h.blurb + "  Visible light never gets out to us through the dust; you see the crowded star cluster around it. Its shadow was imaged in radio by the Event Horizon Telescope in 2022."
                                : parent.h.blurb) + (parent.h.dpc * 3.26156 >= 10 ? "  The light you see left it " + root.lightYears(parent.h.dpc).replace(" ly", " years") + " ago." : "")
+                           : parent.vw ? parent.vw.blurb
                            : "The Sun circles Sagittarius A* with everything around it, rising and sinking through the disk as it goes. Press [ ] to watch."
             color: Qt.alpha(Color.foreground, 0.7)
             font.family: Style.resolvedFontFamily
@@ -3013,8 +3148,8 @@ Item {
           required property var modelData
           required property int index
           readonly property var pt: root.sysScreen[index] || ({ x: 0, y: 0, r: 0, show: false })
-          visible: root.liveBackground && root.sys > 0.5 && root.chaseMix < 0.02 && root.galMix < 0.5 && pt.show
-          opacity: (root.sys - 0.5) * 1.4 * (1 - root.chaseMix) * root.unclutter
+          visible: root.liveBackground && root.sys > 0.5 && root.chaseMix < 0.02 && root.galMix < 0.5 && pt.show && root.labelsMix > 0.01
+          opacity: (root.sys - 0.5) * 1.4 * (1 - root.chaseMix) * root.unclutter * root.labelsMix
           x: (pt.x / root.aspect + 0.5) * panel.width + pt.r * panel.height + 10
           y: (pt.y + 0.5) * panel.height - height / 2
           text: modelData.name.toUpperCase()
@@ -3085,6 +3220,7 @@ Item {
       Item {
         focus: root.explore !== "universe"
         Keys.onPressed: function(event) {
+          root.touchLabels()
           if (event.key === Qt.Key_Escape) {
             root.back()
             event.accepted = true
@@ -3092,6 +3228,7 @@ Item {
           }
           const k = event.text.toLowerCase()
           if (k === "h") { root.setHud(!root.hudOn); event.accepted = true; return }
+          if (k === "l") { root.setLabels(!root.labelsOn); event.accepted = true; return }
           if (root.explore === "sky") {
             const arrowsS = { [Qt.Key_Left]: "left", [Qt.Key_Right]: "right", [Qt.Key_Up]: "up", [Qt.Key_Down]: "down" }
             if (arrowsS[event.key]) {
@@ -3122,6 +3259,7 @@ Item {
             }
             if (k === "0") { root.gxFlyTo(-1); event.accepted = true; return }
             if (k === "b") { root.gxB(); event.accepted = true; return }
+            if (k === "v") { root.gxGoView(0); event.accepted = true; return }
             if (k === "[" || k === "]") {
               root.gxRateIndex = Math.max(0, Math.min(root.gxRates.length - 1, root.gxRateIndex + (k === "]" ? 1 : -1)))
               event.accepted = true
@@ -3145,7 +3283,7 @@ Item {
             }
             if (k === "g") { root.toggleGalactic(); event.accepted = true; return }
             if (k === "v" && root.galactic) { root.toggleGalBack(); event.accepted = true; return }
-            if (k === "l" && root.explore === "system") { root.guides = !root.guides; event.accepted = true; return }
+            if (k === "i" && root.explore === "system") { root.guides = !root.guides; event.accepted = true; return }
             if (root.galactic && (k === "-" || k === "=" || k === "+")) {
               root.galSlowIndex = Math.max(0, Math.min(root.galSlows.length - 1, root.galSlowIndex + (k === "-" ? 1 : -1)))
               event.accepted = true
@@ -3202,12 +3340,19 @@ Item {
         property bool dragged: false
         property bool orbiting: false
         onPressed: function(mouse) {
+          root.touchLabels()
           pressAt = Qt.point(mouse.x, mouse.y)
           lastAt = pressAt
           lastT = Date.now() / 1000
           dragged = false
         }
         onPositionChanged: function(mouse) {
+          if (root.explore !== "universe") root.touchLabels()
+          if (root.explore === "galaxy" && !pressed) {
+            // hovering: the tick finds the place under the pointer (gxHover)
+            const pt = root.toP(mouse.x, mouse.y, width, height)
+            root.gxPointer = [pt[0], pt[1], 1 / height]
+          } else if (root.explore !== "galaxy" && root.gxPointer) root.gxPointer = null
           if (root.explore === "sky" && pressed) {
             root.skyDragging = true
             if (Math.hypot(mouse.x - pressAt.x, mouse.y - pressAt.y) > 4) dragged = true
@@ -3266,6 +3411,7 @@ Item {
         onExited: {
           root.viewTarget = Qt.vector2d(0, 0)
           root.hoverSystem = false
+          root.gxPointer = null
         }
         onClicked: function(mouse) {
           if (dragged) return
@@ -3273,14 +3419,15 @@ Item {
           if (mouse.button !== Qt.LeftButton) return
           const pt = root.toP(mouse.x, mouse.y, width, height)
           if (root.explore === "galaxy") {
-            // fly to the nearest marked place under the pointer
+            // fly to the nearest marked place under the pointer (a dwarf
+            // galaxy counts once its marker shows: up close or hovered)
             let best = -2
             let bestD = 28
             for (let i = 0; i < root.gxScreen.length; i++) {
               const g = root.gxScreen[i]
-              if (!g.front) continue
+              if (!g.dot) continue
               const d = Math.hypot((g.x / root.aspect + 0.5) * width - mouse.x, (g.y + 0.5) * height - mouse.y)
-              if (d < bestD) { bestD = d; best = i === root.hotspots.length ? -1 : i }
+              if (d < bestD) { bestD = d; best = i === root.gxSunIndex ? -1 : i }
             }
             if (best !== -2) root.gxFlyTo(best)
           } else if (root.explore === "universe" && root.overSystem(pt)) root.enterSystem()
@@ -3290,6 +3437,7 @@ Item {
           }
         }
         onWheel: function(wheel) {
+          root.touchLabels()
           const pt = root.toP(wheel.x, wheel.y, width, height)
           const steps = wheel.angleDelta.y / 120
           if (root.explore === "sky") root.skyVfovTarget = Math.max(8, Math.min(130, root.skyVfovTarget * Math.pow(1.12, -steps)))
