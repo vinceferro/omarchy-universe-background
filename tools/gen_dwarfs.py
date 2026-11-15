@@ -30,12 +30,13 @@
 # The same table goes to textures/dwarfs.png for galaxy.frag, which draws the
 # dwarfs as glows: one column per galaxy in the table's order, 8-bit RGB (no
 # alpha: Qt would premultiply it), read with nearest sampling:
-#   rows 0, 1  X, Y, Z: high and low bytes of (v + 1600) / 3200 * 65535
-#              (kpc; 0.05 kpc steps)
-#   row 2      half-light radius: high and low bytes of rh / 4 kpc * 65535;
+#   rows 0-2   X, Y, Z: high, middle and low bytes of (v + 1600) / 3200 * 16777215
+#              (kpc; 0.2 pc steps: two bytes would be 49 pc, a quarter of the
+#              smallest dwarfs' size, and their glow would sit off their marker)
+#   row 3      half-light radius: high and low bytes of rh / 4 kpc * 65535;
 #              B: 0 not drawn there (a hotspot, or ell3d: drawn on its own),
 #              1 spheroidal, 2 irregular or transition type
-#   row 3      R: (M_V + 20) / 20 * 255 (0.08 mag steps); G: ellipticity * 255;
+#   row 4      R: (M_V + 20) / 20 * 255 (0.08 mag steps); G: ellipticity * 255;
 #              B: position angle / 360 * 255
 #
 # Usage: python3 -I gen_dwarfs.py <catalogue.tsv>
@@ -164,7 +165,7 @@ open(OUT, "w", encoding="utf-8").write(js)
 
 # the texture
 assert len(out) <= TEXW
-px = np.zeros((4, TEXW, 3), np.uint8)
+px = np.zeros((5, TEXW, 3), np.uint8)
 
 
 def two(frac):
@@ -172,14 +173,20 @@ def two(frac):
     return v >> 8, v & 255
 
 
+def three(frac):
+    v = int(round(max(0.0, min(1.0, frac)) * 16777215))
+    return v >> 16, (v >> 8) & 255, v & 255
+
+
 for i, d in enumerate(out):
-    hi, lo = zip(*(two((c + 1600.0) / 3200.0) for c in d["pos"]))
+    hi, mid, lo = zip(*(three((c + 1600.0) / 3200.0) for c in d["pos"]))
     px[0, i] = hi
-    px[1, i] = lo
+    px[1, i] = mid
+    px[2, i] = lo
     rh = (d["rh"] or 200) / 1000.0
     kind = 0 if d.get("hotspot") or d.get("ell3d") else 2 if "Irr" in d["type"] else 1
-    px[2, i] = two(rh / 4.0) + (kind,)
-    px[3, i] = (int(round(max(0.0, min(1.0, (d["mv"] + 20.0) / 20.0)) * 255)),
+    px[3, i] = two(rh / 4.0) + (kind,)
+    px[4, i] = (int(round(max(0.0, min(1.0, (d["mv"] + 20.0) / 20.0)) * 255)),
                 int(round((d["ell"] or 0.0) * 255)), int(round(((d["pa"] or 0) % 360) / 360.0 * 255)))
 Image.fromarray(px, "RGB").save(TEX, optimize=True)
 print("wrote", TEX)

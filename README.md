@@ -177,8 +177,9 @@ line of sight you see the photo, past 32 degrees the 3D model, a cross-fade
 between (the model is unfolded from the same photo, so they match where they
 meet). The dwarfs are places too: hover to find one (its marker and name
 appear under the pointer, or once it is big on screen), click to fly there.
-`V` stands you at Andromeda looking back at the Milky Way, a spindle 2.5
-degrees long, 21 degrees from edge-on, seen from the south.
+`V` stands you at Andromeda's edge (35 kpc out, on our side, so its own light
+is behind you) looking back at the Milky Way, a spindle 2.7 degrees long, 21
+degrees from edge-on, seen from the south.
 
 26 real places are marked, with distances checked against Gaia and VLBI
 catalogues: nebulae (Orion, Carina, Eagle, Lagoon, Rosette, Crab, Ring,
@@ -384,14 +385,15 @@ What is real:
   gets a young-star tint and height; M32 and NGC 205 sit at their catalogued
   positions, sizes and ellipticities. The LMC's disk is inclined 34.7 degrees
   with its line of nodes at PA 122.5 (van der Marel & Cioni 2001), scale
-  length 1.4 kpc, the bar's centre 0.3 kpc off the disk's; the SMC's depth
+  length 1.4 kpc, the disk's centre at the H I kinematic centre, 0.8 kpc
+  north-west of the bar's (Kim et al. 1998); the SMC's depth
   along our line of sight follows Subramanian & Subramaniam 2009 (4-5 kpc
   from red clump stars; Crowl et al. 2001 find 6-12 kpc from clusters). The
   72 dwarfs are McConnachie 2012 (AJ 144, 4): position, distance, half-light
   radius, ellipticity, position angle and absolute magnitude. Every galaxy's
   brightness follows from its M_V against Andromeda's -21.2, so the group
   keeps its real contrasts.
-- **Photos**: 15 real images, shown at the published field of view, north
+- **Photos**: 16 real images, shown at the published field of view, north
   up, from Earth's direction.
 - **Sky**: NASA SVS Deep Star Maps 2020 (Gaia DR2), the Milky Way core in the
   everyday view, the full sky near the Sun in the Milky Way view and in Sky

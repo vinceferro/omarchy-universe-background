@@ -98,22 +98,24 @@ function readPng(file) {
   return { w, h, px: (x, y) => [0, 1, 2].map(k => out[y * stride + x * bpp + k]) }
 }
 const tex = readPng(path.join(lib, "..", "textures", "dwarfs.png"))
-check("dwarfs.png is 128 x 4 RGB", tex.w === 128 && tex.h === 4)
+check("dwarfs.png is 128 x 5 RGB", tex.w === 128 && tex.h === 5)
+check("galaxy.frag reads five rows", frag.includes("const float DWARF_ROWS = 5.0"))
 let worstPos = 0, worstRh = 0, worstMv = 0, kinds = true
 Dw.DWARFS.forEach((d, i) => {
-  const hi = tex.px(i, 0), lo = tex.px(i, 1), r2 = tex.px(i, 2), r3 = tex.px(i, 3)
-  const pos = [0, 1, 2].map(k => (hi[k] * 256 + lo[k]) / 65535 * 3200 - 1600)
+  const hi = tex.px(i, 0), mid = tex.px(i, 1), lo = tex.px(i, 2), r2 = tex.px(i, 3), r3 = tex.px(i, 4)
+  const pos = [0, 1, 2].map(k => ((hi[k] * 256 + mid[k]) * 256 + lo[k]) / 16777215 * 3200 - 1600)
   worstPos = Math.max(worstPos, len(sub(pos, d.pos)))
   worstRh = Math.max(worstRh, Math.abs((r2[0] * 256 + r2[1]) / 65535 * 4000 - (d.rh || 200)))
   worstMv = Math.max(worstMv, Math.abs(r3[0] / 255 * 20 - 20 - d.mv))
   const kind = d.hotspot || d.ell3d ? 0 : d.type.includes("Irr") ? 2 : 1
   if (r2[2] !== kind) kinds = false
 })
-check("positions to 0.05 kpc", worstPos < 0.05, worstPos.toFixed(4))
+// the smallest dwarfs (Segue 1, Willman 1) are ~30 pc across: their glow must sit on their marker
+check("positions to 0.5 pc", worstPos < 0.0005, (worstPos * 1000).toFixed(3) + " pc")
 check("half-light radii to 0.1 pc", worstRh < 0.1, worstRh.toFixed(3))
 check("magnitudes to 0.04", worstMv < 0.04, worstMv.toFixed(3))
 check("type bytes: hotspots and ellipticals 0, spheroidal 1, irregular 2", kinds)
-check("columns past the table are empty", tex.px(Dw.DWARFS.length, 2)[2] === 0)
+check("columns past the table are empty", tex.px(Dw.DWARFS.length, 3)[2] === 0)
 
 // 6. the LMC's frame: the disk normal 34.7 degrees from our line of sight, the bar and offsets in the plane
 const lmcPos = hotPos("Large Magellanic")
@@ -122,7 +124,16 @@ const los = sub(lmcPos, LG.SUN).map(c => c / len(sub(lmcPos, LG.SUN)))
 check("LMC normal 34.7 degrees from the line of sight", Math.abs(Math.acos(Math.abs(dot(L.normal, los))) / deg - 34.7) < 0.05)
 check("LMC frame orthonormal", Math.abs(dot(L.major, L.minor)) < 1e-9 && Math.abs(dot(L.major, L.normal)) < 1e-9 && Math.abs(len(L.minor) - 1) < 1e-9)
 check("LMC major axis is the line of nodes: in the sky plane", Math.abs(dot(L.major, los)) < 1e-9)
-check("bar direction unit, half-length 1.5 kpc; disk offset 0.3 kpc", Math.abs(Math.hypot(L.bar[0], L.bar[1]) - 1) < 1e-9 && L.bar[2] === 1.5 && Math.abs(Math.hypot(L.off[0], L.off[1]) - 0.3) < 1e-9)
+check("bar direction unit, half-length 1.5 kpc", Math.abs(Math.hypot(L.bar[0], L.bar[1]) - 1) < 1e-9 && L.bar[2] === 1.5)
+// the disk's centre (the HI kinematic centre, Kim et al. 1998: RA 5h17.6m, Dec
+// -69d02') seen from the bar's centre (RA 5h23.6m, Dec -69d45'): 0.91 degrees
+// at position angle 325, i.e. 0.79 kpc on the sky, north-west; longer in the plane
+const off3 = [0, 1, 2].map(j => L.major[j] * L.off[0] + L.minor[j] * L.off[1])   // the offset, back in space
+const offSky = sub(off3, los.map(c => c * dot(off3, los)))                         // its projection on the sky
+const sb = LG.skyBasis(lmcPos)
+const offPa = (Math.atan2(dot(offSky, sb.e), dot(offSky, sb.n)) / deg + 360) % 360
+check("the disk's centre is 0.79 kpc north-west of the bar's on the sky (PA 325)", Math.abs(len(offSky) - 0.79) < 1e-6 && Math.abs(offPa - 325) < 0.01, len(offSky).toFixed(3) + " kpc at PA " + offPa.toFixed(1))
+check("the in-plane offset is longer, by the tilt", Math.hypot(L.off[0], L.off[1]) > 0.79 && Math.hypot(L.off[0], L.off[1]) < 0.79 / Math.cos(34.7 * deg) + 1e-9)
 const heavy3 = [0, 1, 2].map(j => L.major[j] * L.off[2] + L.minor[j] * L.off[3])   // the heavy side, back in space
 check("the heavy side (30 Dor) is east of the bar's centre", dot(heavy3, LG.skyBasis(lmcPos).e) > 0.5)
 
@@ -133,7 +144,16 @@ const cam = [cp * Math.sin(v.yaw) * v.dist, cp * Math.cos(v.yaw) * v.dist, Math.
 check("viewFrom puts the camera at Andromeda", close(cam, m31, 1e-6), cam.map(c => c.toFixed(2)).join(" "))
 check("765 kpc away", Math.abs(v.dist - len(m31)) < 1e-9, v.dist.toFixed(1))
 check("21 degrees from edge-on, from the south (pitch < 0)", Math.abs(LG.tiltFrom(m31) - 21.4) < 0.3 && v.pitch < 0, LG.tiltFrom(m31).toFixed(2))
-check("the Milky Way's 34 kpc span ~2.5 degrees from there", Math.abs(34 / v.dist / deg - 2.5) < 0.1, (34 / v.dist / deg).toFixed(2))
+// Background.qml's view stands 35 kpc short of Andromeda's centre, on our
+// side: outside its drawn disk (24.5 kpc; our line of sight is 13 degrees
+// from its plane), so none of Andromeda's own light is in front of the camera
+const standoff = Number(qml.match(/standoff: ([\d.]+)/)[1])
+const vs = LG.viewFrom(m31, [0, 0, 0], standoff)
+const cams = [cp * Math.sin(vs.yaw) * vs.dist, cp * Math.cos(vs.yaw) * vs.dist, Math.sin(vs.pitch) * vs.dist]
+const inM31 = sub(cams, m31), lo31 = [dot(inM31, m31Disk.major), dot(inM31, m31Disk.minor), dot(inM31, m31Disk.normal)]
+check("the view stands on the same line, " + standoff + " kpc short", vs.yaw === v.yaw && vs.pitch === v.pitch && Math.abs(vs.dist + standoff - v.dist) < 1e-9)
+check("outside Andromeda's disk (R > 24.5 or |z| > 1.8 kpc)", Math.hypot(lo31[0], lo31[1]) > 24.5 && Math.abs(lo31[2]) > 1.8, "R " + Math.hypot(lo31[0], lo31[1]).toFixed(1) + " z " + lo31[2].toFixed(1))
+check("the Milky Way's 34 kpc span ~2.7 degrees from there", Math.abs(34 / vs.dist / deg - 2.7) < 0.1, (34 / vs.dist / deg).toFixed(2))
 
 if (fails) { console.log(fails + " failed"); process.exit(1) }
 console.log("all passed")

@@ -507,6 +507,13 @@ Item {
   property var gxScreen: []        // per hotspot, then the Sun: screen point, label shown
   readonly property var gxKinds: ({ nebula: 0, cluster: 1, globular: 2, remnant: 3, star: 4, blackhole: 5, galaxy: 6 })
   function gxIndex(name) { return hotspots.findIndex(h => h.name.startsWith(name)) }
+  // any place by name prefix (IPC `fly`): a hotspot first, then a dwarf galaxy; -1 for none
+  function placeIndex(name) {
+    const h = gxIndex(name)
+    if (h >= 0 || name === "") return h
+    const d = dwarfPlaces.findIndex(p => !p.hidden && p.name.startsWith(name))
+    return d >= 0 ? hotspots.length + 1 + d : -1
+  }
   function gxGalaxy(name, scale) {
     const h = hotspots[gxIndex(name)]
     return Qt.vector4d(h.pos[0], h.pos[1], h.pos[2], scale)
@@ -524,20 +531,23 @@ Item {
   function place(i) { return i < hotspots.length ? hotspots[i] : dwarfPlaces[i - hotspots.length - 1] }
   property var gxPointer: null     // the pointer in p units (x, y) and the size of a pixel, while it is over the Milky Way view
   property int gxHover: -1         // the place under it
-  // ---- named viewpoints (V, IPC `fly "Milky Way from"`): stand somewhere real and look ----
-  // From Andromeda, 761 kpc away, our Galaxy is a spindle about 2.5 degrees
+  // ---- named viewpoints (V, IPC `fly "Milky Way from Andromeda"`): stand somewhere real and look ----
+  // From Andromeda, 761 kpc away, our Galaxy is a spindle about 2.7 degrees
   // long (its 34 kpc of disk: five full Moons), 21 degrees from edge-on and
   // seen from the south, since Andromeda lies at Galactic latitude -21.6.
-  // The camera stands at Andromeda's centre and looks at Sagittarius A*;
-  // scrolling in crosses the gap along that line.
-  readonly property var gxViews: [{ name: "The Milky Way from Andromeda", from: "Andromeda", at: [0, 0, 0],
-    label: "2.5 MILLION LY FROM HOME  ·  OUR GALAXY SPANS ABOUT 2.5°, FIVE FULL MOONS",
-    blurb: "Seen from Andromeda the Milky Way is a thin spindle 21 degrees from edge-on, its south side toward us, with the Magellanic Clouds beside it. The light arriving there now left the Milky Way 2.5 million years ago. Scroll in to cross the gap; the view stays on this line." }]
+  // The camera stands 35 kpc short of Andromeda's centre on our side (its
+  // drawn disk ends at 24.5 kpc, and our line of sight is 13 degrees from its
+  // plane: from inside, its own light would fog the whole view white) and
+  // looks at Sagittarius A*; scrolling in crosses the gap along that line.
+  // The name is what IPC `fly` matches by prefix; the card shows it.
+  readonly property var gxViews: [{ name: "Milky Way from Andromeda", from: "Andromeda", standoff: 35, at: [0, 0, 0],
+    label: "2.5 MILLION LY FROM HOME  ·  OUR GALAXY SPANS ABOUT 2.7°, FIVE FULL MOONS",
+    blurb: "Seen from Andromeda's outskirts the Milky Way is a thin spindle 21 degrees from edge-on, its south side toward us, with the Magellanic Clouds beside it. The light arriving there now left the Milky Way 2.5 million years ago. Scroll in to cross the gap; the view stays on this line." }]
   property int gxView: -1
   function gxGoView(i) {
     if (fallState) return
     const v = gxViews[i]
-    const o = LG.viewFrom(hotspotPos(gxIndex(v.from)), v.at)
+    const o = LG.viewFrom(hotspotPos(gxIndex(v.from)), v.at, v.standoff)
     gxFallArmed = false
     gxSel = -2
     gxFree = v.at.slice()
@@ -1420,6 +1430,8 @@ Item {
       if (inView && !fallState) {
         gxYawTarget += (key("right") - key("left")) * dt * 0.8
         gxPitchTarget = Math.max(-1.45, Math.min(1.45, gxPitchTarget + (key("up") - key("down")) * dt * 0.6))
+        // orbiting leaves a named viewpoint's line: its card goes
+        if (key("right") + key("left") + key("up") + key("down") > 0) gxView = -1
       }
       if (inView) {
         const zk = key("e") - key("q")
@@ -2107,12 +2119,14 @@ Item {
       root.enterGalaxy()
     }
 
-    // a place by name prefix, the Sun, or a named viewpoint ("Milky Way from Andromeda")
+    // a place by name prefix (a hotspot or a dwarf galaxy), the Sun, or a
+    // named viewpoint ("Milky Way from Andromeda"); an unknown or empty name
+    // flies home
     function fly(place: string): void {
       if (root.explore !== "galaxy") root.enterGalaxy()
-      const v = root.gxViews.findIndex(w => w.name.toLowerCase().startsWith(place.toLowerCase()))
+      const v = place.length > 0 ? root.gxViews.findIndex(w => w.name.toLowerCase().startsWith(place.toLowerCase())) : -1
       if (v >= 0) root.gxGoView(v)
-      else root.gxFlyTo(place === "sun" ? -1 : root.gxIndex(place))
+      else root.gxFlyTo(place === "sun" ? -1 : root.placeIndex(place))
     }
 
     // the label layer: on, it shows for a few seconds after each interaction
@@ -3041,8 +3055,11 @@ Item {
             readonly property var pt: root.gxScreen[index] || ({ x: 0, y: 0, front: false, show: false, dot: false })
             readonly property bool chosen: isSun ? root.gxSel === -1 : root.gxSel === index
             readonly property color tint: isSun ? "#fff4e0" : h.color
-            visible: pt.dot && root.labelsMix > 0.01
-            opacity: root.labelsMix
+            // the place under the pointer keeps its marker and name with the
+            // labels off, so a dim dwarf can always be identified
+            readonly property bool hovered: index === root.gxHover
+            visible: pt.dot && (root.labelsMix > 0.01 || hovered)
+            opacity: hovered ? 1 : root.labelsMix
             x: (pt.x / root.aspect + 0.5) * gxOverlay.width
             y: (pt.y + 0.5) * gxOverlay.height
             Rectangle {
@@ -3252,7 +3269,8 @@ Item {
             }
             const n = root.hotspots.length
             if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
-              const cur = root.gxSel < 0 ? (event.key === Qt.Key_Backtab ? 0 : -1) : root.gxSel
+              // from the Sun, free flight or a dwarf galaxy (past the hotspots): start at the first
+              const cur = root.gxSel < 0 || root.gxSel >= n ? (event.key === Qt.Key_Backtab ? 0 : -1) : root.gxSel
               root.gxFlyTo((cur + (event.key === Qt.Key_Backtab ? n - 1 : 1)) % n)
               event.accepted = true
               return
@@ -3373,6 +3391,7 @@ Item {
             } else {
               root.gxYawTarget += (mouse.x - lastAt.x) * 0.005
               root.gxPitchTarget = Math.max(-1.45, Math.min(1.45, root.gxPitchTarget + (mouse.y - lastAt.y) * 0.004))
+              root.gxView = -1   // orbiting leaves a named viewpoint's line
             }
             lastAt = Qt.point(mouse.x, mouse.y)
           } else if (root.explore === "system" && pressed) {

@@ -71,10 +71,12 @@ layout(binding = 2) uniform sampler2D dustTex;
 layout(binding = 3) uniform sampler2D m31Tex;
 layout(binding = 4) uniform sampler2D m33Tex;
 // the dwarf galaxies, one column each (tools/gen_dwarfs.py; nearest-sampled):
-// rows 0-1 X, Y, Z high and low bytes of (v + 1600) / 3200; row 2 half-light
-// radius (kpc / 4, two bytes) and a type byte (0 not drawn, 1 spheroidal, 2
-// irregular); row 3 (M_V + 20) / 20, ellipticity, position angle / 360
+// rows 0-2 X, Y, Z as three bytes of (v + 1600) / 3200 (0.2 pc steps: the
+// smallest dwarfs are 20 pc across); row 3 half-light radius (kpc / 4, two
+// bytes) and a type byte (0 not drawn, 1 spheroidal, 2 irregular); row 4
+// (M_V + 20) / 20, ellipticity, position angle / 360
 layout(binding = 5) uniform sampler2D dwarfTex;
+const float DWARF_ROWS = 5.0;
 
 const float EXT = 16.0;          // the maps cover +-16 kpc
 const float RMAX = 17.0;
@@ -129,7 +131,8 @@ void sampleDisk(vec3 p, float lod, int which, out vec3 emit, out float dust) {
         // its light is in the photo; here its young stars get a blue cast
         // and the layer a little more height (the same light, spread taller,
         // so face-on it stays the photo and edge-on the ring stands out)
-        float ring = exp(-pow((Rm - 10.0) / 1.3, 2.0));
+        float rr = (Rm - 10.0) / 1.3;   // (pow() of a negative base is undefined in GLSL)
+        float ring = exp(-rr * rr);
         float h = 0.35 + 0.12 * ring;
         c *= mix(vec3(1.0), vec3(0.82, 0.93, 1.22), 0.45 * ring);
         float bulge = exp(-length(vec3(p.xy, p.z * 1.6)) / 0.8);
@@ -274,8 +277,9 @@ vec3 ellGlow(vec3 ro, vec3 rd, vec3 c, float rh, float ell, float pa, float L, f
 // The Large Magellanic Cloud at a point of its disk frame (kpc; x along the
 // line of nodes, z the disk normal, the origin at the bar's centre, which is
 // the hotspot): an exponential disk of scale length 1.4 kpc (van der Marel
-// 2001, AJ 122, 1827) and height ~0.3 kpc, centred ~0.3 kpc off the bar, made
-// lopsided toward 30 Doradus (its star-forming side); a bar ~3 kpc long
+// 2001, AJ 122, 1827) and height ~0.3 kpc, centred ~0.8 kpc off the bar (at
+// the H I kinematic centre, to the north-west), made lopsided toward 30
+// Doradus (its star-forming side, to the east); a bar ~3 kpc long
 // across the centre; and the clumps of its star clouds. Scaled so the whole
 // sums to M_V = -18.1 (lib/localgroup.js lmcModel has the geometry).
 vec3 lmcEmit(vec3 q) {
@@ -308,10 +312,13 @@ vec3 smcEmit(vec3 q, vec3 toLmc) {
     return vec3(0.90, 0.91, 1.0) * (body + wing) * clump * (lum(-16.8) / 22.0);
 }
 
-// a Magellanic Cloud: marched through its bounding sphere, optically thin
+// a Magellanic Cloud: marched through its bounding sphere, optically thin.
+// The light tapers to nothing over the sphere's outer 2 kpc, where the LMC's
+// disk is still ~1 % of its centre: cut flat, that would be a grey step on
+// the black of the OLED
 vec3 marchCloud(vec3 ro, vec3 rd, float jitter, int which) {
     vec3 c = which == 0 ? lmc.xyz : smc.xyz;
-    float rb = which == 0 ? 6.0 : 7.5;
+    float rb = which == 0 ? 7.0 : 7.5;
     vec3 oc = ro - c;
     float b = dot(oc, rd);
     float disc = b * b - dot(oc, oc) + rb * rb;
@@ -338,7 +345,8 @@ vec3 marchCloud(vec3 ro, vec3 rd, float jitter, int which) {
     for (int i = 0; i < N; i++) {
         vec3 p = ro + rd * (t0 + (float(i) + jitter) * dt) - c;
         vec3 q = vec3(dot(p, A), dot(p, B), dot(p, C));
-        L += (which == 0 ? lmcEmit(q) : smcEmit(q, toLmc)) * dt;
+        float edge = smoothstep(rb, rb - 2.0, length(p));
+        L += (which == 0 ? lmcEmit(q) : smcEmit(q, toLmc)) * (dt * edge);
     }
     return L;
 }
@@ -351,21 +359,24 @@ vec3 dwarfs(vec3 ro, vec3 rd, float pxAngle, float T, float farT) {
     int n = int(dwarfCount + 0.5);
     float dMW = length(ro);
     float d31 = length(ro - m31Pos.xyz);
+    // (textureLod, not texture(): the reads come after a continue, where an
+    // implicit derivative would be undefined; the texture has no mipmaps anyway)
     for (int i = 0; i < 128; i++) {
         if (i >= n) break;
         float u = (float(i) + 0.5) / 128.0;
-        vec3 hi = floor(texture(dwarfTex, vec2(u, 0.125)).rgb * 255.0 + 0.5);
-        vec3 lo = floor(texture(dwarfTex, vec2(u, 0.375)).rgb * 255.0 + 0.5);
-        vec3 c = (hi * 256.0 + lo) / 65535.0 * 3200.0 - 1600.0;
+        vec3 hi = floor(textureLod(dwarfTex, vec2(u, 0.5 / DWARF_ROWS), 0.0).rgb * 255.0 + 0.5);
+        vec3 mid = floor(textureLod(dwarfTex, vec2(u, 1.5 / DWARF_ROWS), 0.0).rgb * 255.0 + 0.5);
+        vec3 lo = floor(textureLod(dwarfTex, vec2(u, 2.5 / DWARF_ROWS), 0.0).rgb * 255.0 + 0.5);
+        vec3 c = ((hi * 256.0 + mid) * 256.0 + lo) / 16777215.0 * 3200.0 - 1600.0;
         vec3 oc = c - ro;
         float tc = dot(oc, rd);
         if (tc < 0.0) continue;
         // far from the ray (every glow is under 3 kpc): skip before the rest is read
         float d = length(oc);
         if (dot(oc, oc) - tc * tc > 100.0 + 4.0 * d * d * pxAngle * pxAngle) continue;
-        vec3 r2 = floor(texture(dwarfTex, vec2(u, 0.625)).rgb * 255.0 + 0.5);
+        vec3 r2 = floor(textureLod(dwarfTex, vec2(u, 3.5 / DWARF_ROWS), 0.0).rgb * 255.0 + 0.5);
         if (r2.z < 0.5) continue;
-        vec3 r3 = texture(dwarfTex, vec2(u, 0.875)).rgb;
+        vec3 r3 = textureLod(dwarfTex, vec2(u, 4.5 / DWARF_ROWS), 0.0).rgb;
         float rh = (r2.x * 256.0 + r2.y) / 65535.0 * 4.0;
         float mv = r3.x * 20.0 - 20.0;
         vec3 tint = r2.z > 1.5 ? vec3(0.85, 0.90, 1.0) : vec3(1.0, 0.92, 0.80);
@@ -397,7 +408,10 @@ void main() {
     float T = mw.a;
 
     // the Magellanic Clouds sit outside the disk: in front of or behind it
-    vec3 clouds = marchCloud(camPos, rd, jitter, 0) * cloudFade.x + marchCloud(camPos, rd, jitter, 1) * cloudFade.y;
+    // (not marched at all where their photo card has taken over)
+    vec3 clouds = vec3(0.0);
+    if (cloudFade.x > 0.001) clouds += marchCloud(camPos, rd, jitter, 0) * cloudFade.x;
+    if (cloudFade.y > 0.001) clouds += marchCloud(camPos, rd, jitter, 1) * cloudFade.y;
     bool cloudsFront = length(camPos - lmc.xyz) < length(camPos);
     col = cloudsFront ? clouds + col : col + T * clouds;
 
