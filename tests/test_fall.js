@@ -170,7 +170,9 @@ function omegaGas(r, e, L, sig, Eg) {
   return (e * Eg + sig * K * Math.sqrt(Math.max(Eg * Eg - f, 0))) / f
 }
 function glowSample(r, e, L, sig) {   // the shader's, with shifted()'s clamps, as a scalar
-  const f = 1 - 1 / r, K = Math.max(Math.sqrt(Math.max(e * e - f * L * L / (r * r), 0)), 1e-5)
+  const f = 1 - 1 / r, K2 = e * e - f * L * L / (r * r)
+  if (K2 <= 0) return 0   // the ray never reaches this radius
+  const K = Math.sqrt(K2)
   const kr = K / Math.sqrt(r), g = sig > 0 ? f / (e + kr) : (e + kr) / (e * e + L * L / (r * r * r))
   const k = Math.max(0.05, Math.min(6, g))
   const ss = Math.max(0, Math.min(1, (r - 3) / 2))
@@ -268,6 +270,30 @@ check("no seam across the cap's edge, the shadow's edge or the horizon", worstSe
 const hover6 = glowRay(6, Math.sqrt(5 / 6), 0, 0), half = glowRay(0.5, fallAt(0.5).E, fallAt(0.5).w, 0)
 check("hovering at 6 Rs: the shadow's glow below 1e-3", infallGlow(6, hover6.e, hover6.s, hover6.L) < 1e-3, infallGlow(6, hover6.e, hover6.s, hover6.L).toExponential(2))
 check("at 0.5 Rs, straight down: a dim glow, 0.02 to 0.1", infallGlow(0.5, half.e, half.s, half.L) > 0.02 && infallGlow(0.5, half.e, half.s, half.L) < 0.1, infallGlow(0.5, half.e, half.s, half.L).toFixed(3))
+// g. the hover shadow as the march draws it: every ray with h = r0 sin(a) up
+//    to B_CRIT fell in (and some a step beyond), so the shader hands the glow
+//    L = e h, b clamped a hair under B_CRIT. Across the whole shadow the glow
+//    stays faint and rises smoothly to the edge (the photon ring's log
+//    brightening), with no ring: L = h instead (b = h / sqrt f > B_CRIT at the
+//    outer rays, never reaching 1.5 Rs) once lit a saturated ring there
+function hoverGlow(r0, h) { const e0 = Math.sqrt(1 - 1 / r0); return infallGlow(r0, e0, -1, e0 * Math.min(h, B_CRIT * 0.999), undefined) }
+let hoverMax = 0, hoverJump = 0, hoverAt = ""
+for (const r0 of [6, 20, 60]) {
+  let prev = hoverGlow(r0, 0)
+  for (let h = 0.01; h <= 2.6; h += 0.01) {
+    const I = hoverGlow(r0, h), jump = I / prev - 1
+    if (I > hoverMax) { hoverMax = I; hoverAt = "r " + r0 + " h " + h.toFixed(2) }
+    if (jump > hoverJump) hoverJump = jump
+    prev = I
+  }
+}
+check("hovering at 6, 20, 60 Rs: the shadow's glow below 0.01 out to its edge", hoverMax < 0.01, hoverMax.toExponential(2) + " at " + hoverAt)
+check("hovering: the glow rises smoothly toward the edge (< 30 % per 0.01 Rs of h; the ring was 5000x)", hoverJump < 0.3, (hoverJump * 100).toFixed(1) + " %")
+// at any hover radius the edge ray (b clamped) stays within 3 % of the fine quadrature: no sample sits on the photon sphere
+let worstEdge = 0, worstEdgeAt = 0
+for (let r0 = 1.001; r0 < 60; r0 *= 1.002) { const I = hoverGlow(r0, 3); if (I > worstEdge) { worstEdge = I; worstEdgeAt = r0 } }
+const edgeE = Math.sqrt(1 - 1 / worstEdgeAt), edgeRef = refLeg(Math.min(worstEdgeAt, 5), 1, edgeE, edgeE * B_CRIT * 0.999, 1)
+check("the edge ray at its brightest hover radius matches the fine quadrature within 3 %", Math.abs(worstEdge / edgeRef - 1) < 0.03 && worstEdge < 0.02, worstEdge.toExponential(3) + " at r0 " + worstEdgeAt.toFixed(3) + ", ref " + edgeRef.toExponential(3))
 
 console.log(fails ? fails + " FAILED" : "all passed")
 process.exit(fails ? 1 : 0)

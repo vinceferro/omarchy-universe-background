@@ -182,7 +182,9 @@ vec3 shifted(vec3 c, float g) {
 const float GLOW = 0.05;            // the inflow's emissivity at 1 Rs
 vec3 glowSample(float r, float e, float L, float sig) {
     float f = 1.0 - 1.0 / r;
-    float K = max(sqrt(max(e * e - f * L * L / (r * r), 0.0)), 1e-5);
+    float K2 = e * e - f * L * L / (r * r);
+    if (K2 <= 0.0) return vec3(0.0);            // the ray never reaches this radius
+    float K = sqrt(K2);
     // g = 1 / omega_e = f / (e + sig K / sqrt(r)); downhill (sig < 0) the
     // denominator cancels toward the horizon, so it is multiplied out:
     // f / (e - K / sqrt(r)) = (e + K / sqrt(r)) / (e^2 + L^2 / r^3)
@@ -346,10 +348,16 @@ void main() {
     if (fell) {
         // the shadow, seen hovering: lit only by the gas falling in ahead; a
         // hovering observer at r0 has E = sqrt(f), w = 0, and a ray with unit
-        // frequency here has e = sqrt(f), L = r0 sin(a) (the march's h)
+        // frequency here has e = sqrt(f). Its impact parameter is the march's
+        // h (the one universe.frag draws the shadow's edge with), so L = e h:
+        // with L = h instead, b = h / sqrt(f) > B_CRIT for the outermost
+        // fallen rays, which never reach 1.5 Rs, and the glow blew up into a
+        // ring there. A hair short of B_CRIT: the grazing ray circles the
+        // photon sphere (the log-divergent photon ring), beyond 12 samples
         float r0 = length(camPos);
         float e0 = sqrt(max(1.0 - 1.0 / max(r0, 1.0001), 1e-6));
-        fragColor = vec4(L + infallGlow(r0, e0, 0.0, e0, -1.0, sqrt(h2), v0), -1.0);
+        float b = min(sqrt(h2), B_CRIT * 0.999);
+        fragColor = vec4(L + infallGlow(r0, e0, 0.0, e0, -1.0, e0 * b, v0), -1.0);
         return;
     }
     float bend = acos(clamp(dot(normalize(v), v0), -1.0, 1.0));
