@@ -4,6 +4,11 @@
 # tile's field of view (textures/photos.json) used to show it at true size.
 #
 # Usage: python3 -I make_atlas.py <download dir with img1.jpg ...>
+#        python3 -I make_atlas.py <dir> --only "Triangulum Galaxy"
+# --only makes one place's 2048 px close-up and its photos.json entry without
+# touching the atlas; its atlas tile stays as it is (black, for a tile added
+# since the last full build) until the next full run, and the close-up loads
+# in its place.
 # Sources, licences and credits: textures/CREDITS.md (all CC BY 4.0 or public
 # domain; URLs verified 2026-11-13).
 import json
@@ -14,6 +19,7 @@ from PIL import Image, ImageFilter
 
 Image.MAX_IMAGE_PIXELS = None
 SRC = sys.argv[1]
+ONLY = sys.argv[sys.argv.index("--only") + 1] if "--only" in sys.argv else None
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "textures")
 TILE = 1024
 GRID = 4
@@ -37,11 +43,14 @@ PHOTOS = [
     ("img15.jpg", "Large Magellanic Cloud", 242.21, 0.3),
     ("img16.jpg", "Small Magellanic Cloud", 318.69, -30.1),
     ("img17.jpg", "Andromeda Galaxy", 162.24, 120.3),
+    ("eso1424a.jpg", "Triangulum Galaxy", 68.01, -90.0),   # ESO VST; 4000 px wide, north left
 ]
 
 atlas = np.zeros((TILE * GRID, TILE * GRID, 3), np.float32)
 meta = []
 for k, (fn, name, fov, north) in enumerate(PHOTOS):
+    if ONLY and name != ONLY:
+        continue
     im = Image.open(os.path.join(SRC, fn)).convert("RGB")
     w0 = im.width
     # shrink first (fast), keeping enough pixels for the rotation
@@ -87,6 +96,11 @@ for k, (fn, name, fov, north) in enumerate(PHOTOS):
     meta.append({"name": name, "tile": k, "fovArcmin": round(side * arcmin_per_px, 3), "file": "photos/" + slug + ".jpg", "hiPx": hi.shape[0]})
     print(name, "tile", k, "fov", round(side * arcmin_per_px, 2), "arcmin")
 
-Image.fromarray((atlas * 255 + 0.5).astype(np.uint8)).save(os.path.join(OUT, "photos.jpg"), quality=90, optimize=True)
+if ONLY:
+    old = json.load(open(os.path.join(OUT, "photos.json")))
+    meta = [m for m in old if m["name"] != ONLY] + meta
+    meta.sort(key=lambda m: m["tile"])
+else:
+    Image.fromarray((atlas * 255 + 0.5).astype(np.uint8)).save(os.path.join(OUT, "photos.jpg"), quality=90, optimize=True)
 json.dump(meta, open(os.path.join(OUT, "photos.json"), "w"), indent=1)
 print("ok")

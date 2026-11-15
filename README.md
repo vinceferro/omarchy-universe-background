@@ -11,7 +11,9 @@ no loop seam.
 From that view you can go further: into the solar system (live JPL orbits, a
 real Earth and Moon, true-scale distances, a chase camera, the Sun's path
 through the Galaxy), out to a true-scale Milky Way with 26 real places to fly to
-(15 shown with real photographs), down to the event horizon of Sagittarius A* through geodesic ray
+(16 shown with real photographs) and the Local Group around it (Andromeda and
+Triangulum from their own photos, the Magellanic Clouds as volumes, 72 dwarf
+galaxies), down to the event horizon of Sagittarius A* through geodesic ray
 tracing, or into the real sky around Earth.
 
 ![the live background](docs/live.jpg)
@@ -112,7 +114,8 @@ past the overview's framing returns to the squeezed layout.
 | `V` | chase view behind the pinned body |
 | `G` | galactic motion: the Sun's path through space |
 | `X` | fly out to the Milky Way |
-| `L` | show / hide orbit lines (off by default) |
+| `I` | show / hide orbit lines (off by default) |
+| `L` | labels on / off (on, they show for 8 s after each interaction, then fade: nothing stands on the OLED) |
 | scroll / `Q` `E` | zoom about the point under the pointer, or about the pinned body (zooming all the way out returns to the universe) |
 | drag / `W` `A` `S` `D` | pan (the scene sticks to the pointer and coasts on release); with a body pinned, a left-drag orbits instead |
 | right-drag / arrows | orbit / tilt the camera |
@@ -148,7 +151,7 @@ with the orbital plane tilted 61 degrees to the direction of travel.
 | Key | Action |
 |---|---|
 | `-` `=` | slow the Sun down (1/2 ... 1/200) so the coils show; the HUD says by how much |
-| `L` | show / hide the 2-year trails |
+| `I` | show / hide the 2-year trails |
 | `V` | look back from just ahead of the Sun along its path (again: the side view) |
 | drag / arrows | swing / tilt the camera |
 | scroll / `Q` `E` | camera distance |
@@ -160,16 +163,30 @@ with the orbital plane tilted 61 degrees to the direction of travel.
 `X` from the system view, or `omarchy-shell background milkyway`. A volumetric
 model of our Galaxy at true scale, in kiloparsecs: the spiral arms measured
 by Reid et al. 2019, the long bar at 27 degrees to the Sun-Centre line, the
-boxy bulge, the dust lanes, with Andromeda, Triangulum and the Magellanic
-Clouds at their real distances, sizes and tilts. Exposure adapts like an eye:
-dimmer inside the disk and much dimmer in the crowded bulge.
+boxy bulge, the dust lanes, and the Local Group around it at real distances,
+sizes and tilts: Andromeda and Triangulum as thin disks unfolded from their
+own photos (Andromeda with its 10 kpc ring of young stars and its ellipticals
+M32 and NGC 205 beside it), the Large Magellanic Cloud as a barred, lopsided
+disk, the Small one as an irregular body stretched along our line of sight,
+and 72 dwarf galaxies from McConnachie 2012 as faint glows, each as bright as
+its magnitude says. Exposure adapts like an eye: dimmer inside the disk and
+much dimmer in the crowded bulge.
+
+A galaxy with a photo hands over by view angle: within 14 degrees of Earth's
+line of sight you see the photo, past 32 degrees the 3D model, a cross-fade
+between (the model is unfolded from the same photo, so they match where they
+meet). The dwarfs are places too: hover to find one (its marker and name
+appear under the pointer, or once it is big on screen), click to fly there.
+`V` stands you at Andromeda's edge (35 kpc out, on our side, so its own light
+is behind you) looking back at the Milky Way, a spindle 2.7 degrees long, 21
+degrees from edge-on, seen from the south.
 
 26 real places are marked, with distances checked against Gaia and VLBI
 catalogues: nebulae (Orion, Carina, Eagle, Lagoon, Rosette, Crab, Ring,
 Helix, Gum, Cygnus X), clusters (Pleiades, Hyades, Westerlund 1, Omega
 Centauri, 47 Tucanae), stars (Betelgeuse, Alpha Centauri, Sirius, Vega,
 Polaris), the Magellanic Clouds, the Sagittarius Dwarf, Andromeda, Triangulum
-and Sagittarius A*. Fifteen of them have a real photograph (see
+and Sagittarius A*. Sixteen of them have a real photograph (see
 [textures/CREDITS.md](textures/CREDITS.md)): fly there and you approach from
 Earth's side, the way the photo was taken, and the image is shown at its true
 angular size, north up. Near the Sun the model blends into the real sky.
@@ -180,6 +197,8 @@ angular size, north up. Near the Sun the model blends into the real sky.
 | click | fly to the place under the pointer |
 | `0` | back to the Sun |
 | `B` | the black hole at the centre; `B` again goes down to 6 Schwarzschild radii, and parked there `B` (or one more scroll in) lets go and falls in |
+| `V` | the Milky Way from Andromeda (scroll in to cross the gap along that line) |
+| `L` | labels on / off (on, they show for 8 s after each interaction, then fade) |
 | drag / arrows | orbit the camera (falling into the hole: look around) |
 | scroll / `Q` `E` | closer / farther |
 | `W` `A` `S` `D` | fly freely, level with the disk |
@@ -329,7 +348,8 @@ Everything is reachable through the shell's IPC, `omarchy-shell background <func
 | `look <body>` | what the chase camera looks toward (B): a name (`sun`, `earth`, `moon`, `mars` ...) or 0-7 |
 | `galactic` | the galactic-motion view (opens the system view if needed) |
 | `milkyway` | the Milky Way view |
-| `fly <place>` | fly to a place by name prefix (`"Orion"`, `"Sagittarius A"`, `"Andromeda"`; `sun` for the Sun) |
+| `fly <place>` | fly to a place by name prefix (`"Orion"`, `"Sagittarius A"`, `"Andromeda"`; `sun` for the Sun), or to a named viewpoint (`"Milky Way from Andromeda"`) |
+| `labels <true/false>` | the label layer (place markers and names, planet names): on, it shows for 8 s after each interaction and fades; off, it stays away (not remembered) |
 | `hole` | the same step as `B`: to Sgr A*, down to 6 Rs, let go |
 | `fallLook <yaw> <pitch>` | falling into the hole: look this many degrees right and up from the scripted view, held until the next drag or arrow (for tests and filming) |
 | `sky` | Sky mode, at the last view |
@@ -358,9 +378,22 @@ What is real:
   et al. 2013/2015 and Bland-Hawthorn & Gerhard 2016, dust from Drimmel &
   Spergel 2001, measured scale heights, R0 = 8.15 kpc. Place positions from a
   catalogue checked against Gaia and VLBI distances; the HUD gives distance,
-  size and light travel time. Andromeda and Triangulum reuse the disk model at
-  their real distances and orientations.
-- **Photos**: 15 real images, shown at the published field of view, north
+  size and light travel time.
+- **Local Group**: Andromeda (761 kpc, inclination 77, PA 38) and Triangulum
+  (840 kpc, inclination 55.08, PA 201.12: Koch et al. 2018) are their real
+  photos unfolded face-on; Andromeda's ring at 10 kpc (Gordon et al. 2006)
+  gets a young-star tint and height; M32 and NGC 205 sit at their catalogued
+  positions, sizes and ellipticities. The LMC's disk is inclined 34.7 degrees
+  with its line of nodes at PA 122.5 (van der Marel & Cioni 2001), scale
+  length 1.4 kpc, the disk's centre at the H I kinematic centre, 0.8 kpc
+  north-west of the bar's (Kim et al. 1998); the SMC's depth
+  along our line of sight follows Subramanian & Subramaniam 2009 (4-5 kpc
+  from red clump stars; Crowl et al. 2001 find 6-12 kpc from clusters). The
+  72 dwarfs are McConnachie 2012 (AJ 144, 4): position, distance, half-light
+  radius, ellipticity, position angle and absolute magnitude. Every galaxy's
+  brightness follows from its M_V against Andromeda's -21.2, so the group
+  keeps its real contrasts.
+- **Photos**: 16 real images, shown at the published field of view, north
   up, from Earth's direction.
 - **Sky**: NASA SVS Deep Star Maps 2020 (Gaia DR2), the Milky Way core in the
   everyday view, the full sky near the Sun in the Milky Way view and in Sky
@@ -433,13 +466,24 @@ python3 -I tools/gen_milkyway.py 2048
 
 # textures/photos.jpg and photos.json from the source photos (img1.jpg ... in a download dir; URLs in textures/CREDITS.md)
 python3 -I tools/make_atlas.py /path/to/downloads
+# one place's 2048 px close-up and json entry only, leaving the atlas alone (Triangulum's tile stays black until a full rebuild)
+python3 -I tools/make_atlas.py /path/to/m33 --only "Triangulum Galaxy"
+
+# textures/m31-faceon.jpg and m33-faceon.jpg: each galaxy's photo unfolded face-on
+# (distance, inclination, position angle as arguments; prints the disk axes for Background.qml)
+python3 -I tools/deproject_galaxy.py m31
+python3 -I tools/deproject_galaxy.py m33 --src /path/to/eso1424a.jpg
+
+# lib/dwarfs.js and textures/dwarfs.png (the same table as bytes, for galaxy.frag): the Local Group's
+# dwarf galaxies, from McConnachie 2012 (VizieR J/AJ/144/4, URL in the script)
+python3 -I tools/gen_dwarfs.py /path/to/catalogue.tsv
 ```
 
 ## Credits
 
 All imagery is real data used under its licence: NASA SVS, NASA Earth
 Observatory, LRO, ESO, NOIRLab, Hubble and Webb images, and the Gaia
-catalogue by ESA/Gaia/DPAC. The full list with licences and source links is in
+catalogue by ESA/Gaia/DPAC. The dwarf galaxies are McConnachie 2012 (AJ 144, 4). The full list with licences and source links is in
 [textures/CREDITS.md](textures/CREDITS.md).
 
 ## Tuning
@@ -466,7 +510,12 @@ keys and flings settle), `W_MODE` (fades, the field-of-view morph, the
 true-scale blend), `FLING_TAU` (how far a released drag coasts) and the
 flight's `rho` (how high a long hop rises). Its numeric checks run with
 `node tests/test_camera.js lib/camera.js`; the fall's trajectory and timeline
-(`lib/fall.js`) with `node tests/test_fall.js lib/fall.js`.
+(`lib/fall.js`) with `node tests/test_fall.js lib/fall.js`; the dwarf galaxy
+table (`lib/dwarfs.js`) with `node tests/test_dwarfs.js lib/dwarfs.js`; the
+Local Group's geometry, hand-off and photometry (`lib/localgroup.js`, and the
+dwarf texture against the table) with `node tests/test_localgroup.js
+lib/localgroup.js`; the label layer's timer (`lib/labels.js`) with `node
+tests/test_labels.js lib/labels.js`.
 
 ## Notes
 
