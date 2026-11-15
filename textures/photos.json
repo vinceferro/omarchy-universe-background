@@ -103,5 +103,12 @@
   "fovArcmin": 169.919,
   "file": "photos/andromeda-galaxy.jpg",
   "hiPx": 2048
+ },
+ {
+  "name": "Triangulum Galaxy",
+  "tile": 15,
+  "fovArcmin": 68.01,
+  "file": "photos/triangulum-galaxy.jpg",
+  "hiPx": 2048
  }
 ]

@@ -55,8 +55,10 @@ Geometry: M33 at 840 kpc (Freedman et al. 2001, ApJ 553, 47), inclination
 
 ## Local Group dwarfs
 
-`lib/dwarfs.js` (made by `tools/gen_dwarfs.py`): positions, distances and
-structure from McConnachie 2012, AJ 144, 4, via VizieR (J/AJ/144/4).
+`lib/dwarfs.js` and `dwarfs.png` (the same table as bytes for the shader; both
+made by `tools/gen_dwarfs.py`): positions, distances and structure from
+McConnachie 2012, AJ 144, 4, via VizieR (J/AJ/144/4). The Triangulum close-up
+`photos/triangulum-galaxy.jpg` is the ESO photo above, north up.
 
 ## Galaxy model
 

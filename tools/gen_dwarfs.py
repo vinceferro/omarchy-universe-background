@@ -27,13 +27,28 @@
 # (805, 824 vs 783 kpc) are within the errors (+-25-35 kpc) and would put
 # them 40-60 kpc behind a disk they are seen against.
 #
+# The same table goes to textures/dwarfs.png for galaxy.frag, which draws the
+# dwarfs as glows: one column per galaxy in the table's order, 8-bit RGB (no
+# alpha: Qt would premultiply it), read with nearest sampling:
+#   rows 0, 1  X, Y, Z: high and low bytes of (v + 1600) / 3200 * 65535
+#              (kpc; 0.05 kpc steps)
+#   row 2      half-light radius: high and low bytes of rh / 4 kpc * 65535;
+#              B: 0 not drawn there (a hotspot, or ell3d: drawn on its own),
+#              1 spheroidal, 2 irregular or transition type
+#   row 3      R: (M_V + 20) / 20 * 255 (0.08 mag steps); G: ellipticity * 255;
+#              B: position angle / 360 * 255
+#
 # Usage: python3 -I gen_dwarfs.py <catalogue.tsv>
 import json
 import math
 import os
 import sys
+import numpy as np
+from PIL import Image
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "dwarfs.js")
+TEX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "textures", "dwarfs.png")
+TEXW = 128
 R0, Z0 = 8.15, 0.0208
 DMAX = 1500.0
 SKIP = {"The Galaxy", "Andromeda", "Triangulum", "Canis Major"}
@@ -146,5 +161,27 @@ function galactocentric(lDeg, bDeg, dKpc) {{
 }}
 """
 open(OUT, "w", encoding="utf-8").write(js)
+
+# the texture
+assert len(out) <= TEXW
+px = np.zeros((4, TEXW, 3), np.uint8)
+
+
+def two(frac):
+    v = int(round(max(0.0, min(1.0, frac)) * 65535))
+    return v >> 8, v & 255
+
+
+for i, d in enumerate(out):
+    hi, lo = zip(*(two((c + 1600.0) / 3200.0) for c in d["pos"]))
+    px[0, i] = hi
+    px[1, i] = lo
+    rh = (d["rh"] or 200) / 1000.0
+    kind = 0 if d.get("hotspot") or d.get("ell3d") else 2 if "Irr" in d["type"] else 1
+    px[2, i] = two(rh / 4.0) + (kind,)
+    px[3, i] = (int(round(max(0.0, min(1.0, (d["mv"] + 20.0) / 20.0)) * 255)),
+                int(round((d["ell"] or 0.0) * 255)), int(round(((d["pa"] or 0) % 360) / 360.0 * 255)))
+Image.fromarray(px, "RGB").save(TEX, optimize=True)
+print("wrote", TEX)
 print("wrote", OUT, len(out), "dwarfs,", sum(1 for d in out if d["group"] == "MW"), "MW,",
       sum(1 for d in out if d["group"] == "M31"), "M31,", sum(1 for d in out if d["group"] == "Rest"), "other")
