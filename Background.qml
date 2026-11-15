@@ -119,7 +119,23 @@ Item {
   // brightness until the shell restarts.
   property bool hudOn: true
   property real hudBrightness: 0.38
-  readonly property real hudLevel: hudOn ? hudBrightness : 0
+  readonly property real hudLevel: hudOn ? hudBrightness * (1 - filmMix) : 0
+
+  // Film mode (IPC `film true`): for recording. The HUD, key hints, place
+  // labels, markers and mode captions fade out over 1.5 s and the scene
+  // stays; `caption <title> <body>` then shows a quiet lower-third caption
+  // that fades in and out. Not remembered: a restart is back to normal.
+  property bool film: false
+  property real filmMix: film ? 1 : 0
+  Behavior on filmMix { NumberAnimation { duration: 1500; easing.type: Easing.InOutSine } }
+  readonly property real unclutter: 1 - filmMix   // multiplies every overlay that film mode hides
+  property string captionTitle: ""
+  property string captionBody: ""
+  property int captionSerial: 0                   // each screen's caption follows this
+  function setCaption(title, body) {
+    captionTitle = title; captionBody = body
+    captionSerial++
+  }
   readonly property string hudHiddenFlag: stateHome + "/universe-background/hud-hidden"
 
   function setHud(on) {
@@ -2006,6 +2022,22 @@ Item {
       if (!root.galactic) root.toggleGalactic()
     }
 
+    // film mode: the scene without the HUD, hints, labels and markers
+    function film(on: bool): void {
+      root.film = on
+      if (!on) root.setCaption("", "")
+    }
+
+    // a fading lower-third caption; caption "" "" clears it
+    function caption(title: string, body: string): void {
+      root.setCaption(title, body)
+    }
+
+    // for scripts: "<view> <fall phase or -> <radius in Rs>", e.g. "galaxy falling 1.84"
+    function status(): string {
+      return root.explore + " " + (root.fallPhase || "-") + " " + root.fallR.toFixed(2)
+    }
+
     function themeTransition(fromPath: string, path: string, finalPath: string, colorsB64: string, shellB64: string): void {
       root.transitionBackgroundWithTheme(fromPath, path, finalPath, colorsB64, shellB64)
     }
@@ -2550,7 +2582,7 @@ Item {
       // hint beside the sun while the pointer is over the solar system
       Text {
         visible: root.liveBackground && root.sysHover > 0.01
-        opacity: root.sysHover * 0.8
+        opacity: root.sysHover * 0.8 * root.unclutter
         x: (root.sunScreen.x / root.aspect + 0.5) * panel.width - width / 2
         y: (root.sunScreen.y + 0.5) * panel.height + panel.height * 0.05
         text: "SOLAR SYSTEM  ·  CLICK TO EXPLORE"
@@ -2580,8 +2612,8 @@ Item {
         readonly property real cy: Math.max(margin, Math.min(panel.height - margin, proj.y))
         readonly property bool inChase: root.chaseMix > 0.5
         readonly property bool wanted: root.markerWanted(kind, panel.width, panel.height)
-        visible: wanted
-        opacity: Math.min(1, (root.sys - 0.5) * 2) * 0.85
+        visible: wanted && root.unclutter > 0
+        opacity: Math.min(1, (root.sys - 0.5) * 2) * 0.85 * root.unclutter
 
         Rectangle { // off screen only: a small dot at the edge (no box around bodies in view)
           visible: marker.offscreen
@@ -2720,6 +2752,7 @@ Item {
             y: root.galHeading.y * reach - height / 2
             rotation: Math.atan2(root.galHeading.y, root.galHeading.x) * 180 / Math.PI
             text: "›"
+            opacity: root.unclutter
             color: Qt.alpha("#ffd27a", 0.8)
             font.pixelSize: Math.round(panel.height * 0.02)
           }
@@ -2728,6 +2761,7 @@ Item {
             x: root.galHeading.x * reach + (root.galHeading.x >= 0 ? 18 : -width - 18)
             y: root.galHeading.y * reach - height / 2
             text: "249 KM/S  ·  CYGNUS"
+            opacity: root.unclutter
             color: Qt.alpha("#ffd27a", 0.7)
             font.family: Style.resolvedFontFamily
             font.pixelSize: Math.round(panel.height * 0.0075)
@@ -2789,6 +2823,7 @@ Item {
               x: body.d / 2 + 10
               y: -height / 2
               text: root.planetInfo[body.index].name.toUpperCase()
+              opacity: root.unclutter
               color: Qt.alpha(Color.foreground, 0.55)
               font.family: Style.resolvedFontFamily
               font.pixelSize: Math.round(panel.height * 0.0075)
@@ -2799,6 +2834,7 @@ Item {
 
         // caption, bottom centre, in the HUD's voice
         Column {
+          opacity: root.unclutter
           anchors.horizontalCenter: parent.horizontalCenter
           y: Math.round(panel.height * 0.86)
           spacing: Math.round(panel.height * 0.004)
@@ -2832,8 +2868,8 @@ Item {
 
       // ---- Sky mode caption ----
       Column {
-        visible: root.liveBackground && root.skyMix > 0.01
-        opacity: root.skyMix
+        visible: root.liveBackground && root.skyMix > 0.01 && root.unclutter > 0
+        opacity: root.skyMix * root.unclutter
         anchors.horizontalCenter: parent.horizontalCenter
         y: Math.round(panel.height * 0.90)
         spacing: Math.round(panel.height * 0.004)
@@ -2861,8 +2897,8 @@ Item {
         id: gxOverlay
         width: panel.width
         height: panel.height
-        visible: root.liveBackground && root.galaxyMix > 0.01
-        opacity: root.galaxyMix * (1 - root.fallFade)
+        visible: root.liveBackground && root.galaxyMix > 0.01 && root.unclutter > 0
+        opacity: root.galaxyMix * (1 - root.fallFade) * root.unclutter
 
         Repeater {
           model: root.hotspots.length + 1
@@ -2978,7 +3014,7 @@ Item {
           required property int index
           readonly property var pt: root.sysScreen[index] || ({ x: 0, y: 0, r: 0, show: false })
           visible: root.liveBackground && root.sys > 0.5 && root.chaseMix < 0.02 && root.galMix < 0.5 && pt.show
-          opacity: (root.sys - 0.5) * 1.4 * (1 - root.chaseMix)
+          opacity: (root.sys - 0.5) * 1.4 * (1 - root.chaseMix) * root.unclutter
           x: (pt.x / root.aspect + 0.5) * panel.width + pt.r * panel.height + 10
           y: (pt.y + 0.5) * panel.height - height / 2
           text: modelData.name.toUpperCase()
@@ -2986,6 +3022,62 @@ Item {
           font.family: Style.resolvedFontFamily
           font.pixelSize: Math.round(panel.height * 0.0085)
           font.letterSpacing: 2
+        }
+      }
+
+      // film caption (IPC `caption <title> <body>`), lower third: a spaced
+      // title over a dim line or two. A new caption waits for the old one to
+      // fade out; nothing on it is bright, and none of it stays for long.
+      Column {
+        id: filmCaption
+        property string title: ""
+        property string body: ""
+        property string nextTitle: ""
+        property string nextBody: ""
+        property int outFor: 0
+        function show(t, b) {
+          nextTitle = t; nextBody = b
+          outFor = opacity > 0.01 ? Math.round(1800 * opacity) : 0
+          captionSwap.restart()   // durations and targets are read at the start: set them first
+        }
+        visible: root.liveBackground && opacity > 0
+        opacity: 0
+        width: Math.round(panel.width * 0.5)
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: Math.round(panel.height * 0.74)
+        spacing: Math.round(panel.height * 0.008)
+        Text {
+          width: parent.width
+          horizontalAlignment: Text.AlignHCenter
+          visible: text !== ""
+          text: filmCaption.title.toUpperCase()
+          color: Qt.alpha(Color.foreground, 0.7)
+          font.family: Style.resolvedFontFamily
+          font.pixelSize: Math.round(panel.height * 0.0145)
+          font.letterSpacing: Math.round(panel.height * 0.0045)
+        }
+        Text {
+          width: parent.width
+          horizontalAlignment: Text.AlignHCenter
+          wrapMode: Text.WordWrap
+          lineHeight: 1.25
+          visible: text !== ""
+          text: filmCaption.body
+          color: Qt.alpha(Color.foreground, 0.45)
+          font.family: Style.resolvedFontFamily
+          font.pixelSize: Math.round(panel.height * 0.0105)
+          font.letterSpacing: 1
+        }
+        Connections {
+          target: root
+          function onCaptionSerialChanged() { filmCaption.show(root.captionTitle, root.captionBody) }
+        }
+        SequentialAnimation {
+          id: captionSwap
+          NumberAnimation { target: filmCaption; property: "opacity"; to: 0; duration: filmCaption.outFor; easing.type: Easing.InOutSine }
+          ScriptAction { script: { filmCaption.title = filmCaption.nextTitle; filmCaption.body = filmCaption.nextBody } }
+          PauseAnimation { duration: 400 }
+          NumberAnimation { target: filmCaption; property: "opacity"; to: filmCaption.nextTitle || filmCaption.nextBody ? 1 : 0; duration: 2600; easing.type: Easing.InOutSine }
         }
       }
 
