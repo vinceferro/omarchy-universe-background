@@ -2172,6 +2172,13 @@ Item {
   IpcHandler {
     target: "background"
 
+    // Omarchy 4.5 calls these on the stock background (owed's setSuspended,
+    // omarchy-theme-set's prepare). This one renders its own scene and pauses
+    // through sleep(), so they are accepted and ignored; without them the
+    // callers could re-enable the stock background over this one.
+    function setSuspended(reason: string): void {}
+    function prepare(path: string): void {}
+
     function sleep(on: bool): void {
       root.sleeping = on
     }
