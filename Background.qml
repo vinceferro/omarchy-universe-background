@@ -916,14 +916,15 @@ Item {
   // The fall's story caption, through the band film and tours use (so it
   // shows at every text level). A caption that is not the fall's (a tour's,
   // IPC `caption`) keeps the band, and film mode leaves the words to its
-  // script: the fall then says nothing.
+  // script: the fall then says nothing new, and only takes down a caption
+  // of its own that film mode found up.
   function fallSay(key) {
     if (key === fallCaption) return
     fallCaption = key
     const up = captionTitle + "\n" + captionBody
     const ours = fallSaid !== "" && fallSaid === up
-    if (film || (up !== "\n" && !ours)) { fallSaid = ""; return }
-    const c = Fall.CAPTIONS[key]
+    if (up !== "\n" && !ours) { fallSaid = ""; return }
+    const c = film ? undefined : Fall.CAPTIONS[key]
     if (!c && !ours) return
     setCaption(c ? c.title : "", c ? c.body : "")
     fallSaid = c ? c.title + "\n" + c.body : ""
@@ -1901,7 +1902,9 @@ Item {
         if (Math.abs(flash - fallFlash) > 1e-3) fallFlash = flash
         // and its light closing in, over the last 5 s on screen (universe.frag)
         if (Math.abs(o.light - fallClose) > 1e-4 || (o.light === 1) !== (fallClose === 1)) fallClose = o.light
-        fallSay(o.caption)
+        // (nothing new once the screen is going black: Esc just before a
+        // caption's time would bring it up over the black)
+        if (fallPhase !== "out") fallSay(o.caption)
         // the fall's own phase, kept through the fade (fall.js turns it to
         // "inner-horizon" 4 s before r-, so it is seen before the fade starts)
         if (fallWhere !== o.phase) fallWhere = o.phase
