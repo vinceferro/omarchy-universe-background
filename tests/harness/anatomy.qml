@@ -1,6 +1,6 @@
 // the anatomy harness's driver: turns the anatomy on and visits a view after
 // another (the Galaxy's home, the black hole with and without K, a star, Earth,
-// Saturn, the Sun in the lens, Sky mode, anatomyDemo's visits), logging IPC
+// Saturn, the Sun in the lens, Sky mode, the ways home, anatomyDemo's visits), logging IPC
 // anatomyReport and the story band four times a second (anatomy.sh reads
 // the rows). Each stage waits for what it is about, or times out.
 import QtQuick
@@ -21,6 +21,9 @@ Window {
     { name: "text off", go: () => ipc.text("off"), until: r => since > 10 },
     { name: "clock", go: () => {}, until: r => r.presence === 0 && since > 60, max: 200 },
     { name: "betelgeuse", go: () => { ipc.text("full"); ipc.fly("Betelgeuse") }, until: r => r.subject === "betelgeuse" && r.parked && r.still && r.lens && r.lensMix >= 1 && /Betelgeuse/.test(bg.storyTitle), max: 240 },
+    { name: "esc at a place", go: () => { ipc.text("names"); bg.back() }, until: r => r.subject === "sun" && r.parked && bg.storyTitle === "Back home" && bg.storyShow > 0, max: 120 },
+    { name: "to the Orion Nebula", go: () => ipc.fly("Orion"), until: r => r.subject === "orion" && r.parked && r.drawn === "orion" && since > 8, max: 200 },
+    { name: "key 0 from a place", go: () => bg.gxFlyTo(-1), until: r => r.subject === "sun" && r.parked && bg.storyTitle === "Back home" && since > 20, max: 120 },
     { name: "earth", go: () => { ipc.text("full"); ipc.focus(3) }, until: r => r.drawn === "earth" && r.mix >= 1 && r.still && /Earth/.test(bg.storyTitle), max: 160 },
     { name: "saturn", go: () => ipc.focus(6), until: r => r.drawn === "saturn" && r.mix >= 1 && since > 12, max: 120 },
     { name: "sun", go: () => ipc.focus(0), until: r => r.parked && r.drawn === "sun" && r.lensMix >= 1 && r.still && since > 30, max: 120 },

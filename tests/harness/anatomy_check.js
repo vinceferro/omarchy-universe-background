@@ -53,6 +53,14 @@ check("a star too small on the screen: drawn in the lens, to scale, its name and
   check("the HUD's readouts step back while its disc is the lens, and a leader goes to the star", of("betelgeuse").some(r => r.rep.lensMix >= 1 && r.rep.presence >= 1 && r.rep.hudYield <= 0.2) && !!g.aim, "hud x" + Math.min(...of("betelgeuse").map(r => r.rep.hudYield)) + ", star at " + (g.aim || []).slice(0, 2).join(","))
 }
 check("the scene's names step back while the anatomy is up, and return with it off", home.rep.nameYield <= 0.25 && last("off").rep.nameYield === 1 && last("clock").rep.nameYield === 1, "x" + home.rep.nameYield + " at the Galaxy's home")
+// the ways home: Esc at a place and 0 are the one flight, and both say where we are
+{
+  const esc = of("esc at a place"), zero = of("key 0 from a place")
+  const flown = s => s.some(r => /flying|home|return/i.test(r.status) || r.rep.mix < 0.5) && s.filter(r => !r.rep.parked).length >= 8
+  check("Esc at a place flies home (the view stays the Milky Way's, the camera travels) and says Back home", esc.every(r => /^galaxy/.test(r.status)) && flown(esc) && esc[esc.length - 1].story === "Back home" && /Orion Arm/.test(esc[esc.length - 1].body), esc.filter(r => !r.rep.parked).length / 4 + " s under way")
+  check("0 flies the same way and says the same", flown(zero) && zero.some(r => r.story === "Back home"), zero.filter(r => !r.rep.parked).length / 4 + " s under way")
+  check("the text level set before the journeys is the level after them", esc[esc.length - 1].text.level === "names" && zero[zero.length - 1].text.level === "names" && zero[zero.length - 1].text.shown === "names")
+}
 // the system view
 const earth = last("earth"), saturn = last("saturn"), sun = last("sun")
 check("Earth pinned is large enough: drawn on the body", !earth.rep.lens && earth.rep.span >= 0.15 * earth.text.screens[0].safe.y1, earth.rep.span + " px")

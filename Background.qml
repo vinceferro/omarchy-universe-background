@@ -1515,20 +1515,21 @@ Item {
   //
   // Home is one pose: the Sun in the middle of the screen with its Galaxy
   // around it (gxHomePose), where the view opens (enterGalaxy) and where
-  // every return lands: 0, a click on the Sun, IPC `fly sun`, Esc during a
-  // fall and the end of both falls all call gxHome, which takes no argument:
+  // every return lands: 0, a click on the Sun, IPC `fly sun`, Esc at any
+  // place of the view or during a fall, and the end of both falls all call
+  // gxHome, which takes no argument:
   // where the camera is decides how it goes. From a view that can be flown
   // out of it is a flight; from inside the hole (a fall under way) the
   // screen goes black first, the view opens over the Galactic Centre (gxCentrePose) and, once
   // the picture is half back, the same flight goes out along the disk to the
-  // Sun, the Galaxy in frame all the way. On arrival the Sun's marker and its card come up, and after a
-  // fall the story band says where we are.
+  // Sun, the Galaxy in frame all the way. On arrival the Sun's marker and its card come up, and
+  // the story band says where we are: "Back home", after every return.
   readonly property var gxVoyage: new Cam.Voyage([0, 8.15, 0.0208], 0.001)
   readonly property var gxHomePose: ({ dist: 34, yaw: 0.35, pitch: 1.0 })
   readonly property var gxCentrePose: ({ dist: 1.2, pitch: 0.45 })
   property var gxReturn: null           // the return under way (Cam.homeBegin), or null
   function gxHome() {
-    if (gxReturn && gxReturn.phase === "out") return
+    if (gxReturn) return                 // on the way home already
     const falling = !!fallState
     gxReturn = Cam.homeBegin(falling)
     gxReturn.fall = falling              // what to say on arrival
@@ -1576,10 +1577,8 @@ Item {
     }
     if (ev === "arrive") {
       touchText()                                        // the Sun's marker and its card
-      if (H.fall) {
-        say("home", "Back home", "The Sun: one star in the Orion Arm, 26,600 light-years from the black hole we just left.")
-        fallInvite = !H.math
-      }
+      say("home", "Back home", "The Sun: one star in the Orion Arm, 26,600 light-years from the centre of the Milky Way.")
+      if (H.fall) fallInvite = !H.math
       if (fallPhase === "in") fallPhase = ""
       gxReturn = null
     }
@@ -2093,11 +2092,15 @@ Item {
   property var planetK: planetInfo.map(() => 1) // display scale of each orbit (grows with true scale)
   // screen pixel -> shader p coordinates (x in +-aspect/2, y in +-0.5)
   // one level back (Esc, or a right-click on empty space): out of the
-  // galactic or chase view, from the Milky Way to the solar system, else home
+  // galactic or chase view; from a place of the Milky Way view home to the
+  // Sun (gxHome, the one way home); from there to the solar system, else to
+  // the universe view
   function back() {
     if (fallState) { gxHome(); return }   // never leaves the camera inside the hole: the way home first
     if (galactic) toggleGalactic()
     else if (chasing) leaveChase()
+    else if (explore === "galaxy" && gxReturn) return                              // on the way home already
+    else if (explore === "galaxy" && (gxSel !== -1 || gxView >= 0)) gxHome()       // from any place of the Milky Way view: the way home first
     else if (explore === "galaxy" && gxFromSystem) enterSystem()
     else explore = "universe"
   }
