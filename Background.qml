@@ -3159,7 +3159,7 @@ Item {
                       id: statsRow
                       required property var modelData
                       visible: !modelData.hidden
-                      spacing: Math.round(readout.unit * 0.008)
+                      spacing: panel.tok.gap
                       Text {
                         id: statsLabel
                         text: statsRow.modelData.label
@@ -3850,9 +3850,9 @@ Item {
         }
         visible: root.liveBackground && opacity > 0
         opacity: 0
-        width: Math.round(panel.width * 0.56)
-        anchors.horizontalCenter: parent.horizontalCenter
-        y: Math.round(panel.height * 0.72)
+        x: Math.round(panel.lay.story.x)
+        width: Math.round(panel.lay.story.w)
+        y: Math.round(panel.lay.story.y)
         spacing: Math.round(panel.height * 0.008)
         Text {
           width: parent.width
@@ -3862,8 +3862,8 @@ Item {
           color: Qt.alpha(Color.foreground, 0.7)
           font.family: Style.resolvedFontFamily
           // sized to read on a phone or a 1080p player, not just on the desk
-          font.pixelSize: Math.round(panel.height * 0.026)
-          font.letterSpacing: Math.round(panel.height * 0.007)
+          font.pixelSize: panel.tok.filmTitle
+          font.letterSpacing: panel.tok.filmTrack
         }
         Text {
           width: parent.width
@@ -3874,7 +3874,7 @@ Item {
           text: filmCaption.body
           color: Qt.alpha(Color.foreground, 0.55)
           font.family: Style.resolvedFontFamily
-          font.pixelSize: Math.round(panel.height * 0.0185)
+          font.pixelSize: panel.tok.filmBody
           font.letterSpacing: 1
         }
         Connections {
