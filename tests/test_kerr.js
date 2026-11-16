@@ -5,7 +5,7 @@
 // march, the gas's orbits, the axis fall, and the mathematics mode's rays
 const fs = require("fs")
 const src = fs.readFileSync(process.argv[2], "utf8").replace(".pragma library", "")
-const K = new Function(src + "\nreturn { M, horizons, photonOrbit, polarPhotonOrbit, isco, horizonOmega, ksRadius, ksMetric, sheetAt, lower, gdot, frame, staticObserver, axisInfaller, axisEnergyFromRest, axisSpeed, axisEscapeEnergy, cameraRay, motion, carterK, carterKAxis, radialClass, traceRay, pixelRay, bendBasis, bendEncode, bendDecode, gasOmega, gasVelocity, gasShift, axisFall, tableR, tableTau };")()
+const K = new Function(src + "\nreturn { M, horizons, photonOrbit, polarPhotonOrbit, isco, horizonOmega, ksRadius, ksMetric, sheetAt, lower, gdot, frame, staticObserver, axisInfaller, axisEnergyFromRest, axisSpeed, axisEscapeEnergy, cameraRay, motion, carterK, carterKAxis, radialClass, traceRay, pixelRay, bendBasis, bendEncode, bendDecode, gasOmega, gasVelocity, gasShift, axisFall, tableR, tableTau , ergoRadius, ksPoint, shadowClass, shadowOutline, impactAt, gasLight };")()
 let fails = 0
 function check(name, ok, info) { console.log((ok ? "ok   " : "FAIL ") + name + (info !== undefined ? "  " + info : "")); if (!ok) fails++ }
 const M = K.M, RS_C = 2 * 4.925490947e-6 * 4.15e6
@@ -489,6 +489,58 @@ function verlet(x0, v0) {
     worst = Math.max(worst, angle(K.bendDecode(v, B.n1, B.n2, bv), d))
   }
   check("bend vector encode/decode round trip", worst < 1e-4, worst.toExponential(2) + " deg")
+}
+
+// ---- the anatomy's functions ----
+{
+  const h = K.horizons(A94)
+  check("ergoRadius: the outer horizon at the poles", Math.abs(K.ergoRadius(0, A94) - h.rPlus) < 1e-12 && Math.abs(K.ergoRadius(Math.PI, A94) - h.rPlus) < 1e-12)
+  check("ergoRadius: 1.0 Rs at the equator, at any spin", Math.abs(K.ergoRadius(Math.PI / 2, A94) - 1) < 1e-12 && Math.abs(K.ergoRadius(Math.PI / 2, 0.2) - 1) < 1e-12)
+  check("ergoRadius: outside the horizon in between", K.ergoRadius(1, A94) > h.rPlus && K.ergoRadius(1, A94) < 1)
+  const eq = K.ksPoint(h.rPlus, Math.PI / 2, A94), pole = K.ksPoint(h.rPlus, 0, A94)
+  check("ksPoint: the horizon is drawn 0.82 Rs at the equator and 0.67 at the poles", Math.abs(eq[0] - 0.8189) < 1e-3 && Math.abs(pole[1] - 0.6706) < 1e-3 && Math.abs(pole[0]) < 1e-12, eq[0].toFixed(4) + " " + pole[1].toFixed(4))
+  check("ksPoint inverts ksRadius", Math.abs(K.ksRadius([K.ksPoint(1.3, 0.7, A94)[0], 0, K.ksPoint(1.3, 0.7, A94)[1]], A94, 1) - 1.3) < 1e-9)
+  // from the equator, far away: the flat edge at 1.32 Rs, the round one at 3.45, 4.77 across
+  const d = 2000, o = K.shadowOutline([d, 0, 0], A94, 96)
+  const along = o.pts.map(p => K.impactAt(d, p.theta) * Math.sin(p.psi))   // along the equator's line (e2)
+  const lo = Math.min(...along), hi = Math.max(...along)
+  const edges = [Math.min(-lo, hi), Math.max(-lo, hi)]
+  check("shadowOutline from the equator: edges at 1.32 and 3.45 Rs", Math.abs(edges[0] - 1.32) < 0.01 && Math.abs(edges[1] - 3.45) < 0.01, edges.map(v => v.toFixed(3)).join(" "))
+  check("shadowOutline from the equator: 4.77 Rs wide, its middle 1.06 Rs off the centre", Math.abs(hi - lo - 4.77) < 0.01 && Math.abs(Math.abs(hi + lo) / 2 - 1.06) < 0.01, (hi - lo).toFixed(3) + " " + (Math.abs(hi + lo) / 2).toFixed(3))
+  // the flat edge is on the side the spin carries toward the camera: with the spin along +z (counterclockwise
+  // seen from +z) and the camera on +x, that side is -y, and e2 = c x e1 = +y... so the flat edge has sin(psi) of -y's sign
+  const flat = o.pts.reduce((b, p) => p.theta < b.theta ? p : b)
+  check("the flat edge is on the approaching side (-y for a camera on +x)", flat.v[1] < 0, flat.v.map(v => v.toFixed(4)).join(" "))
+  // spin 0: a circle of 5.196 Rs
+  const o0 = K.shadowOutline([d, 0, 0], 0, 48), b0 = o0.pts.map(p => K.impactAt(d, p.theta))
+  check("shadowOutline at spin 0: a 5.20 Rs circle", Math.max(...b0.map(b => Math.abs(2 * b - 3 * Math.sqrt(3)))) < 0.01, (2 * b0[0]).toFixed(4))
+  // from the pole: a circle too (the same edge all the way round)
+  const op = K.shadowOutline([0, 0, 200], A94, 48), tp = op.pts.map(p => p.theta)
+  check("shadowOutline from the pole: a circle", (Math.max(...tp) - Math.min(...tp)) / tp[0] < 1e-3, (2 * K.impactAt(200, tp[0])).toFixed(3) + " Rs across")
+  // just inside the curve is dark and just outside is sky, by the classifier and by the march
+  let agree = true
+  for (const cam of [[20, 0, 0], [12, 5, 9], [0, 0.3, 6]]) {
+    const oc = K.shadowOutline(cam, A94, 24)
+    for (const p of oc.pts) for (const s of [0.97, 1.03]) {
+      const th = p.theta * s, v = [0, 1, 2].map(i => Math.cos(th) * oc.c[i] + Math.sin(th) * (Math.cos(p.psi) * oc.e1[i] + Math.sin(p.psi) * oc.e2[i]))
+      const cls = K.shadowClass(cam, A94, v) > 0
+      const ray = K.pixelRay(cam, A94, 1, K.staticObserver(K.ksMetric(cam, A94, 1)), v)
+      const march = K.traceRay(cam, ray.k, A94, 1, ray.E).out === "sky"
+      if (cls !== (s > 1) || march !== (s > 1)) agree = false
+    }
+  }
+  check("points just inside the outline are captured, just outside escape (classifier and march)", agree)
+  check("no outline for a camera below the horizon", K.shadowOutline([0, 0, 0.5], A94, 8) === null)
+  // the gas's light: beside the flat edge the picture is several times brighter than beside the round one,
+  // from a tilted view and from the equator's plane alike; none toward the empty sky
+  for (const [name, cam] of [["17 degrees up", [30 * Math.cos(0.3), 0, 30 * Math.sin(0.3)]], ["the equator", [20 * Math.cos(0.4), 20 * Math.sin(0.4), 0]]]) {
+    const oc = K.shadowOutline(cam, A94, 96)
+    const near = oc.pts.reduce((b, p) => p.theta < b.theta ? p : b), far = oc.pts.reduce((b, p) => p.theta > b.theta ? p : b)
+    const probe = p => { const th = p.theta * 1.12; return K.gasLight(cam, A94, [0, 1, 2].map(i => Math.cos(th) * oc.c[i] + Math.sin(th) * (Math.cos(p.psi) * oc.e1[i] + Math.sin(p.psi) * oc.e2[i]))) }
+    const In = probe(near), If = probe(far)
+    check("gasLight from " + name + ": brighter beside the flat edge than beside the round one", In > 3 * If && If > 0, (In / If).toFixed(1) + " times")
+  }
+  check("gasLight: none along the axis toward the sky", K.gasLight([0, 0, 30], A94, [0, 0, 1]) === 0)
 }
 
 console.log(fails ? fails + " FAILED" : "all passed")
