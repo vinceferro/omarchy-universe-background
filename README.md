@@ -329,7 +329,7 @@ shift of 3), light from behind dimmed, so one exposure is white ahead or
 black behind. The hole's picture has its own exposure while falling
 (`exposure()` in `lib/fall.js`): the mean boost over fifteen directions of
 the current view against the same at the start, to the power 0.8 (partial,
-as eyes adapt), between 0.004 and 6, eased at 2.5 e-folds a second; what is
+as eyes adapt), between 0.004 and 6, eased at 6 e-folds a second closing and 2.5 opening; what is
 still brighter than 0.6 rolls off toward 1 with its colour kept instead of
 clipping (`universe.frag`, `HOLE_KNEE`). Drawn off screen along both
 scripted falls (`tools/hole_view.py`), no frame is more than 7% white

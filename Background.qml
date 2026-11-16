@@ -1985,10 +1985,12 @@ Item {
         F.lookFwd = f1.map((v, j) => v * cq + u[j] * sq)
         F.lookUp = u.map((v, j) => v * cq - f1[j] * sq)
         // the exposure follows what is in view (the user's own look too),
-        // easing like an eye (2.5 e-folds a second)
+        // easing like an eye: it closes for a brighter view faster than it
+        // opens for a darker one (6 and 2.5 e-folds a second), so turning
+        // back down onto the boosted gas does not flare for a second
         F.tilt = Math.acos(Math.max(-1, Math.min(1, -(F.lookFwd[0] * F.x[0] + F.lookFwd[1] * F.x[1] + F.lookFwd[2] * F.x[2]))))
         const wantExp = Fall.exposure(F.tl, r, o.E, F.tilt, aspect)
-        const ex = Math.exp(Math.log(gxHoleExp) + (Math.log(wantExp) - Math.log(gxHoleExp)) * Math.min(1, dt * 2.5))
+        const ex = Math.exp(Math.log(gxHoleExp) + (Math.log(wantExp) - Math.log(gxHoleExp)) * Math.min(1, dt * (wantExp < gxHoleExp ? 6 : 2.5)))
         if (Math.abs(ex / gxHoleExp - 1) > 1e-3) gxHoleExp = ex
         cam = [F.x[0] * r * rsKpc, F.x[1] * r * rsKpc, F.x[2] * r * rsKpc]
         gxDist = r * rsKpc
