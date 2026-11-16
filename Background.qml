@@ -67,12 +67,12 @@ Item {
   property bool idleBusy: true
 
   // ---- JARVIS navigation ----
-  // While exploring, the HUD's readout column becomes navigation telemetry for
-  // where you are (refreshed 5 times a second), and beacons around its ring
-  // point toward the Sun, Earth, the target and the Galactic Centre, on or off
-  // screen, like a compass. The system stats shrink to one line.
-  property var navRows: []
-  property var navBeacons: [null, null, null, null] // { name, ang (radians, screen), dist (text), color, behind }
+  // While exploring, the HUD's instrument reads where you are (refreshed 5
+  // times a second: see dialWant), and beacons around its rim point toward
+  // the Sun, Earth, the target, the Galactic Centre and the nearest place, on
+  // or off screen, like a compass: the beacon says which way, the bug of the
+  // same colour on the range scale how far.
+  property var navBeacons: [null, null, null, null, null] // { name, ang (radians, screen), dist (text), color, behind }
   property real navNextAt: 0
   property var gxPrevCam: null
   property real gxSpeed: 0                           // kpc per second, eased
@@ -343,8 +343,10 @@ Item {
     if (up(hudLevel)) showing.push("cockpit")
     if (up(hudLevel * presLabel) && exploring && navBeacons.some(b => !!b)) showing.push("beacons")
     if (up(gateNames * presLabel) && exploring && explore !== "flight") showing.push("names")
-    if (cardShown && up(galaxyMix * gateNames * presCard)) showing.push("card")
-    if (cardShown && up(galaxyMix * gateGuide * presCard)) showing.push("blurb")
+    if (cardShown && up(cardMix * gateNames * presCard)) showing.push("card")
+    if (cardShown && cardBlurb !== "" && up(cardMix * gateGuide * presCard)) showing.push("blurb")
+    if (up(hudLevel * presDial)) showing.push("dial words")
+    else if (up(hudLevel * presSys)) showing.push("machine labels")
     if (railRows.length > 0 && up((touring ? gateNames : gateGuide) * presHints)) showing.push(touring ? "tour keys" : "hints")
     if (captionUp) showing.push("caption")
     if (captionWords > 0 && up(gateGuide * presCaption)) showing.push("caption detail")
@@ -1320,11 +1322,18 @@ Item {
   // and the blurb. The rail shows it; its words set how long it stays.
   readonly property var cardPlace: gxSel >= 0 ? place(gxSel) : null
   readonly property var cardView: gxView >= 0 ? gxViews[gxView] : null   // a named viewpoint
-  readonly property bool cardShown: (gxSel !== -2 || !!cardView) && !touring
-  readonly property string cardTitle: cardPlace ? cardPlace.name.toUpperCase() : cardView ? cardView.name.toUpperCase() : "THE SUN  ·  YOU ARE HERE"
-  readonly property string cardSub: cardPlace ? cardPlace.label.toUpperCase() : cardView ? cardView.label
+  // In the system view the card is the pinned body's (sysCard, from the nav
+  // producer): the facts that describe the body, which were readout rows
+  property var sysCard: null
+  property string fallDetail: ""          // the fall's line under the Milky Way caption's title (from the nav producer)
+  readonly property bool sysCardOn: explore === "system" && !galactic && !!sysCard
+  readonly property real cardMix: sysCardOn ? sys : galaxyMix * (1 - fallFade)
+  readonly property bool cardShown: (sysCardOn || gxSel !== -2 || !!cardView) && !touring
+  readonly property string cardTitle: sysCardOn ? sysCard.title : cardPlace ? cardPlace.name.toUpperCase() : cardView ? cardView.name.toUpperCase() : "THE SUN  ·  YOU ARE HERE"
+  readonly property string cardSub: sysCardOn ? sysCard.sub : cardPlace ? cardPlace.label.toUpperCase() : cardView ? cardView.label
     : "26,600 LY FROM THE GALACTIC CENTRE  ·  ONE ORBIT EVERY ~203 MILLION YEARS AT 249 KM/S"
   readonly property string cardFacts: {
+    if (sysCardOn) return sysCard.facts
     const h = cardPlace
     if (!h) return ""
     if (h.kind === "blackhole" && fallPhase !== "")
@@ -1335,6 +1344,7 @@ Item {
     return lightYears(h.dpc) + " away  ·  " + sizeText(h.size) + " across"
   }
   readonly property string cardBlurb: {
+    if (sysCardOn) return ""
     const h = cardPlace
     if (!h) return cardView ? cardView.blurb
       : "The Sun circles Sagittarius A* with everything around it, rising and sinking through the disk as it goes. Press [ ] to watch."
@@ -1543,11 +1553,10 @@ Item {
   // The label pass (lib/layout.js placeLabels) runs once a tick for the view
   // in front, on the first screen (the camera works in its aspect): every
   // scene name goes right of its thing, else left, else hides, clear of the
-  // bar and notch, the rail, the caption, the HUD's ring, readouts and
-  // beacon words, a story caption, and every name placed before it. The
+  // bar and notch, the rail, the caption, the HUD's disc and the words on
+  // its rim, a story caption, and every name placed before it. The
   // first screen's panel says how tall its zones stand right now.
   property real railNow: 0
-  property real statsNow: 0
   property real storyNow: 0
   property real toastNow: 0   // the level toast's height while it has the caption slot
   readonly property bool captionUp: captionWords > 0 && presCaption * gateNames > 0.01
@@ -1561,19 +1570,15 @@ Item {
     const ks = Object.keys(now)
     return Object.keys(was).length !== ks.length || ks.some(k => !was[k] || was[k].show !== now[k].show || was[k].side !== now[k].side)
   }
-  // the readout column until the disc carries its words: under the disc, as wide
-  function statsShim(l, h) { return { x: h.cx - h.R, y: h.cy + h.R + 0.02 * l.H, w: 2 * h.R, h: Math.max(0, l.safe.y1 - (h.cy + h.R + 0.02 * l.H)) } }
   function labelZones() {
     const l = lay0, keep = []
     if (railNow > 0) keep.push(Lay.railRect(l, railNow))
     if (captionUp) keep.push(Lay.captionRect(l, l.caption.maxH))
     else if (toastNow > 0) keep.push(Lay.captionRect(l, toastNow))   // in a view without a caption the toast still stands there
-    const cover = keep.slice()   // where a dot hides too: the rail, the caption, the readouts
+    const cover = keep.slice()   // where a dot hides too: the rail, the caption
     let disc = null
     if (gateCockpit > 0.01) {
-      const h = Lay.hudAt(l, [hudDrift.x, hudDrift.y])
       disc = Lay.hudDisc(l, [hudDrift.x, hudDrift.y])
-      if (statsNow > 0) { const st = statsShim(l, h); cover.push({ x: st.x, y: st.y, w: st.w, h: statsNow }) }
     }
     return { keep: keep, cover: cover, disc: disc,
              all: cover.concat(disc ? [disc] : [], disc ? labelState.beacons : [], storyNow > 0 ? [Lay.storyRect(l, storyNow)] : []) }
@@ -2250,8 +2255,8 @@ Item {
 
     // JARVIS: beacons every frame, telemetry 5 times a second
     {
-      const nb = [null, null, null, null]
-      let rows = null
+      const nb = [null, null, null, null, null]
+      let card = null   // the pinned body's card (system view), on a refresh
       let want = null   // what the instrument should show (dialWant), on a refresh
       const refresh = now >= navNextAt
       if (refresh) navNextAt = now + 200
@@ -2274,27 +2279,25 @@ Item {
         }
 
         if (refresh) {
-          rows = []
           if (at) {
+            // the pinned body's card: what it is aimed at, how far the Sun
+            // and Earth are and how old their light is, its orbit and its day
             const rSun = Math.hypot(at[0], at[1], at[2])
             const rEarth = d(real[2])
-            rows.push({ label: "TARGET", value: (follow === 7 ? "MOON" : follow === 0 ? "SUN" : planetInfo[follow - 1].name.toUpperCase()) + (chasing ? "  →  " + chaseTargetName.toUpperCase() : "") })
-            if (follow !== 0) rows.push({ label: "FROM SUN", value: fmtAu(rSun) + "  ·  LIGHT " + fmtNum(rSun * 8.317, 1) + " MIN" })
-            if (follow !== 3) rows.push({ label: "FROM EARTH", value: fmtAu(rEarth) + "  ·  LIGHT " + (rEarth * 8.317 < 1 ? fmtNum(rEarth * 499.0, 1) + " S" : fmtNum(rEarth * 8.317, 1) + " MIN") })
+            const dist = []
+            if (follow !== 0) dist.push("FROM THE SUN " + fmtAu(rSun) + "  ·  LIGHT " + fmtNum(rSun * 8.317, 1) + " MIN")
+            if (follow !== 3) dist.push("FROM EARTH " + fmtAu(rEarth) + "  ·  LIGHT " + (rEarth * 8.317 < 1 ? fmtNum(rEarth * 499.0, 1) + " S" : fmtNum(rEarth * 8.317, 1) + " MIN"))
+            const facts = []
             if (follow >= 1 && follow <= 6) {
               const pl = planetInfo[follow - 1], a = orbits[follow - 1][3]
               const v = 29.7847 * Math.sqrt(Math.max(0, 2 / rSun - 1 / a))
-              rows.push({ label: "ORBIT", value: fmtNum(v, 1) + " KM/S  ·  YEAR " + (a < 1.5 ? fmtNum(Math.pow(a, 1.5) * 365.25) + " D" : fmtNum(Math.pow(a, 1.5), 1) + " Y") })
-              rows.push({ label: "DAY", value: fmtNum(Math.abs(pl.day) * 24, 1) + " H" + (pl.day < 0 ? "  ·  TURNS BACKWARD" : "") + "  ·  " + fmtNum(pl.km * 2) + " KM WIDE" })
+              facts.push("Orbit " + fmtNum(v, 1) + " km/s  ·  year " + (a < 1.5 ? fmtNum(Math.pow(a, 1.5) * 365.25) + " days" : fmtNum(Math.pow(a, 1.5), 1) + " years"))
+              facts.push("Day " + fmtNum(Math.abs(pl.day) * 24, 1) + " hours" + (pl.day < 0 ? ", turning backward" : "") + "  ·  " + fmtNum(pl.km * 2) + " km wide")
             }
-            if (follow === 3 || follow === 7) {
-              // the Moon's phase: the Sun-Earth-Moon angle
-              const s = [-real[2][0], -real[2][1], -real[2][2]]
-              const c = (s[0] * mg[0] + s[1] * mg[1] + s[2] * mg[2]) / (Math.hypot(...s) * Math.hypot(...mg))
-              rows.push({ label: "MOON", value: fmtNum((1 - c) / 2 * 100) + "% LIT  ·  " + fmtNum(moonDistanceKm) + " KM" })
-            }
-          } else rows.push({ label: "VIEW", value: "FREE  ·  PIN A BODY FOR ITS TELEMETRY" })
-          rows.push({ label: "TIME", value: Qt.formatDateTime(new Date(simMs), "d MMM yyyy HH:mm").toUpperCase() + "  ·  " + simRateNames[simRateIndex] + (autoOrbit ? "  ·  AUTO ORBIT" : "") })
+            if (follow === 3 || follow === 7) facts.push("Moon " + fmtNum(moonNow.lit * 100) + "% lit, " + (moonNow.waxing ? "waxing" : "waning") + "  ·  " + fmtNum(moonDistanceKm) + " km from Earth")
+            card = { title: (follow === 7 ? "MOON" : follow === 0 ? "SUN" : planetInfo[follow - 1].name.toUpperCase()) + (chasing ? "  →  " + chaseTargetName.toUpperCase() : ""),
+                     sub: dist.join("\n"), facts: facts.join("\n") }
+          }
           // the instrument: the time rate on seven detents; how far the Sun,
           // Earth, the Moon and the chase target are from the pinned body
           // (log AU; a free camera is nowhere, so no scale); the Moon's
@@ -2338,6 +2341,12 @@ Item {
         }
         const m31 = hotspots[gxIndex("Andromeda")].pos
         if (gxSel !== gxIndex("Andromeda")) nb[3] = beaconOf(vec(m31), R, U, F, "ANDROMEDA", fmtLy(len(vec(m31)) * ly), "#fff0d8")
+        // the nearest place (found on the refresh), unless it is the target or already has a beacon
+        const ni = dialRun.near
+        if (ni >= 0 && ni < hotspots.length && ni !== gxSel && ni !== gxIndex("Andromeda") && !fallState && !hotspots[ni].name.startsWith("Sagittarius A")) {
+          const P = hotspotPos(ni)
+          nb[4] = beaconOf(vec(P), R, U, F, hotspots[ni].name.toUpperCase(), fmtLy(len(vec(P)) * ly), "#fff0d8")
+        }
         // speed: how fast the camera moves, eased
         if (gxPrevCam) {
           const v = Math.hypot(cam[0] - gxPrevCam[0], cam[1] - gxPrevCam[1], cam[2] - gxPrevCam[2]) / Math.max(dt, 1e-3)
@@ -2347,34 +2356,25 @@ Item {
         if (refresh) {
           const h = vec(sp).map(x => -x)                     // camera from the Sun
           const hl = Math.max(len(h), 1e-12)
-          const l = (Math.atan2(h[0], -h[1]) * 180 / Math.PI + 360) % 360
-          const b = Math.asin(Math.max(-1, Math.min(1, h[2] / hl))) * 180 / Math.PI
           let near = -1, nd = 1e9
           for (let i = 0; i < hotspots.length; i++) { const dd = len(vec(hotspotPos(i))); if (dd < nd) { nd = dd; near = i } }
           const lyPerS = gxSpeed * ly
-          rows = [
-            { label: "HERE", value: fmtLy(hl * ly) + " FROM THE SUN  ·  l " + fmtNum(l, 1) + "°  b " + fmtNum(b, 1) + "°" },
-            { label: "CENTRE", value: fmtLy(len(cam) * ly) + "  ·  " + (Math.abs(cam[2]) < 1 ? fmtNum(Math.abs(cam[2]) * ly) + " LY " + (cam[2] >= 0 ? "ABOVE" : "BELOW") + " THE DISK" : "OUTSIDE THE DISK") },
-            { label: "SPEED", value: lyPerS < 0.01 ? "HOLDING" : fmtLy(lyPerS) + "/S  ·  " + (lyPerS * 31557600 >= 1e6 ? fmtNum(lyPerS * 31557600 / 1e6, 1) + " MILLION" : fmtNum(lyPerS * 31557600)) + " × LIGHT" },
-            { label: "NEAREST", value: near >= 0 ? hotspots[near].name.toUpperCase() + "  ·  " + fmtLy(nd * ly) : "—" }
-          ]
-          if (gxSel >= 0) rows.splice(0, 0, { label: "TARGET", value: place(gxSel).name.toUpperCase() + "  ·  " + fmtLy(len(vec(hotspotPos(gxSel))) * ly) + " AWAY" })
+          dialRun.near = near
+          // what the fall's caption says under its title: where we are, and
+          // what the hub's clock counts down to (lib/fall.js values only)
+          let detail = ""
           if (fallState) {
-            // the fall: where we are in radii, the phase, and our own clock
-            const left = fallLeft >= 60 ? fmtNum(Math.floor(fallLeft / 60)) + " MIN " + fmtNum(Math.floor(fallLeft % 60), 0) + " S" : fmtNum(fallLeft, 1) + " S"
             const tl = fallState.tl
             // the realistic fall ends exactly at r-: that is "at", not "inside"
-            const where = fallR > tl.rPlus ? "OUTSIDE THE OUTER HORIZON (" + fmtNum(tl.rPlus, 2) + ")"
+            const where = fallR > tl.rPlus ? "OUTSIDE THE OUTER HORIZON (" + fmtNum(tl.rPlus, 2) + " RS)"
                         : fallR > tl.rMinus ? "BETWEEN THE HORIZONS  ·  NO WAY OUT"
-                        : fallR >= tl.rMinus - 1e-6 ? "AT THE INNER HORIZON (" + fmtNum(tl.rMinus, 2) + ")"
-                        : fallR > 0 ? "INSIDE THE INNER HORIZON (" + fmtNum(tl.rMinus, 2) + ")"
+                        : fallR >= tl.rMinus - 1e-6 ? "AT THE INNER HORIZON (" + fmtNum(tl.rMinus, 2) + " RS)"
+                        : fallR > 0 ? "INSIDE THE INNER HORIZON (" + fmtNum(tl.rMinus, 2) + " RS)"
                         : fallR > -tl.a ? "THROUGH THE DISK INSIDE THE RING" : "THE OTHER UNIVERSE  ·  REPELLED"
-            rows = [
-              { label: "FALLING", value: fmtNum(fallR, 2) + " SCHWARZSCHILD RADII  ·  " + where },
-              { label: "PROPER TIME", value: left + (tl.math ? " TO THE EDGE OF THE FAR SHEET" : " TO THE INNER HORIZON") + "  ·  " + (fallRate > 1.05 ? "SHOWN " + fmtNum(fallRate) + "× FASTER" : fallRate < 0.95 ? "SHOWN SLOWER" : "REAL TIME") }
-            ]
-            if (tl.math) rows.push({ label: "MATHEMATICS", value: "THE EXTENDED KERR SOLUTION, NOT OBSERVED PHYSICS  ·  PLUNGE AT 0.75 C" })
+            detail = where + "  ·  THE CLOCK: PROPER TIME " + (tl.math ? "TO THE EDGE OF THE FAR SHEET" : "TO THE INNER HORIZON")
+                   + (tl.math ? "  ·  MATHEMATICS: THE EXTENDED KERR SOLUTION, NOT OBSERVED PHYSICS  ·  PLUNGE AT 0.75 C" : "")
           }
+          if (fallDetail !== detail) fallDetail = detail
           const ev = dialRun.ev
           if (ev.key !== (fallState ? "fall" : "galaxy")) { ev.key = fallState ? "fall" : "galaxy"; ev.near = {}; ev.side = {}; ev.disk = {}; ev.hor = {}; ev.hold = {} }
           let event = false
@@ -2432,11 +2432,6 @@ Item {
         if (refresh) {
           const l = ((skyL % 360) + 360) % 360
           const eq = galToEq(l, skyB)
-          rows = [
-            { label: "POINTING", value: "l " + fmtNum(l, 1) + "°  b " + fmtNum(skyB, 1) + "°" },
-            { label: "SKY", value: "RA " + fmtRa(eq[0]) + "  DEC " + (eq[1] >= 0 ? "+" : "") + fmtNum(eq[1], 1) + "°" },
-            { label: "FIELD", value: fmtNum(skyVfov, 0) + "° TALL" + (skyStaticMix > 0.5 ? "  ·  " + skyViews[skyView].name : "") }
-          ]
           // the sky: the field of view as an arc of its true angle; galactic
           // longitude on a heading tape; latitude as the diamond (+-90, a dot every 30)
           want = dialWant("sky")
@@ -2446,14 +2441,18 @@ Item {
           want.units = ["l °", "FIELD"]
           want.readout = Dial.readout("sky", { ra: eq[0], dec: eq[1] }, dialChars)
         }
-      } else if (refresh) rows = []
+      }
       // beacons pointing nearly the same way stack their labels
       for (let i = 0; i < nb.length; i++) {
         if (!nb[i]) continue
         for (let j = 0; j < i; j++) if (nb[j] && Math.abs(Math.atan2(Math.sin(nb[i].ang - nb[j].ang), Math.cos(nb[i].ang - nb[j].ang))) < 0.22) nb[i].shift = Math.max(nb[i].shift, nb[j].shift + 1)
       }
       navBeacons = nb
-      if (rows !== null) navRows = rows
+      if (refresh) {
+        const was = sysCard
+        if (!card !== !was || (card && (card.title !== was.title || card.sub !== was.sub || card.facts !== was.facts))) sysCard = card
+        if (explore !== "galaxy" && fallDetail !== "") fallDetail = ""
+      }
       if (refresh && !want) {
         want = dialWant(explore === "system" ? "galactic" : explore)
         if (explore === "flight") {
@@ -2465,17 +2464,22 @@ Item {
         } else if (explore === "universe") want.gap = gapMoon()   // parked: the Moon as it is tonight
       }
       if (want) dialRun.want = want
-      // where the beacons' words stand on the first screen (as the readout
-      // places them, from estimated widths): scene names keep clear of them
+      // where the beacons' words and the dial's landmark labels stand on the
+      // first screen (as the readout places them, from estimated widths):
+      // scene names keep clear of them
       const words = []
       if (gateCockpit > 0.01 && explore !== "universe") {
         const h0 = Lay.hudAt(lay0, [hudDrift.x, hudDrift.y]), tk = lay0.tok
-        const st0 = statsShim(lay0, h0), st = [{ x: st0.x, y: st0.y, w: st0.w, h: statsNow }]
         for (const b of nb) {
           if (!b) continue
           const bw = Lay.textW((b.name + (b.dist ? "  " + b.dist : "")).length, tk.micro, tk.track.normal), bh = tk.micro * 1.4
-          const at = Lay.beaconLabel(b.ang, bw, bh, h0.cx, h0.cy, h0.R * Lay.BEACON / Lay.RING + tk.gap, lay0.safe, st, b.shift)
+          const at = Lay.beaconLabel(b.ang, bw, bh, h0.cx, h0.cy, h0.R * Lay.BEACON / Lay.RING + tk.gap, lay0.safe, [], b.shift)
           if (at.show) words.push({ x: at.x, y: at.y, w: bw, h: bh })
+        }
+        if (h0.s >= 0.8 && presDial > 0.01) for (const m of dialLandmarks) {
+          const mw = Lay.textW(m.text.length, tk.micro, tk.track.normal), mh = tk.micro * 1.4
+          const at = Lay.beaconLabel(Lay.sweepAngle(m.g, hudSway), mw, mh, h0.cx, h0.cy, h0.R + tk.gap / 2, lay0.safe, [], 0)
+          if (at.show) words.push({ x: at.x, y: at.y, w: mw, h: mh })
         }
       }
       labelState.beacons = words
@@ -2589,6 +2593,7 @@ Item {
   // element can be looked at without flying there; the hub says DEMO
   property string hudDemo: ""
   readonly property var dialRun: ({ want: null, shown: null, needle: [0, 0], arc: 0, bugs: [-1, -1, -1, -1], gap: 0, fade: 1, pulse: [0, 0], side: [0, 0],
+                                    near: -1,
                                     ev: { key: "", near: {}, side: {}, disk: {}, hor: {}, hold: {}, cpu: {}, gpuT: {}, mem: {} } })
   // how many characters the hub's readout line holds on the first screen (11 at most)
   readonly property int dialChars: {
@@ -3097,8 +3102,6 @@ Item {
       readonly property real hudCy: Lay.hudCy(lay, root.hudDrift.y)
       // the first screen tells the label pass how tall its zones stand
       readonly property bool first: Quickshell.screens.length > 0 && Quickshell.screens[0].name === modelData.name
-      property real statsH: 0   // the readouts' height (set from inside the live layer)
-      Binding { target: root; property: "statsNow"; value: panel.statsH; when: panel.first }
       Binding { target: root; property: "railNow"; value: rail.visible ? rail.height : 0; when: panel.first }
       Binding { target: root; property: "toastNow"; value: toast.up > 0 ? toast.height : 0; when: panel.first }
       // A story caption (film, a tour, IPC `caption`) wins its band: while it
@@ -3444,9 +3447,14 @@ Item {
               property var moonTex: moonMapTex
             }
 
-            // HUD readouts in the shell font: the time inside the rings and the
-            // gauge values beside them (under them on a narrow screen), moving
-            // with the HUD centre and sized with its scale.
+            // The HUD's words in the shell font, moving with its centre and
+            // sized with its scale; every one of them is inside the disc,
+            // level, and the frame's sway moves them by position only
+            // (lib/layout.js hubLines, gapSlots, dialPoint). At rest only the
+            // clock and the date stand; the readout line, the machine labels
+            // and unit words in the gap, the landmark labels and the beacons'
+            // names are the dial zone: up with an interaction, the pointer
+            // resting in the disc or an event, then gone (lib/text.js).
             Item {
               id: readout
               readonly property real hudOpacity: Math.min(0.75, root.hudLevel * 1.8) * panel.cockpitStep
@@ -3454,38 +3462,122 @@ Item {
               readonly property real s: panel.lay.hud.s
               readonly property real cx: panel.hudCx
               readonly property real cy: panel.hudCy
-              readonly property real rowSize: panel.tok.body
               // the text joins the rings' draw-in over its last 40%
               readonly property real bootIn: Math.max(0, Math.min(1, (root.bootLevel - 0.6) / 0.4))
+              readonly property real words: hudOpacity * bootIn
+              // the sway in steps of a ninth of a degree: the words' places are
+              // worked out again every second or so, not every frame
+              readonly property real sway: Math.round(root.hudSway / 0.002) * 0.002
+              readonly property var disc: ({ cx: 0, cy: 0, R: panel.hud.R, s: panel.lay.hud.s })   // about its own centre
+              readonly property var hub: Lay.hubLines(disc, panel.tok)
+              readonly property var gap: Lay.gapSlots(disc, panel.tok, sway)
+              readonly property bool demo: root.hudDemo !== ""
+              // a fall: the hub counts the proper time left; the wall clock is in the bar
+              readonly property bool falling: !!root.fallState && !demo
 
-              Column {
+              // the hub: the clock, the date, and one readout line (the needle's exact figure)
+              Text {
                 visible: root.hudLevel > 0
-                opacity: readout.hudOpacity * readout.bootIn
+                opacity: readout.words
                 x: readout.cx - width / 2
-                y: readout.cy - height / 2
-                spacing: 0
+                y: readout.cy + readout.hub.clock.y + (readout.hub.clock.h - height) / 2
+                text: readout.falling ? Dial.clock(root.fallLeft) : Qt.formatTime(root.now, "HH:mm")
+                color: Color.foreground
+                font.family: Style.resolvedFontFamily
+                font.pixelSize: panel.tok.display
+                font.weight: Font.Light
+              }
+              Text {
+                visible: root.hudLevel > 0
+                opacity: readout.words
+                x: readout.cx - width / 2
+                y: readout.cy + readout.hub.date.y + (readout.hub.date.h - height) / 2
+                text: readout.demo ? "DEMO  " + root.hudDemo.toUpperCase()
+                    : readout.falling ? (root.fallRate > 1.05 ? (readout.s >= 0.8 ? "PROPER TIME  ×" : "PROPER ×") + Math.round(root.fallRate) : root.fallRate < 0.95 ? "SHOWN SLOWER" : "REAL TIME")
+                    : Qt.formatDate(root.now, "ddd d MMM").toUpperCase()
+                color: Color.accent
+                font.family: Style.resolvedFontFamily
+                font.pixelSize: panel.tok.label
+                font.letterSpacing: panel.tok.label * panel.tok.track.normal
+              }
+              Text {
+                visible: opacity > 0.01 && implicitWidth <= readout.hub.readout.maxW
+                opacity: readout.words * root.presDial * root.dialFade
+                x: readout.cx - width / 2
+                y: readout.cy + readout.hub.readout.y + (readout.hub.readout.h - height) / 2
+                text: root.dialReadout
+                color: root.hudHighlight
+                font.family: Style.resolvedFontFamily
+                font.pixelSize: panel.tok.micro
+                font.letterSpacing: panel.tok.micro * panel.tok.track.normal
+              }
+
+              // the machine labels, left in the gap, each in its arc's colour.
+              // A small disc drops the watts and shows memory as a share; with
+              // no nvidia-smi there is no GPU figure, so no GPU label
+              Repeater {
+                model: 3
                 Text {
-                  anchors.horizontalCenter: parent.horizontalCenter
-                  text: Qt.formatTime(root.now, "HH:mm")
-                  color: Color.foreground
+                  required property int index
+                  readonly property var box: readout.gap.machine[index]
+                  visible: opacity > 0.01 && (index !== 1 || root.stats.gpuKnown) && implicitWidth <= box.w
+                  opacity: readout.words * root.presSys
+                  x: readout.cx + box.x + box.w - width
+                  y: readout.cy + box.y + (box.h - height) / 2
+                  text: index === 0 ? "CPU " + Math.round(root.stats.cpu * 100) + "%"
+                      : index === 1 ? "GPU " + Math.round(root.stats.gpu * 100) + "%" + (readout.s >= 0.8 ? " " + Math.round(root.stats.gpuWatts) + " W" : "")
+                      : readout.s >= 0.8 ? "MEM " + root.stats.memUsed.toFixed(1) + " GB" : "MEM " + Math.round(root.mem * 100) + "%"
+                  color: index === 1 ? root.hudHighlight : Color.accent
                   font.family: Style.resolvedFontFamily
-                  font.pixelSize: panel.tok.display
-                  font.weight: Font.Light
+                  font.pixelSize: panel.tok.micro
+                  font.letterSpacing: panel.tok.micro * panel.tok.track.normal
                 }
+              }
+              // the unit words, right in the gap: the range scale's over the dial's
+              Repeater {
+                model: 2
                 Text {
-                  anchors.horizontalCenter: parent.horizontalCenter
-                  text: Qt.formatDate(root.now, "ddd d MMM").toUpperCase()
-                  color: Color.accent
+                  required property int index
+                  readonly property var box: readout.gap.units[index]
+                  visible: opacity > 0.01 && text !== "" && implicitWidth <= box.w
+                  opacity: readout.words * root.presUnits * root.dialFade
+                  x: readout.cx + box.x
+                  y: readout.cy + box.y + (box.h - height) / 2
+                  text: root.dialUnits[index] || ""
+                  color: Qt.alpha(Color.foreground, 0.8)
                   font.family: Style.resolvedFontFamily
-                  font.pixelSize: panel.tok.label
-                  font.letterSpacing: panel.tok.label * panel.tok.track.normal
+                  font.pixelSize: panel.tok.micro
+                  font.letterSpacing: panel.tok.micro * panel.tok.track.normal
+                }
+              }
+              // landmark labels: what a long tick of the dial stands for, just
+              // outside the rim on the tick's ray. Only on a disc with room for
+              // them (scale 0.8 up); a beacon pointing the same way wins the spot
+              Repeater {
+                model: readout.s >= 0.8 ? root.dialLandmarks : []
+                Text {
+                  required property var modelData
+                  readonly property real ang: Lay.sweepAngle(modelData.g, readout.sway)
+                  readonly property var at: Lay.beaconLabel(ang, width, height, readout.cx, readout.cy, panel.hud.R + panel.tok.gap / 2, panel.lay.safe, [], 0)
+                  readonly property bool taken: root.navBeacons.some(b => !!b && Math.abs(Math.atan2(Math.sin(b.ang - ang), Math.cos(b.ang - ang))) < 0.2)
+                  visible: opacity > 0.01 && at.show && !taken
+                  opacity: readout.words * root.presDial * root.dialFade
+                  x: at.x
+                  y: at.y
+                  text: modelData.text
+                  color: Qt.alpha(Color.foreground, 0.7)
+                  font.family: Style.resolvedFontFamily
+                  font.pixelSize: panel.tok.micro
+                  font.letterSpacing: panel.tok.micro * panel.tok.track.normal
                 }
               }
 
-              // beacons on the ring: where the Sun, Earth, the target and the
-              // Galactic Centre lie from here (hollow when behind you)
+              // beacons on the rim: where the Sun, Earth, the target, the
+              // Galactic Centre and the nearest place lie from here (hollow
+              // when behind you). The bug of the same colour on the range
+              // scale says how far
               Repeater {
-                model: 4
+                model: 5
                 Item {
                   id: beacon
                   required property int index
@@ -3503,12 +3595,11 @@ Item {
                     font.pixelSize: panel.tok.label
                   }
                   Text {
-                    // the name and distance stand radially outside the ring, every
+                    // the name and distance stand radially outside the disc, every
                     // point of them (lib/layout.js beaconLabel). Where they would
-                    // leave the safe rect or touch the readouts the words hide and
-                    // the triangle stays: the readout rows carry the same names
+                    // leave the safe rect the words hide and the triangle stays
                     readonly property var at: Lay.beaconLabel(beacon.b ? beacon.b.ang : 0, width, height, readout.cx, readout.cy,
-                                                              beacon.ringR + panel.tok.gap, panel.lay.safe, [statsBox.rect], beacon.b ? beacon.b.shift : 0)
+                                                              beacon.ringR + panel.tok.gap, panel.lay.safe, [], beacon.b ? beacon.b.shift : 0)
                     visible: at.show
                     x: at.x - beacon.x
                     y: at.y - beacon.y
@@ -3517,75 +3608,6 @@ Item {
                     font.family: Style.resolvedFontFamily
                     font.pixelSize: panel.tok.micro
                     font.letterSpacing: panel.tok.micro * panel.tok.track.normal
-                  }
-                }
-              }
-
-              // the readouts: a fixed column beside the ring, centred on it,
-              // or under it, as wide as the ring; values wrap to three lines
-              // and it never grows past what the plan leaves it
-              Item {
-                id: statsBox
-                readonly property var at: root.statsShim(panel.lay, panel.hud)   // at the anchor; it moves with the centre
-                readonly property var rect: ({ x: x, y: y, w: width, h: height })   // as it stands now
-                Binding { target: panel; property: "statsH"; value: statsBox.visible ? statsBox.height : 0 }
-                visible: root.hudLevel > 0
-                opacity: readout.hudOpacity * readout.bootIn
-                x: at.x + readout.cx - panel.hud.cx
-                y: at.y + readout.cy - panel.hud.cy
-                width: at.w
-                height: Math.min(statsColumn.height, at.h)
-                clip: statsColumn.height > at.h
-                Column {
-                  id: statsColumn
-                  width: parent.width
-                  spacing: panel.tok.row
-
-                  Repeater {
-                    model: root.explore !== "universe" && root.explore !== "flight" && root.navRows.length > 0
-                      ? [{ label: "SYS", color: Color.accent,
-                           value: "CPU " + Math.round(root.stats.cpu * 100) + "%  ·  GPU " + Math.round(root.stats.gpu * 100) + "% " + Math.round(root.stats.gpuWatts) + " W  ·  MEM " + root.stats.memUsed.toFixed(1) + " GB" }]
-                        .concat(root.navRows.map(r => ({ label: r.label, color: root.hudHighlight, value: r.value })))
-                      : [
-                      { label: "CPU", color: Color.accent,
-                        value: Math.round(root.stats.cpu * 100) + "%  " + Math.round(root.stats.cpuTemp) + "°C" },
-                      { label: "GPU", color: root.hudHighlight,
-                        value: Math.round(root.stats.gpu * 100) + "%  " + Math.round(root.stats.gpuWatts) + " W  " + Math.round(root.stats.gpuTemp) + "°C" },
-                      { label: "MEM", color: Color.accent,
-                        value: root.stats.memUsed.toFixed(1) + " / " + root.stats.memTotal.toFixed(0) + " GB" },
-                      { label: "NAV", color: root.hudHighlight, value: "FLIGHT", hidden: !root.navigating },
-                      { label: "SYS", color: root.hudHighlight,
-                        value: (root.chasing ? (root.chaseLocked ? "LOCKED ON " + root.chaseTargetName.toUpperCase() + " VECTOR  " : "CHASE  ") : "")
-                          + (root.follow > 0 ? "PINNED " + root.followName.toUpperCase() + (root.chasing ? " → " + root.chaseTargetName.toUpperCase() : "") + "  "
-                             : root.follow === 0 ? "SUN  " : "FREE  ")
-                          + Qt.formatDateTime(new Date(root.simMs), "d MMM yyyy HH:mm").toUpperCase() + "  "
-                          + root.simRateNames[root.simRateIndex] + (root.autoOrbit ? "  AUTO ORBIT" : ""),
-                        hidden: root.explore !== "system" }
-                    ]
-                    Row {
-                      id: statsRow
-                      required property var modelData
-                      visible: !modelData.hidden
-                      spacing: panel.tok.gap
-                      Text {
-                        id: statsLabel
-                        text: statsRow.modelData.label
-                        color: statsRow.modelData.color
-                        font.family: Style.resolvedFontFamily
-                        font.pixelSize: readout.rowSize
-                        font.letterSpacing: readout.rowSize * panel.tok.track.normal
-                      }
-                      Text {
-                        width: statsColumn.width - statsLabel.width - statsRow.spacing
-                        wrapMode: Text.WordWrap
-                        maximumLineCount: 3
-                        elide: Text.ElideRight
-                        text: statsRow.modelData.value
-                        color: Color.foreground
-                        font.family: Style.resolvedFontFamily
-                        font.pixelSize: readout.rowSize
-                      }
-                    }
                   }
                 }
               }
@@ -4084,7 +4106,8 @@ Item {
             elide: Text.ElideRight
             visible: opacity > 0
             opacity: root.textMix("guide", "caption")
-            text: Math.abs(root.gxMyr) < 0.0005 && root.gxRateIndex === 0 ? "NOW  ·  [ ] TO WATCH IT TURN"
+            text: root.fallDetail !== "" ? root.fallDetail
+                  : Math.abs(root.gxMyr) < 0.0005 && root.gxRateIndex === 0 ? "NOW  ·  [ ] TO WATCH IT TURN"
                   : (root.gxMyr >= 0 ? "+" : "") + root.gxMyr.toFixed(root.gxMyr < 10 ? 2 : 1) + " MILLION YEARS  ·  " + root.gxRateNames[root.gxRateIndex]
                     + "  ·  " + (root.gxMyr * root.sunOmega * 180 / Math.PI % 360).toFixed(0) + "° AROUND THE CENTRE  ·  SIMPLIFIED: THE DISK TURNS AS ONE"
             color: root.gxRateIndex > 0 ? Qt.alpha("#ffd27a", 0.8) : Qt.alpha(Color.foreground, 0.45)
@@ -4132,8 +4155,8 @@ Item {
           id: card
           width: parent.width
           spacing: panel.tok.row
-          visible: root.cardShown && root.galaxyMix > 0.01 && root.gateNames > 0 && root.presCard > 0
-          opacity: root.galaxyMix * (1 - root.fallFade)
+          visible: root.cardShown && root.cardMix > 0.01 && root.gateNames > 0 && root.presCard > 0
+          opacity: root.cardMix
           Text {
             width: parent.width
             wrapMode: Text.WordWrap
@@ -4157,7 +4180,7 @@ Item {
           Text {
             width: parent.width
             wrapMode: Text.WordWrap
-            visible: !!root.cardPlace
+            visible: root.cardFacts !== ""
             opacity: root.textMix("names", "card")
             text: root.cardFacts
             color: Color.foreground
@@ -4169,7 +4192,7 @@ Item {
             wrapMode: Text.WordWrap
             maximumLineCount: 6
             elide: Text.ElideRight
-            visible: opacity > 0
+            visible: opacity > 0 && root.cardBlurb !== ""
             opacity: root.textMix("guide", "card")
             text: root.cardBlurb
             color: Qt.alpha(Color.foreground, 0.7)
