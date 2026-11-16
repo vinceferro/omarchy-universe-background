@@ -337,7 +337,7 @@ Item {
     if (up(gateNames * presLabel) && exploring && explore !== "flight") showing.push("names")
     if (cardShown && up(galaxyMix * gateNames * presCard)) showing.push("card")
     if (cardShown && up(galaxyMix * gateGuide * presCard)) showing.push("blurb")
-    if (railRows.length > 0 && up((touring ? 1 : gateGuide) * presHints)) showing.push(touring ? "tour keys" : "hints")
+    if (railRows.length > 0 && up((touring ? gateNames : gateGuide) * presHints)) showing.push(touring ? "tour keys" : "hints")
     if (captionUp) showing.push("caption")
     if (captionWords > 0 && up(gateGuide * presCaption)) showing.push("caption detail")
     if (up(sysHover * gateNames)) showing.push("hover hint")
@@ -1179,7 +1179,8 @@ Item {
 
   // A tour's own keys (IPC `tourKeys "SPACE=next; B=back; ESC=leave"`, ""
   // ends it): while set, the rail shows these rows instead of the mode's
-  // hints, at any level, and no place card: the tour's caption is the card.
+  // hints, at `names` and `full` (not at `off` or in a film, where only a
+  // story caption shows), and no place card: the tour's caption is the card.
   property var tourKeys: []
   function setTourKeys(spec) {
     tourKeys = String(spec || "").split(";").map(r => r.split("=")).filter(r => r.length >= 2 && r[0].trim() !== "")
@@ -3832,7 +3833,7 @@ Item {
           spacing: Math.max(1, panel.tok.row - 2)
           readonly property real keyW: Math.round(panel.tok.label * 13.5)
           visible: opacity > 0 && root.railRows.length > 0
-          opacity: Math.min(0.75, root.hudBrightness * 1.8) * 0.9 * root.textMix(root.touring ? "always" : "guide", "hints")
+          opacity: Math.min(0.75, root.hudBrightness * 1.8) * 0.9 * root.textMix(root.touring ? "names" : "guide", "hints")
           Repeater {
             model: root.railRows
             Row {
