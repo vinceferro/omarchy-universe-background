@@ -1245,7 +1245,7 @@ Item {
   // radii, the real Sun. The overview squeezes orbits a thousandfold so they
   // fit on screen; zooming back out returns to it. The blend is the camera's
   // sigma channel, so it runs WITH a pick's flight, not after it.
-  // guide lines (orbit rings, the Sun vector, long galactic trails): L toggles
+  // guide lines (orbit rings, the Sun vector, long galactic trails): I toggles
   property bool guides: false
   property real guideMix: 0
   readonly property real trueAu: 0.0045 * auKm / 6371 // display units per AU at true scale
@@ -3124,7 +3124,7 @@ Item {
                   anchors.fill: parent
                   preferredRendererType: Shape.CurveRenderer
                   ShapePath {
-                    // only with guide lines on (L): space has no trails; without them the
+                    // only with guide lines on (I): space has no trails; without them the
                     // streaming dust and the heading mark show the motion
                     strokeColor: Qt.alpha(trail.tint, (trail.index === 0 ? 0.45 : 0.95) * root.guideMix * Math.pow(1 - age, 1.6))
                     strokeWidth: (trail.index === 0 ? 1.4 : 2.2) * (1 - 0.6 * age)
@@ -3291,7 +3291,7 @@ Item {
           Text {
             anchors.horizontalCenter: parent.horizontalCenter
             text: (root.galSlow === 1 ? "TRUE SPEED" : "SUN SLOWED TO 1/" + root.galSlow + "  ·  EXAGGERATED")
-                  + (root.guides ? "  ·  TRAILS " + root.galTrailYears + " YEARS" : "  ·  L SHOWS THE PATHS") + "  ·  TRUE SIZES: THE PLANETS ARE POINTS"
+                  + (root.guides ? "  ·  TRAILS " + root.galTrailYears + " YEARS" : "  ·  I SHOWS THE PATHS") + "  ·  TRUE SIZES: THE PLANETS ARE POINTS"
             color: root.galSlow === 1 ? Qt.alpha(Color.foreground, 0.45) : Qt.alpha("#ffd27a", 0.8)
             font.family: Style.resolvedFontFamily
             font.pixelSize: Math.round(panel.height * 0.0075)
