@@ -18,6 +18,7 @@ import "lib/dwarfs.js" as Dw
 import "lib/labels.js" as Lb
 import "lib/drag.js" as Dr
 import "lib/quality.js" as Q
+import "lib/layout.js" as Lay
 
 Item {
   id: root
@@ -243,6 +244,49 @@ Item {
     }
   }
 
+  // Where text may go (lib/layout.js): per screen, a safe rect inside
+  // Hyprland's reserved bands (the bar) and under a camera notch, and in it
+  // the rail (bottom left), the caption slot (bottom centre), the story band
+  // and the HUD's plan. The notch comes from the platform's cutouts file, as
+  // the bar reads it, so it is respected with the bar hidden; the file is
+  // absent on most machines. Hyprland's answer is asked for again a moment
+  // after the start (the bar may reserve its band after this layer maps) and
+  // with every change of view.
+  property var displayCutouts: Lay.parseCutouts(cutoutsFile.text())
+  FileView {
+    id: cutoutsFile
+    path: "/usr/share/omarchy-platform/display-cutouts.json"
+    blockLoading: true
+    watchChanges: true
+    printErrors: false
+    onLoaded: root.displayCutouts = Lay.parseCutouts(text())
+    onLoadFailed: root.displayCutouts = []
+    onFileChanged: reload()
+  }
+  Timer { interval: 1500; running: true; onTriggered: Hyprland.refreshMonitors() }
+  function layOf(screen) {
+    const m = Hyprland.monitors.values.find(m => m.name === screen.name)
+    const o = m ? m.lastIpcObject : null
+    const mode = m && m.width > 0 && m.height > 0 ? { width: m.width, height: m.height, transform: o ? o.transform : 0 } : null
+    return Lay.plan(screen.width, screen.height, o && o.reserved ? o.reserved : null,
+                    Lay.cutoutTop(displayCutouts, screen.name, screen.width, screen.height, screen.devicePixelRatio, mode))
+  }
+  // the first screen's plan: the camera and the label pass work in its aspect
+  readonly property var lay0: Quickshell.screens.length > 0 ? layOf(Quickshell.screens[0]) : Lay.plan(2370, 1000, null, 0)
+  // for scripts and checks: every screen's zones in logical pixels, as JSON
+  function textReport() {
+    const px = b => ({ x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.w), h: Math.round(b.h) })
+    return JSON.stringify(Quickshell.screens.map(s => {
+      const l = layOf(s), e = Lay.hudExtent(l), h = Lay.hudAt(l, [0, 0])
+      return { screen: s.name, size: [s.width, s.height],
+               safe: { x0: Math.round(l.safe.x0), y0: Math.round(l.safe.y0), x1: Math.round(l.safe.x1), y1: Math.round(l.safe.y1) },
+               rail: { x: Math.round(l.rail.x), w: Math.round(l.rail.w), bottom: Math.round(l.rail.bottom) },
+               caption: { x: Math.round(l.caption.x), w: Math.round(l.caption.w), bottom: Math.round(l.caption.bottom) },
+               story: { x: Math.round(l.story.x), y: Math.round(l.story.y), w: Math.round(l.story.w) },
+               hud: { arrangement: h.arr, scale: Math.round(h.s * 1000) / 1000, centre: [Math.round(h.cx), Math.round(h.cy)], radius: Math.round(h.R),
+                      ring: px(e.ring), stats: px(e.stats) } }
+    }))
+  }
 
   // Pointer parallax: the pointer over the desktop shifts each layer by its
   // depth; `view` eases toward `viewTarget` (both -0.5..0.5 from the centre).
@@ -307,6 +351,7 @@ Item {
   onEmptyWorkspaceChanged: if (!emptyWorkspace) explore = "universe"
   onExploreChanged: {
     keysDown = ({})
+    Hyprland.refreshMonitors()   // the bar may have come or gone: the safe rect follows
     if (explore !== "galaxy") { gxRateIndex = 0; fallReset() }
     if (explore !== "system") {
       chasing = false
@@ -2414,6 +2459,12 @@ Item {
       root.perf = on
     }
 
+    // every screen's text zones as JSON, in logical pixels: the safe rect,
+    // rail, caption slot, story band and the HUD's plan and swept extent
+    function textReport(): string {
+      return root.textReport()
+    }
+
     function themeTransition(fromPath: string, path: string, finalPath: string, colorsB64: string, shellB64: string): void {
       root.transitionBackgroundWithTheme(fromPath, path, finalPath, colorsB64, shellB64)
     }
@@ -2476,6 +2527,9 @@ Item {
 
       // this screen's render scale and idle rate (lib/quality.js)
       readonly property var q: root.qualityOf(modelData)
+      // and its zones and type sizes (lib/layout.js)
+      readonly property var lay: root.layOf(modelData)
+      readonly property var tok: lay.tok
       readonly property var perfMeter: Q.perfCreate()
       Connections {
         target: base.Window.window
