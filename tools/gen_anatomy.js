@@ -59,7 +59,8 @@ const HOLE = {
   noSpin: { shape: { s: "impact", b: 1.5 * Math.sqrt(3) } },
   offset: { shape: { s: "shadowMid" }, label: raw("(c, g) => g && g.offset !== undefined ? g.offset.toFixed(2) + ' Rs' : '1.06 Rs'") },
   spinAxis: { shape: { s: "axis", len: 2.4, turn: 1 }, label: raw("c => 'one turn in ' + (2 * Math.PI / Kerr.horizonOmega(Kerr.horizons(c.a).rPlus, c.a) * c.unitS / 60).toFixed(1) + ' min'") },
-  horizon: { shape: { s: "profile", f: raw("(c, t) => Kerr.ksPoint(Kerr.horizons(c.a).rPlus, t, c.a)") }, label: raw("c => Kerr.horizons(c.a).rPlus.toFixed(2) + ' Rs'") },
+  // a surface of constant r is drawn as an exact spheroid (Kerr.ksPoint): r to the poles, sqrt(r^2 + a^2) at the equator
+  horizon: { shape: { s: "ell", a: raw("c => " + KS.replace("%", "Kerr.horizons(c.a).rPlus")), c: raw("c => Kerr.horizons(c.a).rPlus") }, label: raw("c => Kerr.horizons(c.a).rPlus.toFixed(2) + ' Rs'") },
   ergosphere: { shape: { s: "profile", f: raw("(c, t) => Kerr.ksPoint(Kerr.ergoRadius(t, c.a), t, c.a)") } },
   photonShell: { shape: { s: "annulus", r0: raw("c => " + KS.replace("%", "Kerr.photonOrbit(c.a, 1)")), r1: raw("c => " + KS.replace("%", "Kerr.photonOrbit(c.a, -1)")) },
                  label: raw("c => Kerr.photonOrbit(c.a, 1).toFixed(2) + ' to ' + Kerr.photonOrbit(c.a, -1).toFixed(2) + ' Rs'") },
@@ -69,7 +70,7 @@ const HOLE = {
                 fact: raw("(c, g, text) => g && g.bright > 1.5 ? text.replace('N times', Math.round(g.bright) + ' times') : text.replace(': N times brighter than the far side', '')") },
   dimSide: { shape: { s: "limb", side: -1, r: raw("c => " + KS.replace("%", "Kerr.isco(c.a, 1)")) }, label: raw("(c, g) => g && g.bright > 1.5 ? '1/' + Math.round(g.bright) + ' as bright' : 'the dimmer side'") },
   ehtRing: { shape: { s: "impact", b: 5.15 / 2, about: "shadowMid" } },
-  innerHorizon: { shape: { s: "profile", f: raw("(c, t) => Kerr.ksPoint(Kerr.horizons(c.a).rMinus, t, c.a)") }, label: raw("c => Kerr.horizons(c.a).rMinus.toFixed(2) + ' Rs'") },
+  innerHorizon: { shape: { s: "ell", a: raw("c => " + KS.replace("%", "Kerr.horizons(c.a).rMinus")), c: raw("c => Kerr.horizons(c.a).rMinus") }, label: raw("c => Kerr.horizons(c.a).rMinus.toFixed(2) + ' Rs'") },
   ring: { shape: { s: "ring", r: raw("c => c.a") }, label: raw("c => c.a.toFixed(2) + ' Rs'") },
   farSheet: { shape: { s: "ring", r: raw("c => c.a") }, fold: "ring" }
 }

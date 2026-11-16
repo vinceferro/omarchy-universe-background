@@ -9,12 +9,12 @@
 const fs = require("fs"), path = require("path")
 const dir = path.dirname(process.argv[2])
 const read = f => fs.readFileSync(path.join(dir, f), "utf8").replace(".pragma library", "").replace(/^\.import .*$/mg, "")
-const Kerr = new Function(read("kerr.js") + "\nreturn { M, horizons, photonOrbit, polarPhotonOrbit, isco, horizonOmega, gasOmega, ksPoint, ergoRadius, shadowOutline, shadowClass, impactAt, gasLight }")()
+const Kerr = new Function(read("kerr.js") + "\nreturn { M, horizons, photonOrbit, polarPhotonOrbit, isco, horizonOmega, gasOmega, ksPoint, ergoRadius, shadowOutline, shadowBasis, shadowClass, impactAt, gasLight }")()
 const Lay = new Function(read("layout.js") + "\nreturn { plan, placeLabels, labelBoxAt, hudDisc, railRect, storyRect, textW, intersects, hits, inSafe }")()
 const Tx = new Function(read("text.js") + "\nreturn { words, read, hold, HOLD_MAX_S }")()
 const Data = new Function("Kerr", read("anatomy-data.js") + "\nreturn { BODIES, LIMITS }")(Kerr)
 const A = new Function("Kerr", "Lay", "Data", fs.readFileSync(process.argv[2], "utf8").replace(".pragma library", "").replace(/^\.import .*$/mg, "")
-  + "\nreturn { MIN_PX, MAX_SCREENS, FOLD_PX, MAX_LABELS, TAGS, KINDS, DASH, records, limits, byId, bySys, byPlace, byAt, chain, labelOf, factOf, drawn, basisOf, project, hull, outline, clip, dash, allowed, compose, composeChain, hit, wordsOf, rowGeometry, holeView }")(Kerr, Lay, Data)
+  + "\nreturn { MIN_PX, MAX_SCREENS, FOLD_PX, MAX_LABELS, TAGS, KINDS, DASH, records, limits, byId, bySys, byPlace, byAt, chain, labelOf, factOf, drawn, basisOf, project, hull, outline, clip, dash, allowed, compose, composeChain, hit, wordsOf, rowGeometry, holeView, frameKey, demoCam }")(Kerr, Lay, Data)
 let fails = 0
 function check(name, ok, info) { console.log((ok ? "ok   " : "FAIL ") + name + (info !== undefined ? "  " + info : "")); if (!ok) fails++ }
 
@@ -105,7 +105,7 @@ function frame(view, yaw, pitch, o) {
   check("the unit is lib/fall.js's Schwarzschild radius (4.15 million Suns: Rs/c = 40.88 s)", Math.abs(c.unitS - 40.88) < 0.01, c.unitS.toFixed(3))
   check("a spin of 0.5 changes every one of them", A.labelOf(row("horizon"), Object.assign({}, c, { a: 0.25 }), null) === "0.93 Rs")
   // the drawing's own measurements, from the side at 20 Rs: the D
-  const f = frame(20, 0.4, 0.35), hv = A.holeView(frame(20, 0.4, 0), c)
+  const f = frame(20, 0.4, 0.35), hv = A.holeView(frame(20, 0.4, 0), c, true)
   check("from the side the drawing measures the D: flat edge near 1.3 Rs, round edge near 3.5", Math.abs(hv.g.near - 1.33) < 0.08 && Math.abs(hv.g.far - 3.5) < 0.12 && Math.abs(hv.g.width - 4.8) < 0.15, JSON.stringify(Object.keys(hv.g).map(k => k + " " + hv.g[k].toFixed(2))))
   check("the bright side is several times brighter than the far side", hv.g.bright > 3 && hv.g.bright < 1000, hv.g.bright.toFixed(1))
   const out = A.compose(rec, f, c, env({ obstacles: [] }))
@@ -149,19 +149,23 @@ function frame(view, yaw, pitch, o) {
     }
     if (geo.curves.length !== 1) worst = 1   // and no equator: a sphere has no flattening to show
   }
-  check("a sphere's outline is a circle from every angle (" + n + " points)", worst < 0.004, (worst * 100).toFixed(2) + "% off at worst")
+  check("a sphere's outline is a circle from every angle (" + n + " points)", worst < 1e-9, (worst * 100).toExponential(1) + "% off at worst")
   // a flattened surface shows its equator, and from the side its outline is as flat as it is
   const obl = { id: "t", name: "T", kind: "surface", tag: "measured", shape: { s: "ell", a: 60268, c: 54364 }, label: "1", fact: "x", source: "y" }
-  const fs_ = frame(60268 * 300, 0, 0), es = env({ obstacles: [] })
+  const fs_ = frame(60268 * 3, 0, 0, { focal: 100 }), es = env({ obstacles: [] })
   const geo = A.rowGeometry(obl, fs_, {}, es), xs = geo.curves[0].pts.map(p => p[0]), ys = geo.curves[0].pts.map(p => p[1])
   const ratio = (Math.max(...ys) - Math.min(...ys)) / (Math.max(...xs) - Math.min(...xs))
   check("Saturn's outline from the side is 9.8% flattened, with its equator drawn", geo.curves.length === 2 && Math.abs(ratio - 54364 / 60268) < 0.004, ratio.toFixed(4))
+  // any other surface of revolution goes by the hull of its points: a sphere given as a profile is the same circle to 1%
+  const prof = { id: "t", name: "T", kind: "surface", tag: "model", shape: { s: "profile", f: (c, t) => [Math.sin(t), Math.cos(t)] }, label: "1", fact: "x", source: "y" }
+  const fp = frame(5, 1, 0.7), gp = A.rowGeometry(prof, fp, {}, es), ge = A.rowGeometry(sph, fp, {}, es)
+  check("a profile's outline (the hull of its points) agrees with the exact one", Math.abs(gp.size / ge.size - 1) < 0.01 && A.rowGeometry(A.byId("sgrA").rows.find(r => r.id === "ergosphere"), frame(8, 1, 0.2), ctx(A.byId("sgrA")), es).curves.length === 2, (gp.size / ge.size).toFixed(4))
   // the eye inside a surface: nothing (it has no outline from there)
   check("no outline from inside a surface", A.rowGeometry(sph, frame(0.5, 0, 0), {}, env()) === null)
   // a day-side shield: an open arc on the Sun's side only
   const shield = { id: "t", name: "T", kind: "surface", tag: "measured", shape: { s: "ell", a: 1, c: 1, toward: "sun" }, label: "1", fact: "x", source: "y" }
   const f2 = frame(6, 0, 0.3, { sunDir: [0, 1, 0] }), g2 = A.rowGeometry(shield, f2, {}, env({ obstacles: [] }))
-  const sunSide = A.project(f2.cam, [0, 1, 0], env())[0] > lay.W / 2 ? 1 : -1
+  const sunSide = A.project(f2.cam, [0, 1, 0], env())[0] > lay.W / 2 ? 1 : -1   // (the frame's basis here is the world's)
   check("a day-side shield is an open arc on the Sun's side", !g2.curves[0].closed && g2.curves[0].pts.every(p => (p[0] - lay.W / 2) * sunSide > -3), g2.curves[0].pts.length + " points")
   check("and waits where the view has no Sun direction", A.rowGeometry(shield, frame(6, 0, 0.3, { sunDir: null }), {}, env()) === null)
   // the hull
@@ -233,6 +237,24 @@ function frame(view, yaw, pitch, o) {
   check("every line stays inside the safe rect and out of the HUD's disc and the rail (" + nSegs + " strokes)", outside.filter(s => !/label/.test(s)).length === 0, [...new Set(outside)].slice(0, 5).join(", "))
   check("every label stays inside the safe rect, out of the disc and the rail, and off every other label (" + nLabels + " labels)", outside.filter(s => /label/.test(s)).length === 0 && stacked.length === 0, [...new Set(outside.concat(stacked))].slice(0, 5).join(", "))
   check("never more than six labels at once", many.length === 0, [...new Set(many)].join(" "))
+}
+
+// ---- 6b. what takes long waits for the camera to rest; a frame's key; the frame of its own ----
+{
+  const rec = A.byId("sgrA"), c = ctx(rec), f = frame(17, 1.1, 0.3)
+  A.holeView(f, Object.assign({}, c, { a: 0.2 }), false)   // another hole: nothing remembered
+  const moving = A.compose(rec, f, c, env({ obstacles: [], still: false }))
+  check("while the camera moves the bright side has no figure yet", moving.rows.find(r => r.id === "brightSide").num === "the brighter side" && moving.g.bright === 0)
+  const rest = A.compose(rec, f, c, env({ obstacles: [], still: true }))
+  check("at rest it has", /times brighter/.test(rest.rows.find(r => r.id === "brightSide").num), rest.rows.find(r => r.id === "brightSide").num)
+  const f2 = frame(17.2, 1.12, 0.3), glide = A.compose(rec, f2, c, env({ obstacles: [], still: false }))
+  check("and keeps the last one while it glides on", glide.g.bright === rest.g.bright)
+  // between two workings-out the last shape serves, scaled with the distance: the width it measures barely moves
+  check("while it glides the last shape serves, scaled with the distance", Math.abs(glide.g.width - rest.g.width) < 0.02 && Math.abs(glide.rows.find(r => r.id === "shadow").size / rest.rows.find(r => r.id === "shadow").size - 17 / 17.2) < 0.01, glide.g.width.toFixed(3) + " " + rest.g.width.toFixed(3))
+  check("a frame's key: the same for the same view, another for another", A.frameKey(rec, f, c) === A.frameKey(rec, frame(17, 1.1, 0.3), c) && A.frameKey(rec, f, c) !== A.frameKey(rec, f2, c) && A.frameKey(rec, f, c) !== A.frameKey(rec, f, Object.assign({}, c, { a: 0.2 })))
+  const fd = frame(1, 0, 0); fd.cam = A.demoCam(fd, 12)
+  const demo = A.compose(rec, fd, c, env({ obstacles: [] }))
+  check("a frame of its own: the body in the middle of the screen, 12 units to the screen's height", !!demo && Math.abs(A.project(fd.cam, [0, 0, 0], env())[0] - lay.W / 2) < 1e-6 && Math.abs(Math.hypot(...fd.cam.C) - 12) < 1e-9, demo.rows.map(r => r.id).join(" "))
 }
 
 // ---- 7. clipping, the row being told, pointing ----

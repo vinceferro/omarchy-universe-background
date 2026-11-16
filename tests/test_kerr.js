@@ -530,6 +530,11 @@ function verlet(x0, v0) {
     }
   }
   check("points just inside the outline are captured, just outside escape (classifier and march)", agree)
+  // a warm start from a camera close by finds the same edge
+  {
+    const o1 = K.shadowOutline([20, 3, 4], A94, 64), o2c = K.shadowOutline([20.3, 3.1, 3.9], A94, 64), o2w = K.shadowOutline([20.3, 3.1, 3.9], A94, 64, o1)
+    check("a warm start finds the same outline", Math.max(...o2c.pts.map((p, i) => Math.abs(p.theta / o2w.pts[i].theta - 1))) < 3e-4)
+  }
   check("no outline for a camera below the horizon", K.shadowOutline([0, 0, 0.5], A94, 8) === null)
   // the gas's light: beside the flat edge the picture is several times brighter than beside the round one,
   // from a tilted view and from the equator's plane alike; none toward the empty sky
