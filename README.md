@@ -448,7 +448,7 @@ Everything is reachable through the shell's IPC, `omarchy-shell background <func
 | `textHold <level>` | a level for now (a film, a tour), shown instead of the saved one and never saved; `textHold ""` lets go of it, and so does any `T` or `H` |
 | `hud <0..1>` | cockpit brightness until the shell restarts (default 0.38) |
 | `film <true/false>` | film mode for recording: the level `off` for as long as it is on, reached over 1.5 s, so only the caption shows; the saved level is untouched (film itself is not remembered) |
-| `caption <title> <body>` | a quiet lower-third caption that fades in, replacing the last one; `caption "" ""` fades it out. It shows at every level; outside film mode the cockpit or the key column steps aside while it touches them |
+| `caption <title> <body>` | a quiet lower-third caption that fades in, replacing the last one; `caption "" ""` fades it out. It shows at every level; outside film mode the cockpit, the key column or the mode caption steps aside while it touches them |
 | `tourKeys <rows>` | a tour's own keys in the bottom-left column, in place of the view's hints and the place card: `"SPACE=next; B=back; ESC=leave"`; `tourKeys ""` ends it |
 | `textReport` | prints, as JSON: the level, a hold, what is showing right now, and every screen's zones in logical pixels (safe rect, rail, caption slot, story band, the HUD's centre, scale, arrangement and reach) |
 | `textDebug <true/false>` | outlines those zones over the scene, with a circle that must lie on the HUD's outer bracket |

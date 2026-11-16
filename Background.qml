@@ -1512,6 +1512,7 @@ Item {
   property real railNow: 0
   property real statsNow: 0
   property real storyNow: 0
+  property real toastNow: 0   // the level toast's height while it has the caption slot
   readonly property bool captionUp: captionWords > 0 && presCaption * gateNames > 0.01
   readonly property var labelState: ({ sides: {}, beacons: [] })   // the side each name had; the beacon words' boxes
   property var markerLabels: ({})   // moon / earth / sun: label shown, side
@@ -1522,6 +1523,7 @@ Item {
     const l = lay0, keep = []
     if (railNow > 0) keep.push(Lay.railRect(l, railNow))
     if (captionUp) keep.push(Lay.captionRect(l, l.caption.maxH))
+    else if (toastNow > 0) keep.push(Lay.captionRect(l, toastNow))   // in a view without a caption the toast still stands there
     const cover = keep.slice()   // where a dot hides too: the rail, the caption, the readouts
     let disc = null
     if (gateCockpit > 0.01) {
@@ -2758,10 +2760,12 @@ Item {
       property real statsH: 0   // the readouts' height (set from inside the live layer)
       Binding { target: root; property: "statsNow"; value: panel.statsH; when: panel.first }
       Binding { target: root; property: "railNow"; value: rail.visible ? rail.height : 0; when: panel.first }
+      Binding { target: root; property: "toastNow"; value: toast.up > 0 ? toast.height : 0; when: panel.first }
       // A story caption (film, a tour, IPC `caption`) wins its band: while it
       // shows, a zone its rect touches steps aside, the whole cockpit
       // together (never rings without their text), over the HUD's whole
-      // drift so it does not flicker; a rail of a few rows stays clear of it.
+      // drift so it does not flicker; a rail of a few rows stays clear of it,
+      // and so does the caption slot unless the story runs to many lines.
       readonly property bool storyUp: filmCaption.opacity > 0.01
       readonly property var storyBox: Lay.storyRect(lay, filmCaption.height)
       readonly property var hudReach: Lay.hudExtent(lay, statsH)
@@ -2769,9 +2773,13 @@ Item {
       Behavior on cockpitStep { NumberAnimation { duration: Tx.FADE_OUT_S * 1000; easing.type: Easing.InOutSine } }
       property real railStep: storyUp && Lay.intersects(storyBox, Lay.railRect(lay, rail.height)) ? 0 : 1
       Behavior on railStep { NumberAnimation { duration: Tx.FADE_OUT_S * 1000; easing.type: Easing.InOutSine } }
+      property real captionStep: storyUp && Lay.intersects(storyBox, Lay.captionRect(lay, lay.caption.maxH)) ? 0 : 1
+      Behavior on captionStep { NumberAnimation { duration: Tx.FADE_OUT_S * 1000; easing.type: Easing.InOutSine } }
+      // what a mode caption has of its slot: the toast and a story caption come first
+      readonly property real captionSlot: toast.slot * captionStep
       Binding { target: root; property: "storyNow"; value: filmCaption.opacity > 0.01 ? filmCaption.height : 0; when: panel.first }
       // where a marker may not sit: this screen's rail and caption as they stand
-      readonly property var keepRects: [Lay.railRect(lay, rail.visible ? rail.height : 0), Lay.captionRect(lay, root.captionUp ? lay.caption.maxH : 0)]
+      readonly property var keepRects: [Lay.railRect(lay, rail.visible ? rail.height : 0), Lay.captionRect(lay, root.captionUp ? lay.caption.maxH : toast.up > 0 ? toast.height : 0)]
       readonly property var perfMeter: Q.perfCreate()
       Connections {
         target: base.Window.window
@@ -3567,7 +3575,7 @@ Item {
 
         // caption, in the caption slot, in the HUD's voice
         Column {
-          opacity: toast.slot
+          opacity: panel.captionSlot
           x: panel.lay.caption.x
           width: panel.lay.caption.w
           y: panel.lay.caption.bottom - height
@@ -3618,7 +3626,7 @@ Item {
       // ---- Sky mode caption ----
       Column {
         visible: root.liveBackground && root.skyMix > 0.01
-        opacity: root.skyMix * toast.slot
+        opacity: root.skyMix * panel.captionSlot
         x: panel.lay.caption.x
         width: panel.lay.caption.w
         y: panel.lay.caption.bottom - height
@@ -3699,7 +3707,7 @@ Item {
 
         // caption, in the caption slot
         Column {
-          opacity: toast.slot
+          opacity: panel.captionSlot
           x: panel.lay.caption.x
           width: panel.lay.caption.w
           y: panel.lay.caption.bottom - height
@@ -3860,7 +3868,7 @@ Item {
         property real up: 0
         readonly property real slot: Math.max(0, 1 - 2 * up)   // what the caption has of it
         visible: root.liveBackground && opacity > 0
-        opacity: Math.max(0, 2 * up - 1) * 0.85
+        opacity: Math.max(0, 2 * up - 1) * 0.85 * panel.captionStep
         x: panel.lay.caption.x
         width: panel.lay.caption.w
         y: panel.lay.caption.bottom - height
