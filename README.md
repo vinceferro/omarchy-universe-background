@@ -720,6 +720,16 @@ with `node tests/test_layout.js lib/layout.js`; the render scale, GPU probe,
 idle pacing and frame meter (`lib/quality.js`) with `node
 tests/test_quality.js lib/quality.js`.
 
+The hole's tracer can be run by itself, off screen, on the GPU:
+`tools/hole_layer.py hole.frag fallE=0` draws `hole.frag`'s layer for one
+camera (no window: an EGL device context; needs numpy) and reports the
+shadow's size, the texels of each kind, the lone texels inside the dark that
+the march let escape (each is a 3x3 px dot on screen), the gas's light and
+its texel-to-texel grain. `camPos=`, `camFwd=`, `fallE=`, `spin=` and the
+other uniforms are arguments; `out=layer.npy` keeps the layer. It is the
+shader with the GPU's 32-bit floats, which the double-precision port in
+`lib/kerr.js` does not reproduce.
+
 The text's timing is in `lib/text.js` (`HOLD_S`, `WORDS_PER_S`, `HOLD_MAX_S`,
 the fades) and its geometry in `lib/layout.js`: the margins, the HUD's drift
 budget and where the readouts go (`WIDE`), and `tokens()`, every type size as
