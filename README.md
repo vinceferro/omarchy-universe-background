@@ -412,7 +412,7 @@ Everything is reachable through the shell's IPC, `omarchy-shell background <func
 | `status` | prints `<view> <fall phase or -> <radius in Rs, signed> <real/math>`, e.g. `galaxy outer-horizon 0.52 real`, for scripts; the phases are `falling`, `outer-horizon`, `inner-horizon`, `ring`, `other-universe`, `out`, `in` |
 | `quality <level>` | render quality: `auto` (default), `full`, `high`, `balanced`, `low`, or a render scale from 0.25 to 1; remembered across restarts (see [Adaptive quality](#adaptive-quality)) |
 | `qualityInfo` | prints what each screen runs at, e.g. `eDP-1 120 Hz: auto (apple): scale 0.50, 1728x1117, idle 30 fps` |
-| `perf <true/false>` | frame-time meter: every 5 s each screen logs its frame rate, average and longest frame time to the shell's log (not remembered) |
+| `perf <true/false>` | frame meter: every 5 s each screen logs its frame rate and the average and longest interval between frames to the shell's log (not remembered) |
 | `refresh`, `set <path>`, `setInstant <path>`, `transition <from> <to>`, `themeTransition ...` | the stock background plugin's functions, unchanged |
 
 ## Real data and accuracy
@@ -506,25 +506,35 @@ how often the idle sky redraws:
 
 | GPU (DRM driver) | Render scale | Idle sky |
 |---|---|---|
-| NVIDIA (`nvidia`, `nouveau`) | 1: every device pixel, straight to the screen | 60 fps |
+| NVIDIA (`nvidia`) | 1: every device pixel, straight to the screen | 60 fps |
 | Apple (`asahi`) | one texel per logical pixel (1 / monitor scale), then down to 300 MP/s | 30 fps |
 | AMD (`amdgpu`, `radeon`) | the same, 300 MP/s | 30 fps |
 | Intel (`i915`, `xe`) | the same, 120 MP/s | 30 fps |
-| anything else | the same, 200 MP/s | 30 fps |
+| anything else (`nouveau` too) | the same, 200 MP/s | 30 fps |
 
 MP/s is render width x height x refresh rate; over the budget, the scale
-drops in steps of 0.05, never below 0.35. The budgets are estimates from the
+drops in steps of 0.05, never below 0.35; a scale that would land above 0.9
+stays at 1, since a texture in between is not worth a tenth of the pixels.
+The budgets are estimates from the
 3080 Ti, to be corrected with `perf true`. A MacBook Pro 16 (3456x2234 at
 120 Hz, Hyprland scale 2) lands on scale 0.5: 1728x1117, a quarter of the
 pixels, which is the size the shaders already measure stars and HUD lines in.
 
 Below scale 1 the full pass renders into a texture and is stretched smoothly
-over the screen; the half- and third-size layers shrink with it, and the
-clock, readouts, labels and markers (QML text on top) stay at device
-resolution. Below one texel per logical pixel the shaders' `resolution`
+over the screen; the nebula and the Milky Way volume (the half- and
+third-size layers) shrink with it, the black hole's tracer keeps its size,
+and the clock, readouts, labels and markers (QML text on top) stay at device
+resolution. The full pass is recreated whenever it changes between direct
+and textured. Below one texel per logical pixel the shaders' `resolution`
 shrinks too, so stars grow instead of flickering. The idle cap only holds
 while nothing eases: moving the pointer or leaving a view gets 60 fps until
 it settles, and exploring always runs at the display's rate.
+
+`perf true` times the interval between presented frames, not the GPU's work
+on one: under the idle cap it reads about 33 ms however light the frame is,
+so headroom only shows while exploring, as a rate below the display's. The
+interval is taken when the shell's main thread hears of the frame, so a busy
+moment there can lengthen a peak.
 
 `quality <level>` overrides the choice and is remembered in
 `~/.local/state/universe-background/quality` (`quality auto` removes it):
@@ -545,7 +555,8 @@ To compare on a new machine (`perf` logs through the shell, e.g.
 2. `omarchy-shell background perf true`, then `quality full` (how it ran
    before) for 20 s idle and 20 s in the Milky Way view; note fps, avg, peak.
 3. `quality auto` and the same again. Idle should read about 30 fps with a
-   peak near 33 ms; exploring, the display's rate.
+   peak near 33 ms; exploring, the display's rate. The sky must still drift
+   after each change of level (the full pass is recreated).
 4. Still short while exploring: `quality low` or a number (`quality 0.4`).
    Too soft and fast enough: `quality high` or `quality 0.75`.
 5. `perf false`.

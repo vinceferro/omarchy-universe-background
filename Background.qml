@@ -122,10 +122,13 @@ Item {
   }
 
   // The soft nebula layer drifts slowly, so it re-renders ~10 times a second.
+  // Under an idle cap the tick itself moves it on (every third 32 ms tick):
+  // a timer on its own phase would present extra frames between the capped ones.
   property real nebulaTime: 0
+  property real lastNebulaAt: 0
   Timer {
     interval: root.navigating ? 16 : 100
-    running: root.animate
+    running: root.animate && (root.navigating || root.idleFps >= Q.IDLE_FULL)
     repeat: true
     onTriggered: root.nebulaTime = root.shaderTime
   }
@@ -217,8 +220,9 @@ Item {
   function qualityInfo() {
     return Quickshell.screens.map(s => s.name + " " + Math.round(refreshOf(s.name)) + " Hz: " + Q.describe(qualityOf(s))).join("; ")
   }
-  // Frame-time meter (IPC `perf true`): every 5 s each screen logs its
-  // presented frames (rate, average and longest interval) with console.warn
+  // Frame meter (IPC `perf true`): every 5 s each screen logs its presented
+  // frames (rate, average and longest interval between them, as this thread
+  // hears of them; not the GPU's time per frame) with console.warn
   property bool perf: false
 
   Process { id: qualityFileProc }
@@ -1366,6 +1370,7 @@ Item {
     const dt = Math.min(0.1, frameDt !== undefined ? frameDt : (now - lastTick) / 1000)
     lastTick = now
     shaderTime = ((now - shaderEpoch) / 1000) % 600
+    if (idleFps < Q.IDLE_FULL && !navigating && now - lastNebulaAt >= 90) { nebulaTime = shaderTime; lastNebulaAt = now }
 
     const thrust = navigating ? key("w") - key("s") : 0
     mix.speed.g = navigating ? 0.25 + thrust * 0.9 : 0
@@ -2524,10 +2529,15 @@ Item {
       // when showing a static background and freshly recreated when the live
       // one returns. A long-lived ShaderEffect that has been hidden (either
       // via `visible` or `opacity`) stops receiving uniform updates for good
-      // on this stack; a freshly created instance always animates.
+      // on this stack; a freshly created instance always animates. Turning
+      // the full pass's layer on takes it out of the scene in the same way,
+      // so a change of `layered` (the GPU probe answering, IPC `quality`)
+      // recreates it too: an instance keeps the layer it was created with.
       Loader {
         anchors.fill: parent
         active: root.liveBackground
+        readonly property bool layered: panel.q.layered
+        onLayeredChanged: if (active) { active = false; active = Qt.binding(() => root.liveBackground) }
         sourceComponent: Component {
           Item {
             // Soft layer (nebula, galaxies) at half size into a float texture:

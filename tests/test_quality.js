@@ -31,7 +31,12 @@ const igpu = Q.choose({ level: "auto", gpu: "intel", width: 2560, height: 1440, 
 check("Intel 1440p60: scaled to its budget", igpu.scale === 0.7 && igpu.texW * igpu.texH * 60 / 1e6 <= Q.BUDGET.intel, show(igpu))
 check("  below a texel per pixel: resolution follows the texture", igpu.res === igpu.texels && igpu.res < 1)
 const small = Q.choose({ level: "auto", gpu: "intel", width: 1920, height: 1080, dpr: 1, hz: 60 })
-check("Intel 1080p60 just over budget: one step down", small.scale === 0.95 && small.layered, show(small))
+check("Intel 1080p60 just over budget: not worth a texture, direct", small.scale === 1 && !small.layered, show(small))
+const step = Q.choose({ level: "auto", gpu: "intel", width: 1920, height: 1080, dpr: 1, hz: 75 })
+check("Intel 1080p75: the first step that is taken is 0.85", step.scale === 0.85 && step.layered, show(step))
+let gap = true
+for (let hz = 30; hz <= 360; hz += 1) { const s = Q.autoScale("intel", 1920, 1080, 1, hz); if (s > 0.9 && s !== 1) gap = false }
+check("no automatic scale between 0.9 and 1", gap && Q.autoScale("amd", 2016, 1134, 1.05, 60) === 1)
 const fits = Q.choose({ level: "auto", gpu: "amd", width: 1920, height: 1080, dpr: 1, hz: 60 })
 check("AMD 1080p60 fits: full scale, direct", fits.scale === 1 && !fits.layered && fits.idleFps === 30, show(fits))
 const huge = Q.choose({ level: "auto", gpu: "intel", width: 3840, height: 2160, dpr: 1, hz: 144 })
@@ -75,7 +80,8 @@ const hybrid = Q.parseProbe("* i915\n* nvidia\neDP-1 i915\nDP-3 nvidia\n")
 check("hybrid: each screen by its own card", Q.screenGpu(hybrid, "eDP-1") === "intel" && Q.screenGpu(hybrid, "DP-3") === "nvidia")
 check("an unlisted connector: the first rendering card", Q.screenGpu(lapProbe, "DP-9") === "apple" && Q.screenGpu(hybrid, "DP-9") === "intel")
 check("no probe yet, or an empty one: unknown", Q.screenGpu(null, "eDP-1") === "unknown" && Q.screenGpu(Q.parseProbe(""), "eDP-1") === "unknown")
-check("driver names", Q.gpuClass("amdgpu") === "amd" && Q.gpuClass("xe") === "intel" && Q.gpuClass("nouveau") === "nvidia" && Q.gpuClass("simpledrm") === "" && Q.gpuClass("vc4") === "unknown")
+check("driver names", Q.gpuClass("amdgpu") === "amd" && Q.gpuClass("xe") === "intel" && Q.gpuClass("nvidia") === "nvidia" && Q.gpuClass("nouveau") === "unknown" && Q.gpuClass("simpledrm") === "" && Q.gpuClass("vc4") === "unknown")
+check("nouveau is not the reference: budgeted and idle at 30", (c => c.gpu === "unknown" && c.scale < 1 && c.idleFps === 30)(Q.choose({ level: "auto", gpu: Q.screenGpu(Q.parseProbe("* nouveau\nDP-1 nouveau\n"), "DP-1"), width: 5120, height: 2160, dpr: 1, hz: 165 })))
 check("junk lines are skipped", Q.parseProbe("garbage\n\n* \n a b c\n* amdgpu").cards.join() === "amdgpu")
 
 // 6. idle pacing off a 16 ms clock: 60 passes every firing, 30 every second one, lively always
@@ -107,7 +113,7 @@ Q.perfFrame(st, t + 10)
 const r2 = Q.perfTake(st)
 check("the next window starts clean and loses no interval", r2.frames === 1 && r2.avgMs === 10 && r2.peakMs === 10)
 const line = Q.perfLine("eDP-1", r, "idle", lap)
-check("the log line names screen, mode, numbers and quality", /^universe perf eDP-1 \[idle\]: [\d.]+ fps, avg [\d.]+ ms, peak 40 ms, 119 frames \| auto \(apple\): scale 0\.50, 1728x1117, idle 30 fps$/.test(line), line)
+check("the log line names screen, mode, numbers and quality", /^universe perf eDP-1 \[idle\]: [\d.]+ fps, interval avg [\d.]+ ms, peak 40 ms, 119 frames \| auto \(apple\): scale 0\.50, 1728x1117, idle 30 fps$/.test(line), line)
 check("direct is said", /5120x2160 direct, idle 60 fps$/.test(show(box)), show(box))
 
 if (fails) { console.log(fails + " failed"); process.exit(1) }
