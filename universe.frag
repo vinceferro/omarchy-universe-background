@@ -17,7 +17,8 @@ layout(std140, binding = 0) uniform buf {
     vec4 accent;     // theme accent (Color.accent)
     float hudLevel;  // HUD brightness, 0 hides it
     vec2 view;       // eased pointer offset from the screen centre, -0.5..0.5
-    vec2 hudCenter;  // HUD centre in p coordinates (drift and pointer applied)
+    vec2 hudCenter;  // HUD centre in p coordinates (this screen's anchor, drift and pointer applied)
+    float hudScale;  // HUD size: 1 on a wide screen, smaller on a narrow one (lib/layout.js)
     float flight;    // distance travelled forward, in star-layer depths
     float cpu;       // gauges, 0..1
     float gpu;
@@ -693,9 +694,15 @@ float gauge(float ang01, float frac, float R, float px) {
 // (highlight ring), memory (dots) and the seconds of the minute (inner ring).
 // The centre drifts slowly (set in Background.qml) and the rest is dim and
 // moving, so no line sits on the same OLED pixels for long.
+// The rings are laid out in the HUD's own units (q: one screen height at
+// scale 1), so every radius shrinks with hudScale on a narrow screen. Line
+// widths do not: HW gives a half-width in screen units, never under 0.6 of a
+// texel, in q units; px is a texel in q units.
+#define HW(w) (max(w, 0.6 / resolution.y) * k)
 vec3 hud(vec2 p, float t, vec3 cA, vec3 cB) {
-    float px = 1.0 / resolution.y;
-    vec2 q = p - hudCenter;
+    float k = 1.0 / max(hudScale, 0.01);
+    float px = k / resolution.y;
+    vec2 q = (p - hudCenter) * k;
     float r = length(q);
     if (r > 0.25) return vec3(0.0);
     float a = atan(-q.y, q.x);            // screen y points down
@@ -711,20 +718,20 @@ vec3 hud(vec2 p, float t, vec3 cA, vec3 cB) {
 
     // seconds: a short arc gliding once round the inner ring each minute
     float lag = fract(secs - ang01);
-    m += ring(r, 0.085, 0.0012, px) * max(0.15, exp(-lag * 18.0) * smoothstep(0.0, 0.004, 1.0 - lag));
+    m += ring(r, 0.085, HW(0.0012), px) * max(0.15, exp(-lag * 18.0) * smoothstep(0.0, 0.004, 1.0 - lag));
 
     // rotating tick ring (decoration)
-    m += 0.6 * ticks(r, a, -W * 4.0 * t, 72.0, 0.110, 0.007, 0.0007, px);
+    m += 0.6 * ticks(r, a, -W * 4.0 * t, 72.0, 0.110, 0.007, HW(0.0007), px);
 
     // CPU on the heavy ring, GPU just outside it in the highlight colour
-    m += ring(r, 0.150, 0.0028, px) * gauge(ang01, cpu, 0.150, px);
-    hm += ring(r, 0.172, 0.0018, px) * gauge(ang01, gpu, 0.172, px);
+    m += ring(r, 0.150, HW(0.0028), px) * gauge(ang01, cpu, 0.150, px);
+    hm += ring(r, 0.172, HW(0.0018), px) * gauge(ang01, gpu, 0.172, px);
 
     // memory: the dots light up along the same 270-degree span
-    m += 0.9 * dots(r, a, 0.0, 120.0, 0.198, 0.0013, px) * gauge(ang01, mem, 0.198, px);
+    m += 0.9 * dots(r, a, 0.0, 120.0, 0.198, HW(0.0013), px) * gauge(ang01, mem, 0.198, px);
 
     // outer 270-degree bracket, slowly turning
-    m += 0.5 * ring(r, 0.232, 0.0007, px) * arcs(a, W * 3.0 * t, 1.0, 0.75, 0.232, px);
+    m += 0.5 * ring(r, 0.232, HW(0.0007), px) * arcs(a, W * 3.0 * t, 1.0, 0.75, 0.232, px);
 
     return ((cA * m + cB * hm) * reveal + cA * edge * 0.6) * hudLevel;
 }

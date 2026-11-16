@@ -329,7 +329,7 @@ Item {
   function textReport() {
     const px = b => ({ x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.w), h: Math.round(b.h) })
     return JSON.stringify(Quickshell.screens.map(s => {
-      const l = layOf(s), e = Lay.hudExtent(l), h = Lay.hudAt(l, [0, 0])
+      const l = layOf(s), e = Lay.hudExtent(l), h = Lay.hudAt(l, [hudDrift.x, hudDrift.y])
       return { screen: s.name, size: [s.width, s.height],
                safe: { x0: Math.round(l.safe.x0), y0: Math.round(l.safe.y0), x1: Math.round(l.safe.x1), y1: Math.round(l.safe.y1) },
                rail: { x: Math.round(l.rail.x), w: Math.round(l.rail.w), bottom: Math.round(l.rail.bottom) },
@@ -1496,9 +1496,16 @@ Item {
 
   function key(name) { return keysDown[name] ? 1 : 0 }
 
-  // HUD centre in shader coordinates: right third of the screen, drifting
-  // slowly (OLED) and leaning toward the pointer.
-  property vector2d hudCenter: Qt.vector2d(0.57, 0.02)
+  // The HUD centre's offset from its anchor, in shader coordinates: drifting
+  // slowly (OLED) and leaning toward the pointer, within +-0.10 and +-0.08.
+  // Each screen has its own anchor and HUD scale (lib/layout.js: right of
+  // centre on a wide screen, the top right corner on a narrow one) and adds
+  // this, times the scale, to it; the rings and the text read that one place.
+  property vector2d hudDrift: Qt.vector2d(0, 0)
+  // IPC `textDebug true`: the plan drawn over the scene (safe rect, rail,
+  // caption slot, story band, the readouts' rect, and a circle that must lie
+  // on the rings' outer bracket at any render scale)
+  property bool textDebug: false
 
   // frameDt: the FrameAnimation's own clock (monotonic, sub-millisecond); the
   // fallback Timer passes nothing and the wall clock serves (whole milliseconds:
@@ -1527,9 +1534,9 @@ Item {
 
     // Same one-cycle-per-600 s rates as the shader, so the wrap never jumps.
     const w = 2 * Math.PI / 600
-    hudCenter = Qt.vector2d(
-      0.57 + 0.06 * Math.sin(w * 2 * shaderTime) + view.x * 0.08,
-      0.02 + 0.04 * Math.sin(w * 3 * shaderTime + 1.3) + view.y * 0.08)
+    hudDrift = Qt.vector2d(
+      0.06 * Math.sin(w * 2 * shaderTime) + view.x * 0.08,
+      0.04 * Math.sin(w * 3 * shaderTime + 1.3) + view.y * 0.08)
 
     // solar system: the Sun's place in the universe view (left third, drifting),
     // which the camera's principal point follows while it is the corner view
@@ -2569,6 +2576,11 @@ Item {
       return root.textReport()
     }
 
+    // draw the zones over the scene, to check them by eye
+    function textDebug(on: bool): void {
+      root.textDebug = on
+    }
+
     function themeTransition(fromPath: string, path: string, finalPath: string, colorsB64: string, shellB64: string): void {
       root.transitionBackgroundWithTheme(fromPath, path, finalPath, colorsB64, shellB64)
     }
@@ -2634,6 +2646,8 @@ Item {
       // and its zones and type sizes (lib/layout.js)
       readonly property var lay: root.layOf(modelData)
       readonly property var tok: lay.tok
+      // its HUD where it is now: centre, radius and the readouts' rect, in pixels
+      readonly property var hud: Lay.hudAt(lay, [root.hudDrift.x, root.hudDrift.y])
       readonly property var perfMeter: Q.perfCreate()
       Connections {
         target: base.Window.window
@@ -2867,7 +2881,8 @@ Item {
               property color accent: Color.accent
               property real hudLevel: root.hudLevel
               property vector2d view: root.view
-              property vector2d hudCenter: root.hudCenter
+              property vector2d hudCenter: Qt.vector2d((panel.hud.cx - panel.lay.W / 2) / panel.lay.H, panel.hud.cy / panel.lay.H - 0.5)
+              property real hudScale: panel.lay.hud.s
               property real flight: root.flight
               property real cpu: root.idleFps < Q.IDLE_FULL ? root.gauges.x : root.cpu
               property real gpu: root.idleFps < Q.IDLE_FULL ? root.gauges.y : root.gpu
@@ -2945,18 +2960,22 @@ Item {
             }
 
             // HUD readouts in the shell font: the time inside the rings and the
-            // gauge values beside them, moving with the HUD centre.
+            // gauge values beside them (under them on a narrow screen), moving
+            // with the HUD centre and sized with its scale.
             Item {
               id: readout
               readonly property real hudOpacity: Math.min(0.75, root.hudLevel * 1.8)
               readonly property real unit: panel.height
-              readonly property real cx: (root.hudCenter.x * panel.height / panel.width + 0.5) * panel.width
-              readonly property real cy: (root.hudCenter.y + 0.5) * panel.height
-              readonly property real rowSize: Math.round(unit * 0.0105)
+              readonly property real s: panel.lay.hud.s
+              readonly property real cx: panel.hud.cx
+              readonly property real cy: panel.hud.cy
+              readonly property real rowSize: panel.tok.body
+              // the text joins the rings' draw-in over its last 40%
+              readonly property real bootIn: Math.max(0, Math.min(1, (root.bootLevel - 0.6) / 0.4))
 
               Column {
                 visible: root.hudLevel > 0
-                opacity: readout.hudOpacity
+                opacity: readout.hudOpacity * readout.bootIn
                 x: readout.cx - width / 2
                 y: readout.cy - height / 2
                 spacing: 0
@@ -2965,7 +2984,7 @@ Item {
                   text: Qt.formatTime(root.now, "HH:mm")
                   color: Color.foreground
                   font.family: Style.resolvedFontFamily
-                  font.pixelSize: Math.round(readout.unit * 0.026)
+                  font.pixelSize: panel.tok.display
                   font.weight: Font.Light
                 }
                 Text {
@@ -2973,8 +2992,8 @@ Item {
                   text: Qt.formatDate(root.now, "ddd d MMM").toUpperCase()
                   color: Color.accent
                   font.family: Style.resolvedFontFamily
-                  font.pixelSize: Math.round(readout.unit * 0.0085)
-                  font.letterSpacing: 2
+                  font.pixelSize: panel.tok.label
+                  font.letterSpacing: panel.tok.label * panel.tok.track.normal
                 }
               }
 
@@ -2986,7 +3005,7 @@ Item {
                   id: beacon
                   required property int index
                   readonly property var b: root.navBeacons[index]
-                  readonly property real ringR: readout.unit * 0.248
+                  readonly property real ringR: readout.unit * Lay.BEACON * readout.s
                   visible: !!b && root.hudLevel > 0 && root.explore !== "universe"
                   opacity: readout.hudOpacity * root.presLabel * (b && b.behind ? 0.55 : 1)
                   x: readout.cx + Math.cos(b ? b.ang : 0) * ringR
@@ -3012,51 +3031,68 @@ Item {
                 }
               }
 
-              Column {
+              // the readouts: a fixed column beside the ring, centred on it,
+              // or under it, as wide as the ring; values wrap to three lines
+              // and it never grows past what the plan leaves it
+              Item {
+                id: statsBox
+                readonly property var at: panel.hud.stats
                 visible: root.hudLevel > 0
-                opacity: readout.hudOpacity
-                id: statsColumn
-                x: readout.cx + readout.unit * 0.255
-                y: readout.cy - height / 2
-                spacing: Math.round(readout.unit * 0.004)
+                opacity: readout.hudOpacity * readout.bootIn
+                x: at.x
+                y: panel.hud.arr === "beside" ? readout.cy - height / 2 : at.y
+                width: at.w
+                height: Math.min(statsColumn.height, at.h)
+                clip: statsColumn.height > at.h
+                Column {
+                  id: statsColumn
+                  width: parent.width
+                  spacing: panel.tok.row
 
-                Repeater {
-                  model: root.explore !== "universe" && root.explore !== "flight" && root.navRows.length > 0
-                    ? [{ label: "SYS", color: Color.accent,
-                         value: "CPU " + Math.round(root.stats.cpu * 100) + "%  ·  GPU " + Math.round(root.stats.gpu * 100) + "% " + Math.round(root.stats.gpuWatts) + " W  ·  MEM " + root.stats.memUsed.toFixed(1) + " GB" }]
-                      .concat(root.navRows.map(r => ({ label: r.label, color: root.hudHighlight, value: r.value })))
-                    : [
-                    { label: "CPU", color: Color.accent,
-                      value: Math.round(root.stats.cpu * 100) + "%  " + Math.round(root.stats.cpuTemp) + "°C" },
-                    { label: "GPU", color: root.hudHighlight,
-                      value: Math.round(root.stats.gpu * 100) + "%  " + Math.round(root.stats.gpuWatts) + " W  " + Math.round(root.stats.gpuTemp) + "°C" },
-                    { label: "MEM", color: Color.accent,
-                      value: root.stats.memUsed.toFixed(1) + " / " + root.stats.memTotal.toFixed(0) + " GB" },
-                    { label: "NAV", color: root.hudHighlight, value: "FLIGHT", hidden: !root.navigating },
-                    { label: "SYS", color: root.hudHighlight,
-                      value: (root.chasing ? (root.chaseLocked ? "LOCKED ON " + root.chaseTargetName.toUpperCase() + " VECTOR  " : "CHASE  ") : "")
-                        + (root.follow > 0 ? "PINNED " + root.followName.toUpperCase() + (root.chasing ? " → " + root.chaseTargetName.toUpperCase() : "") + "  "
-                           : root.follow === 0 ? "SUN  " : "FREE  ")
-                        + Qt.formatDateTime(new Date(root.simMs), "d MMM yyyy HH:mm").toUpperCase() + "  "
-                        + root.simRateNames[root.simRateIndex] + (root.autoOrbit ? "  AUTO ORBIT" : ""),
-                      hidden: root.explore !== "system" }
-                  ]
-                  Row {
-                    required property var modelData
-                    visible: !modelData.hidden
-                    spacing: Math.round(readout.unit * 0.008)
-                    Text {
-                      text: modelData.label
-                      color: modelData.color
-                      font.family: Style.resolvedFontFamily
-                      font.pixelSize: readout.rowSize
-                      font.letterSpacing: 2
-                    }
-                    Text {
-                      text: modelData.value
-                      color: Color.foreground
-                      font.family: Style.resolvedFontFamily
-                      font.pixelSize: readout.rowSize
+                  Repeater {
+                    model: root.explore !== "universe" && root.explore !== "flight" && root.navRows.length > 0
+                      ? [{ label: "SYS", color: Color.accent,
+                           value: "CPU " + Math.round(root.stats.cpu * 100) + "%  ·  GPU " + Math.round(root.stats.gpu * 100) + "% " + Math.round(root.stats.gpuWatts) + " W  ·  MEM " + root.stats.memUsed.toFixed(1) + " GB" }]
+                        .concat(root.navRows.map(r => ({ label: r.label, color: root.hudHighlight, value: r.value })))
+                      : [
+                      { label: "CPU", color: Color.accent,
+                        value: Math.round(root.stats.cpu * 100) + "%  " + Math.round(root.stats.cpuTemp) + "°C" },
+                      { label: "GPU", color: root.hudHighlight,
+                        value: Math.round(root.stats.gpu * 100) + "%  " + Math.round(root.stats.gpuWatts) + " W  " + Math.round(root.stats.gpuTemp) + "°C" },
+                      { label: "MEM", color: Color.accent,
+                        value: root.stats.memUsed.toFixed(1) + " / " + root.stats.memTotal.toFixed(0) + " GB" },
+                      { label: "NAV", color: root.hudHighlight, value: "FLIGHT", hidden: !root.navigating },
+                      { label: "SYS", color: root.hudHighlight,
+                        value: (root.chasing ? (root.chaseLocked ? "LOCKED ON " + root.chaseTargetName.toUpperCase() + " VECTOR  " : "CHASE  ") : "")
+                          + (root.follow > 0 ? "PINNED " + root.followName.toUpperCase() + (root.chasing ? " → " + root.chaseTargetName.toUpperCase() : "") + "  "
+                             : root.follow === 0 ? "SUN  " : "FREE  ")
+                          + Qt.formatDateTime(new Date(root.simMs), "d MMM yyyy HH:mm").toUpperCase() + "  "
+                          + root.simRateNames[root.simRateIndex] + (root.autoOrbit ? "  AUTO ORBIT" : ""),
+                        hidden: root.explore !== "system" }
+                    ]
+                    Row {
+                      id: statsRow
+                      required property var modelData
+                      visible: !modelData.hidden
+                      spacing: Math.round(readout.unit * 0.008)
+                      Text {
+                        id: statsLabel
+                        text: statsRow.modelData.label
+                        color: statsRow.modelData.color
+                        font.family: Style.resolvedFontFamily
+                        font.pixelSize: readout.rowSize
+                        font.letterSpacing: readout.rowSize * panel.tok.track.normal
+                      }
+                      Text {
+                        width: statsColumn.width - statsLabel.width - statsRow.spacing
+                        wrapMode: Text.WordWrap
+                        maximumLineCount: 3
+                        elide: Text.ElideRight
+                        text: statsRow.modelData.value
+                        color: Color.foreground
+                        font.family: Style.resolvedFontFamily
+                        font.pixelSize: readout.rowSize
+                      }
                     }
                   }
                 }
@@ -3761,6 +3797,28 @@ Item {
           ScriptAction { script: { filmCaption.title = filmCaption.nextTitle; filmCaption.body = filmCaption.nextBody } }
           PauseAnimation { duration: 400 }
           NumberAnimation { target: filmCaption; property: "opacity"; to: filmCaption.nextTitle || filmCaption.nextBody ? 1 : 0; duration: 2600; easing.type: Easing.InOutSine }
+        }
+      }
+
+      // IPC `textDebug true`: this screen's plan, outlined
+      Item {
+        id: zoneDebug
+        anchors.fill: parent
+        visible: root.textDebug && root.liveBackground
+        readonly property var ext: Lay.hudExtent(panel.lay)
+        Rectangle { color: "transparent"; border.width: 1; border.color: "#40ff80"; x: panel.lay.safe.x0; y: panel.lay.safe.y0; width: panel.lay.safe.x1 - x; height: panel.lay.safe.y1 - y }
+        Rectangle { color: "transparent"; border.width: 1; border.color: "#ff3060"; x: panel.lay.rail.x; y: rail.y; width: panel.lay.rail.w; height: rail.height }
+        Rectangle { color: "transparent"; border.width: 1; border.color: "#ff3060"; x: panel.lay.caption.x; y: panel.lay.caption.bottom - height; width: panel.lay.caption.w; height: panel.lay.caption.maxH }
+        Rectangle { color: "transparent"; border.width: 1; border.color: "#ffd27a"; x: panel.lay.story.x; y: panel.lay.story.y; width: panel.lay.story.w; height: Math.max(filmCaption.height, panel.lay.H * 0.14) }
+        // the HUD's whole reach as it drifts, then where it is now
+        Rectangle { color: "transparent"; border.width: 1; border.color: "#406080"; x: zoneDebug.ext.ring.x; y: zoneDebug.ext.ring.y; width: zoneDebug.ext.ring.w; height: zoneDebug.ext.ring.h }
+        Rectangle { color: "transparent"; border.width: 1; border.color: "#406080"; x: zoneDebug.ext.stats.x; y: zoneDebug.ext.stats.y; width: zoneDebug.ext.stats.w; height: zoneDebug.ext.stats.h }
+        Rectangle { color: "transparent"; border.width: 1; border.color: "#ff3060"; x: panel.hud.stats.x; y: panel.hud.stats.y; width: panel.hud.stats.w; height: panel.hud.stats.h }
+        // the rings' outer bracket (0.232 of the HUD's unit)
+        Rectangle {
+          readonly property real r: panel.hud.R * Lay.BRACKET / Lay.RING
+          color: "transparent"; border.width: 1; border.color: "#ff3060"
+          x: panel.hud.cx - r; y: panel.hud.cy - r; width: 2 * r; height: 2 * r; radius: r
         }
       }
 
