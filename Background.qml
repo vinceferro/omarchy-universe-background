@@ -1419,7 +1419,7 @@ Item {
       fallPhase !== "out" ? ["ESC / RIGHT-CLICK", "end the fall: fly home to the Sun"] : ["", "flying home: the Sun, 26,600 light-years out in the disk"]
     ] : explore === "galaxy" ? (fallInvite ? [["K, THEN B", "next time, follow the mathematics through the ring"]] : []).concat([
       ["TAB", "next place (shift: previous)"],
-      ["0", "home: the Sun in its Galaxy (X: the solar system)"],
+      ["0", "home: the Sun in its Galaxy"],
       gxParkedAtHole ? ["B / SCROLL IN", gxFallArmed ? "letting go in a moment (B: now)" : "let go: fall into the black hole"]
       : gxFallArmed ? ["SCROLL OUT / Q", "flying down: the fall starts on arrival (scroll out to stay parked)"]
       : gxSel >= 0 && place(gxSel).kind === "blackhole" ? ["B", "fly down to 6 radii and fall in (or scroll in, then B)"]
