@@ -14,6 +14,7 @@ lib/kerr.js (double precision) cannot stand in for: the stray texels inside the 
   spin= camSheet= flowTime= flash= aspect= spinAxis=   the other uniforms
   format=16f|32f   the layer's format (the shell's is 16f)
   flipfc=1   gl_FragCoord.y running the other way (the first-step jitter's pattern differs by backend)
+  time=N     also time N draws (ms each, glFinish after every one)
   out=       also save the layer, [H][W][4] float32, row 0 at the top
 
 The report: the shadow's size, the texels of each kind (hole.frag's header), the lone texels inside the
@@ -86,6 +87,12 @@ def main():
     if GL.glCheckFramebufferStatus(0x8D40) != 0x8CD5: raise SystemExit("fbo incomplete")
     vao = C.c_uint(0); GL.glGenVertexArrays(1, C.byref(vao)); GL.glBindVertexArray(vao)
     GL.glViewport(0, 0, W, H); GL.glDrawArrays(0x0004, 0, 3); GL.glFinish()
+    if "time" in kv:
+        # the layer's cost: N more draws, each finished before the next (wall time, GPU otherwise idle)
+        import time
+        n = int(kv["time"]); t0 = time.perf_counter()
+        for _ in range(n): GL.glDrawArrays(0x0004, 0, 3); GL.glFinish()
+        print("draw: %.2f ms each over %d draws" % ((time.perf_counter() - t0) * 1000 / n, n))
     px = np.zeros((H, W, 4), np.float32)
     GL.glReadPixels(0, 0, W, H, 0x1908, 0x1406, px.ctypes.data_as(vp))
     # row r of the read-back has gl_FragCoord.y = r + 0.5 and qt_TexCoord0.y = (r + 0.5) / H (flipfc: 1 - that)

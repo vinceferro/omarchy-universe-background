@@ -786,6 +786,9 @@ Item {
   // closest approach: 0.2 pc anywhere, down to 6 Schwarzschild radii at Sgr A*
   readonly property real rsKpc: 4.11e-10
   property vector3d gxCamRs: Qt.vector3d(0, 1e6, 0)   // camera from Sgr A*, in Schwarzschild radii
+  // the tick, near the hole: the camera is this frame's, for the tracers to
+  // take (a signal, because the tick cannot see the per-screen passes)
+  signal holeSync(bool now)
   property bool gxHoleNear: false
   function gxMinDist() {
     if (gxSel >= 0 && place(gxSel).kind === "blackhole") return 6 * rsKpc
@@ -1945,6 +1948,7 @@ Item {
           gxLookYawTarget -= gxLookYawTarget * d
           gxLookPitchTarget -= gxLookPitchTarget * d
         }
+        const ek = Math.min(1, dt * 3)
         gxLookYaw += (gxLookYawTarget - gxLookYaw) * ek
         gxLookPitch += (gxLookPitchTarget - gxLookPitch) * ek
         // the view handed to the shaders: the scripted one turned by the
@@ -1973,23 +1977,18 @@ Item {
           gxFwd = Qt.vector3d(fallState.lookFwd[0], fallState.lookFwd[1], fallState.lookFwd[2])
           gxUp = Qt.vector3d(fallState.lookUp[0], fallState.lookUp[1], fallState.lookUp[2])
           gxRight = gxFwd.crossProduct(gxUp)
-          // while the look turns, the hole tracer gets the camera every
-          // frame: at its 40 Hz the whole sky (all of it read from the
-          // tracer when falling) would judder against the live edge
-          if (holePass.near && (gxLookDragging || gxLookIdle < 0.1
-              || Math.abs(gxLookYawTarget - gxLookYaw) + Math.abs(gxLookPitchTarget - gxLookPitch) > 1e-4)) {
-            holePass.camPos = gxCamRs
-            holePass.camSheet = gxCamSheet
-            holePass.camFwd = gxFwd
-            holePass.camRight = gxRight
-            holePass.camUp = gxUp
-          }
         } else {
           gxFwd = fwd
           gxRight = right
           gxUp = up
         }
       }
+      // near the hole its tracer (holePass, one per screen) is offered this
+      // frame's camera; it takes it at its own rate. While the look turns it
+      // takes every frame: at 40 Hz the whole sky (all of it read from the
+      // tracer when falling) would judder against the live edge
+      if (gxHoleNear) holeSync(!!fallState && (gxLookDragging || gxLookIdle < 0.1
+        || Math.abs(gxLookYawTarget - gxLookYaw) + Math.abs(gxLookPitchTarget - gxLookPitch) > 1e-4))
       // the Milky Way's own stars thin out once we are outside it
       const outside = Math.max(Math.hypot(cam[0], cam[1]) - 15, Math.abs(cam[2]) - 0.5, 0)
       gxStars = 1 - 0.85 * Math.min(1, outside / 10)
@@ -2984,9 +2983,10 @@ Item {
               fragmentShader: Qt.resolvedUrl("hole.qsb")
               property vector2d resolution: Qt.vector2d(width, height)
               property real shown: near ? 1 : 0
-              // camera and gas clock are copied in at 40 Hz (holeClock below):
-              // the layer only re-renders when they change, and the slow flow
-              // does not need the display's 165 Hz
+              // camera and gas clock are copied in at 40 Hz (take(), called
+              // by the tick through root.holeSync): the layer only re-renders
+              // when they change, and the slow flow does not need the
+              // display's 165 Hz
               property vector3d camPos: Qt.vector3d(0, 1e6, 0)
               property vector3d camFwd: Qt.vector3d(0, -1, 0)
               property vector3d camRight: Qt.vector3d(1, 0, 0)
@@ -3002,21 +3002,22 @@ Item {
               // very frame it starts, so this layer must switch in that frame too
               property real fallE: root.gxFallE
               property real flash: root.fallFlash
-            }
-            Timer {
-              id: holeClock
-              interval: 25
-              repeat: true
-              running: holePass.near && root.animate
-              triggeredOnStart: true
-              onTriggered: {
-                holePass.camPos = root.gxCamRs
-                holePass.camSheet = root.gxCamSheet
-                holePass.camFwd = root.gxFwd
-                holePass.camRight = root.gxRight
-                holePass.camUp = root.gxUp
-                holePass.flowTime = root.shaderTime * 30 / 42.3
+              property real takenAt: 0
+              function take(now) {
+                const t = Date.now()
+                if (!near || (!now && t - takenAt < 23 && t >= takenAt)) return
+                takenAt = t
+                camPos = root.gxCamRs
+                camSheet = root.gxCamSheet
+                camFwd = root.gxFwd
+                camRight = root.gxRight
+                camUp = root.gxUp
+                flowTime = root.shaderTime * 30 / 42.3
               }
+            }
+            Connections {
+              target: root
+              function onHoleSync(now) { holePass.take(now) }
             }
 
             // face-on maps built from the measured arms (gen_milkyway.py)
