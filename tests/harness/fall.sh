@@ -7,7 +7,7 @@
 # go and logs the camera, the phase and what the hole's tracer was handed;
 # fall_check.js then asks what no node suite can: that the tick ran without a
 # JavaScript error on every frame of the fall and that the camera reaching
-# the tracer (holePass) moved all the way down. About a minute and a half of
+# the tracer (holePass) moved all the way down. About two minutes of
 # real time (the fall is not sped up). --gpu: the DRM driver the stub probe
 # reports (default nvidia). Needs qmlscene6 (qt6-declarative) and node.
 set -e
@@ -24,5 +24,5 @@ ln -s "$WT/lib" "$RUN/run/lib"; ln -s "$WT/textures" "$RUN/run/textures"; for f 
 cp "$H/main.qml" "$RUN/run/main.qml"
 cd "$RUN/run"
 QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 QML_IMPORT_PATH="$RUN/stub" \
-  timeout 200 qmlscene6 -I "$RUN/stub" main.qml $math > "$RUN/log" 2>&1 || true
+  timeout 240 qmlscene6 -I "$RUN/stub" main.qml $math > "$RUN/log" 2>&1 || true
 node "$H/fall_check.js" "$RUN/log" $math --gpu "$gpu"

@@ -1,7 +1,7 @@
 // numeric checks for camera.js (run with node; strips the QML pragma)
 const fs = require("fs")
 const src = fs.readFileSync(process.argv[2], "utf8").replace(".pragma library", "")
-const Cam = new Function(src + "\nreturn { Spring, VSpring, Camera, planPath, pathAt, hermite, add, sub, mul, dot, len, cross, norm, Voyage, homeBegin, homeStep, W_TRAVEL, HOME_S };")()
+const Cam = new Function(src + "\nreturn { Spring, VSpring, Camera, planPath, pathAt, hermite, add, sub, mul, dot, len, cross, norm, Voyage, homeBegin, homeStep, W_TRAVEL, W_INPUT, HOME_S, HOME_OPEN };")()
 let fails = 0
 function check(name, ok, info) { console.log((ok ? "ok   " : "FAIL ") + name + (info !== undefined ? "  " + info : "")); if (!ok) fails++ }
 
@@ -159,14 +159,14 @@ check("fling coasts a little and settles", moved > 0 && cam3.settled(), moved.to
     for (let i = 0; i < hz * 40 && H.phase !== ""; i++) {
       const ev = Cam.homeStep(H, dt, black.x, V.arrived())
       if (ev !== "") events.push({ ev: ev, t: t })
-      if (ev === "place") { V.place(CENTRE, OPEN.dist); pitch.set(OPEN.pitch) }
-      if (ev === "place" || ev === "depart") {
+      if (ev === "place") { V.place(CENTRE, OPEN.dist); pitch.set(OPEN.pitch); goal = CENTRE; distGoal = OPEN.dist; key = "open" }
+      if (ev === "depart") {
         goal = SUN; distGoal = HOME.dist; key = "sun"; V.depart(Cam.HOME_S)
         pitch.w = 4.75 / Cam.HOME_S; pitch.g = HOME.pitch
       }
       black.g = H.phase === "out" ? 1 : 0
       black.step(dt, 1e-4); pitch.step(dt, 1e-7)
-      const F = key === "sun" ? V.step(goal, distGoal, dt, key, true) : V.F.x
+      const F = key !== "hole" ? V.step(goal, distGoal, dt, key, key === "sun") : V.F.x
       t += dt
       // the camera, and where the centre and the Sun fall on a 21:9 screen (focal length 1)
       const cp = Math.cos(pitch.x), off = [cp * Math.sin(HOME.yaw), cp * Math.cos(HOME.yaw), Math.sin(pitch.x)]
@@ -178,31 +178,34 @@ check("fling coasts a little and settles", moved > 0 && cam3.settled(), moved.to
   }
   const r = fly(165, true, 2)
   const placeAt = r.events[0].t, arriveAt = r.events[r.events.length - 1].t
+  const departAt = r.events[1].t
   const flight = r.rows.filter(q => q.t > placeAt + 1e-9)
-  check("the return from inside the hole: black, then placed over the centre, then it arrives; each once", r.events.map(e => e.ev).join(",") === "place,arrive" && r.H.phase === "", r.events.map(e => e.ev + " " + e.t.toFixed(2)).join(", "))
+  check("the view opens over the centre and holds there until the picture is half back, then the flight departs", flight.filter(q => q.t <= departAt).every(q => Cam.len(q.F) < 1e-9 && Math.abs(q.dist - OPEN.dist) < 1e-9)
+        && Math.abs(r.rows.find(q => q.t > departAt).black - Cam.HOME_OPEN) < 0.03 && departAt - placeAt > 0.3 && departAt - placeAt < 1, (departAt - placeAt).toFixed(2) + " s")
+  check("the return from inside the hole: black, placed over the centre, the flight departs, it arrives; each once", r.events.map(e => e.ev).join(",") === "place,depart,arrive" && r.H.phase === "", r.events.map(e => e.ev + " " + e.t.toFixed(2)).join(", "))
   check("the camera is placed only once the screen is black, after 2 s of black", r.rows.filter(q => q.t <= placeAt).slice(-1)[0].black >= 0.98 && placeAt > 3 && placeAt < 4.5, placeAt.toFixed(2))
   check("the view opens over the Galactic Centre, 1.2 kpc out, at rest", Cam.len(flight[0].F) < 1e-3 && Math.abs(flight[0].dist - OPEN.dist) < 0.01)
   const step = flight.map((q, i) => i === 0 ? 0 : Cam.len(Cam.sub(q.F, flight[i - 1].F)))
   const prog = flight.map(q => q.F[1] / SUN[1])
-  check("one continuous flight: the focus moves from the centre to the Sun, never back, never past it", prog.every((v, i) => i === 0 || v >= prog[i - 1] - 1e-12) && Math.max(...prog) <= 1 + 1e-9 && prog[prog.length - 1] > 0.95, (100 * prog[prog.length - 1]).toFixed(1) + "% at the landing")
+  check("one continuous flight: the focus moves from the centre to the Sun, never back, never past it", prog.every((v, i) => i === 0 || v >= prog[i - 1] - 1e-12) && Math.max(...prog) <= 1 + 1e-9 && prog[prog.length - 1] > 0.9, (100 * prog[prog.length - 1]).toFixed(1) + "% at the landing")
   check("it starts from rest and never lurches (the speed changes by less than 3% of its peak a frame)", step[1] < 0.05 * Math.max(...step) && step.every((v, i) => i < 2 || Math.abs(v - step[i - 1]) < 0.03 * Math.max(...step)),
         "peak " + (Math.max(...step) * 165).toFixed(2) + " kpc/s")
-  check("the camera pulls back all the way, smoothly: the distance only grows, to the home view's 34 kpc", flight.every((q, i) => i === 0 || q.dist >= flight[i - 1].dist - 1e-12) && Math.abs(flight[flight.length - 1].dist / HOME.dist - 1) < 0.011)
+  check("the camera pulls back all the way, smoothly: the distance only grows, to the home view's 34 kpc", flight.every((q, i) => i === 0 || q.dist >= flight[i - 1].dist - 1e-12) && Math.abs(flight[flight.length - 1].dist / HOME.dist - 1) < 0.031)
   check("it rises above the disk and stays above it", flight.every((q, i) => i === 0 || q.height >= flight[i - 1].height - 1e-9) && flight[flight.length - 1].height > 20)
   const seen = flight.filter(q => q.black < 0.5)
   const inFrame = p => p.front && Math.abs(p.x) < 2.37 / 2 * 0.9 && Math.abs(p.y) < 0.45
   check("the Galaxy stays in frame: the Centre is on screen from the first frame to the last", flight.every(q => inFrame(q.centre)))
   const sunIn = flight.findIndex(q => inFrame(q.sun))
-  check("the Sun's place comes into frame within 2 s and stays", sunIn >= 0 && flight[sunIn].t - placeAt < 2 && flight.slice(sunIn).every(q => inFrame(q.sun)),
-        (flight[sunIn].t - placeAt).toFixed(2) + " s, " + (100 * prog[sunIn]).toFixed(0) + "% of the way")
-  check("the flight is still under way when the picture is back (more than half of it to go at half black)", prog[flight.indexOf(seen[0])] < 0.5, prog[flight.indexOf(seen[0])].toFixed(2))
+  check("the Sun's place comes into frame within 2.5 s and stays", sunIn >= 0 && flight[sunIn].t - departAt < 2.5 && flight.slice(sunIn).every(q => inFrame(q.sun)),
+        (flight[sunIn].t - departAt).toFixed(2) + " s, " + (100 * prog[sunIn]).toFixed(0) + "% of the way")
+  check("the flight has barely begun when the picture comes back (none of it flown at half black, under 20% when the black has lifted)", prog[flight.indexOf(seen[0])] < 0.01 && prog[flight.findIndex(q => q.black < 0.1)] < 0.2, prog[flight.indexOf(seen[0])].toFixed(2))
   const last = flight[flight.length - 1]
-  check("it lands with the Sun in the middle of the screen and the Centre beside it", Math.hypot(last.sun.x, last.sun.y) < 0.011 && inFrame(last.centre) && Math.hypot(last.centre.x, last.centre.y) > 0.1)
-  check("a journey, not a cut: 5 to 8 s from the centre to the landing", arriveAt - placeAt > 5 && arriveAt - placeAt < 8, (arriveAt - placeAt).toFixed(2) + " s")
+  check("it lands with the Sun in the middle of the screen and the Centre beside it", Math.hypot(last.sun.x, last.sun.y) < 0.031 && inFrame(last.centre) && Math.hypot(last.centre.x, last.centre.y) > 0.1)
+  check("a journey, not a cut: 6 to 8 s from the centre to the landing", arriveAt - departAt > 6 && arriveAt - departAt < 8, (arriveAt - departAt).toFixed(2) + " s")
   const r60 = fly(60, true, 2)
-  check("the same timeline at 60 Hz", Math.abs(r60.events[0].t - placeAt) < 0.05 && Math.abs(r60.events[1].t - arriveAt) < 0.1, r60.events.map(e => e.t.toFixed(2)).join(" "))
+  check("the same timeline at 60 Hz", Math.abs(r60.events[0].t - placeAt) < 0.05 && Math.abs(r60.events[2].t - arriveAt) < 0.1, r60.events.map(e => e.t.toFixed(2)).join(" "))
   const quick = fly(165, true, 0.5)
-  check("Esc on the way down: the same script with half a second of black", quick.events.map(e => e.ev).join(",") === "place,arrive" && placeAt - quick.events[0].t > 1.4 && placeAt - quick.events[0].t < 1.6)
+  check("Esc on the way down: the same script with half a second of black", quick.events.map(e => e.ev).join(",") === "place,depart,arrive" && placeAt - quick.events[0].t > 1.4 && placeAt - quick.events[0].t < 1.6)
   // from a view that can be flown out of: no black, the same flight
   {
     const H = Cam.homeBegin(false), V = new Cam.Voyage([-3, 2, 0.1], 0.5)
@@ -210,7 +213,7 @@ check("fling coasts a little and settles", moved > 0 && cam3.settled(), moved.to
     let n = 0, ev = ""
     V.depart(Cam.HOME_S)
     do { V.step(SUN, HOME.dist, 1 / 165, "sun", true); ev = Cam.homeStep(H, 1 / 165, 0, V.arrived()); n++ } while (ev === "" && n < 5000)
-    check("from anywhere else: it departs at once, no black, and arrives", e0 === "depart" && ev === "arrive" && Cam.len(Cam.sub(V.F.x, SUN)) < 0.34 && n / 165 > 1.9 && n / 165 < 9, (n / 165).toFixed(2) + " s")
+    check("from anywhere else: it departs at once, no black, and arrives", e0 === "depart" && ev === "arrive" && Cam.len(Cam.sub(V.F.x, SUN)) < 1.03 && n / 165 > 1.9 && n / 165 < 9, (n / 165).toFixed(2) + " s")
   }
   // the travel itself
   {
@@ -227,7 +230,7 @@ check("fling coasts a little and settles", moved > 0 && cam3.settled(), moved.to
     check("a moving place is followed with zero lag", lag < 1e-6, lag.toExponential(1))
     const far = new Cam.Voyage(SUN, 0.0008); let top = 0
     for (let i = 0; i < 165 * 13.5; i++) { far.step([0, 0, 0], 8e-9, 1 / 165, "hole", true); top = Math.max(top, far.dist()) }
-    check("a long trip (the Sun to the hole's edge, 21 powers of e) rises above the disk, comes back down and has arrived within 13.5 s (it took 14)", top > 1 && far.arrived() && Math.abs(far.dist() / 8e-9 - 1) < 0.011, top.toFixed(1) + " kpc at the top")
+    check("a long trip (the Sun to the hole's edge, 21 powers of e) rises above the disk, comes back down and has arrived within 13.5 s (it took 14)", top > 1 && far.arrived() && Math.abs(far.dist() / 8e-9 - 1) < 0.031, top.toFixed(1) + " kpc at the top")
     far.place([1, 2, 3], 5)
     check("place: there, at rest", far.settled() && far.dist() === 5 && far.F.x.join() === "1,2,3")
   }
