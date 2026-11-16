@@ -210,6 +210,10 @@ for (let i = 0; i < 200; i++) { const r = L.placeLabels([one(800 + (rnd() - 0.5)
 check("the obstacle leaves and the point jitters by a pixel: the name keeps its side", kept)
 r1 = L.placeLabels([one(800, 500)], [{ x: 690, y: 490, w: 50, h: 20 }], LAP.safe, sides)[0]
 check("its side is taken: it moves over, once", r1.show && r1.side === 1 && sides.a === 1)
+// one side only (the heading's words, outward from the Sun): that side or hidden, whatever it had before
+check("only left, in the open: left", (() => { const r = L.placeLabels([one(800, 500, { only: -1 })], [], LAP.safe, { a: 1 })[0]; return r.show && r.side === -1 })())
+check("only left, left taken: hidden, not right", !L.placeLabels([one(800, 500, { only: -1 })], [{ x: 690, y: 490, w: 50, h: 20 }], LAP.safe, {})[0].show)
+check("only right, right taken, remembered left: hidden", !L.placeLabels([one(800, 500, { only: 1 })], blockR, LAP.safe, { a: -1 })[0].show)
 // a scene name next to the HUD: the ring and the readouts are obstacles like any other
 const byRing = L.placeLabels([{ id: "p", x: hL.cx - hL.R - 30, y: hL.cy, r: 10, w: 120, h: 14, pin: false }], OBST, LAP.safe, {})[0]
 check("a planet just left of the ring: its name goes left, off the rings", byRing.show && byRing.side === -1)

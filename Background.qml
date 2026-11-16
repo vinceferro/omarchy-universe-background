@@ -2134,8 +2134,9 @@ Item {
         const s0 = galNow[0]
         if (s0 && s0.z > 0.004) {
           const reach = 0.06 * L0.H
+          // the heading's words point away from the Sun, never back across it
           items.push({ id: "gal-heading", x: toX(s0.x) + galHeading.x * reach, y: toY(s0.y) + galHeading.y * reach, r: tk.gap + tk.glyph * 0.3,
-                       w: Lay.textW(19, tk.micro, tk.track.normal), h: tk.micro * 1.5, pin: false })
+                       w: Lay.textW(19, tk.micro, tk.track.normal), h: tk.micro * 1.5, pin: false, only: galHeading.x >= 0 ? 1 : -1 })
           put.push(gl[0])
         }
         for (let i = 1; i < galNow.length; i++) {
