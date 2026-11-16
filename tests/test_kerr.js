@@ -507,6 +507,10 @@ function verlet(x0, v0) {
   const edges = [Math.min(-lo, hi), Math.max(-lo, hi)]
   check("shadowOutline from the equator: edges at 1.32 and 3.45 Rs", Math.abs(edges[0] - 1.32) < 0.01 && Math.abs(edges[1] - 3.45) < 0.01, edges.map(v => v.toFixed(3)).join(" "))
   check("shadowOutline from the equator: 4.77 Rs wide, its middle 1.06 Rs off the centre", Math.abs(hi - lo - 4.77) < 0.01 && Math.abs(Math.abs(hi + lo) / 2 - 1.06) < 0.01, (hi - lo).toFixed(3) + " " + (Math.abs(hi + lo) / 2).toFixed(3))
+  // each point's b is the hole's own number: the same from the parking distance of 20 Rs as from far away
+  const near20 = K.shadowOutline([20, 0, 0], A94, 96).pts.map(p => p.b * Math.sin(p.psi)), lo20 = Math.min(...near20), hi20 = Math.max(...near20)
+  check("the edge's light passes 1.32 and 3.45 Rs from the centre, read at 20 Rs as from 2,000", Math.abs(Math.min(-lo20, hi20) - 1.3208) < 0.002 && Math.abs(Math.max(-lo20, hi20) - 3.4498) < 0.002
+        && Math.max(...o.pts.map(p => Math.abs(p.b - K.impactAt(d, p.theta)))) < 0.005, Math.min(-lo20, hi20).toFixed(4) + " " + Math.max(-lo20, hi20).toFixed(4))
   // the flat edge is on the side the spin carries toward the camera: with the spin along +z (counterclockwise
   // seen from +z) and the camera on +x, that side is -y, and e2 = c x e1 = +y... so the flat edge has sin(psi) of -y's sign
   const flat = o.pts.reduce((b, p) => p.theta < b.theta ? p : b)

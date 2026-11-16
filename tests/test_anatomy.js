@@ -106,7 +106,7 @@ function frame(view, yaw, pitch, o) {
   check("a spin of 0.5 changes every one of them", A.labelOf(row("horizon"), Object.assign({}, c, { a: 0.25 }), null) === "0.93 Rs")
   // the drawing's own measurements, from the side at 20 Rs: the D
   const f = frame(20, 0.4, 0.35), hv = A.holeView(frame(20, 0.4, 0), c, true)
-  check("from the side the drawing measures the D: flat edge near 1.3 Rs, round edge near 3.5", Math.abs(hv.g.near - 1.33) < 0.08 && Math.abs(hv.g.far - 3.5) < 0.12 && Math.abs(hv.g.width - 4.8) < 0.15, JSON.stringify(Object.keys(hv.g).map(k => k + " " + hv.g[k].toFixed(2))))
+  check("from the side at 20 Rs the drawing measures the D as the sources have it: 1.32, 3.45, 4.77 wide, 1.06 off centre", Math.abs(hv.g.near - 1.3208) < 0.005 && Math.abs(hv.g.far - 3.4498) < 0.005 && Math.abs(hv.g.width - 4.7706) < 0.005 && Math.abs(hv.g.offset - 1.0645) < 0.005, JSON.stringify(Object.keys(hv.g).map(k => k + " " + hv.g[k].toFixed(2))))
   check("the bright side is several times brighter than the far side", hv.g.bright > 3 && hv.g.bright < 1000, hv.g.bright.toFixed(1))
   const out = A.compose(rec, f, c, env({ obstacles: [] }))
   const ids = out.rows.map(r => r.id)
@@ -211,8 +211,11 @@ function frame(view, yaw, pitch, o) {
 }
 
 // ---- 6. every row that has a place can be drawn at some zoom, in its room ----
-{
-  const e = env({ math: true })
+// on the three screens: the 1920x1080 above, the box (5120x2160) and the laptop (1728x1117 under its notch)
+const SCREENS = [["1920x1080", lay, disc, rail]].concat([["the box, 5120x2160", Lay.plan(5120, 2160, [0, 43, 0, 0], 0)], ["the laptop, 1728x1117 with its notch", Lay.plan(1728, 1117, [0, 32, 0, 0], 32)]]
+  .map(([n, l]) => [n, l, Lay.hudDisc(l, [0.03, -0.02]), Lay.railRect(l, 0.3 * l.H)]))
+for (const [screen, lay, disc, rail] of SCREENS) {
+  const e = { W: lay.W, H: lay.H, safe: lay.safe, obstacles: [rail, disc], tok: lay.tok, sides: {}, math: true, lit: "", textW: (t, small) => Lay.textW(t.length, small ? lay.tok.micro : lay.tok.label, 0.11) }
   const never = [], outside = [], stacked = [], many = []
   let nRows = 0, nSegs = 0, nLabels = 0
   for (const rec of A.records()) {
@@ -233,10 +236,10 @@ function frame(view, yaw, pitch, o) {
     }
     for (const r of rec.rows) { if (r.shape) { nRows++; if (!seen[r.id]) never.push(rec.id + "." + r.id) } }
   }
-  check("every row with a place is drawn at some zoom (" + nRows + " rows)", never.length === 0, never.join(", "))
-  check("every line stays inside the safe rect and out of the HUD's disc and the rail (" + nSegs + " strokes)", outside.filter(s => !/label/.test(s)).length === 0, [...new Set(outside)].slice(0, 5).join(", "))
-  check("every label stays inside the safe rect, out of the disc and the rail, and off every other label (" + nLabels + " labels)", outside.filter(s => /label/.test(s)).length === 0 && stacked.length === 0, [...new Set(outside.concat(stacked))].slice(0, 5).join(", "))
-  check("never more than six labels at once", many.length === 0, [...new Set(many)].join(" "))
+  check(screen + ": every row with a place is drawn at some zoom (" + nRows + " rows)", never.length === 0, never.join(", "))
+  check(screen + ": every line stays inside the safe rect and out of the HUD's disc and the rail (" + nSegs + " strokes)", outside.filter(s => !/label/.test(s)).length === 0, [...new Set(outside)].slice(0, 5).join(", "))
+  check(screen + ": every label stays inside the safe rect, out of the disc and the rail, and off every other label (" + nLabels + " labels)", outside.filter(s => /label/.test(s)).length === 0 && stacked.length === 0, [...new Set(outside.concat(stacked))].slice(0, 5).join(", "))
+  check(screen + ": never more than six labels at once", many.length === 0, [...new Set(many)].join(" "))
 }
 
 // ---- 6b. what takes long waits for the camera to rest; a frame's key; the frame of its own ----
