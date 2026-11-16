@@ -1,8 +1,9 @@
 #version 440
 
 // Sagittarius A* up close: every pixel's light ray is traced backward through
-// the curved spacetime of a spinning (Kerr) black hole, at a third of the
-// resolution, only while the camera is near the hole.
+// the curved spacetime of a spinning (Kerr) black hole, at a half or a third
+// of the resolution (lib/quality.js, holeChoose), only while the camera is
+// near the hole.
 //
 // Units: Schwarzschild radii (Rs = 2GM/c^2 = 0.085 AU for 4.3 million Suns),
 // centred on the hole, so the mass is M = 0.5 and the spin a = (a/M) M is in
@@ -115,11 +116,13 @@ layout(std140, binding = 0) uniform buf {
     float spin;       // a, in Rs (a/M = 2 a)
     float camSheet;   // +1: our side of the disk; -1: the camera is on the r < 0 sheet (math mode)
     float flash;      // 1; > 1 in the last seconds before the inner horizon (the glow's blueshift)
+    float over;       // the layer's field of view over the screen's (1.04: a margin for universe.frag, which reads it by direction)
 };
 
 const float M = 0.5;        // the mass, in Rs
 const float R_OUT = 60.0;   // beyond this, the remaining bend is the weak-field tail
-const int STEPS = 180;
+const int STEPS = 150;
+const float STEP = 0.18;    // a step's length over the distance to r = 0.3 (lib/kerr.js, STEP)
 const float B_CRIT = 2.598076211;   // 3 sqrt(3) / 2: Schwarzschild's critical impact parameter (the glow cartoon)
 
 // ---- the Kerr-Schild metric ----
@@ -346,6 +349,55 @@ vec3 infallGlow(float r0, float E, float w, float e, float s, float L, vec3 dir)
     return I / (1.0 + lum / 0.25);
 }
 
+// The shadow's edge without a march, exactly as universe.frag draws it (its
+// radialClass; lib/kerr.js has the derivation and the tests): signed,
+// positive on the sky's side. A ray on the dark side is not marched at all:
+// it gets the glow at once. That is most of the tracer's work saved near the
+// hole (a captured ray crawls down to the horizon in small steps), and the
+// layer's dark texels then end exactly where universe.frag's edge is, so no
+// single texel inside the shadow can come out as sky.
+float radialClass(float E, float Lz, float Kc, float a, float rCam, bool climbing, float rPlus) {
+    if (E <= 0.0) return -1.0;
+    float A0 = E * a * a - a * Lz;
+    float c2 = 2.0 * E * A0 - Kc, c1 = 2.0 * M * Kc, c0 = A0 * A0 - a * a * Kc;
+    float qa = 2.0 * c2, qb = 3.0 * c1, qc = 4.0 * c0;
+    float lo = climbing ? rCam : rPlus, hi = climbing ? 1e30 : rCam;
+    float m = 1e30;
+    float disc = qb * qb - 4.0 * qa * qc;
+    if (abs(qa) < 1e-9 * (abs(qb) + abs(qc))) {
+        if (qb != 0.0) { float r = -qc / qb; if (r > lo && r < hi) m = min(m, ((E * E * r * r * r * r + c2 * r * r + c1 * r + c0) / (E * E * r * r * r * r))); }
+    } else if (disc >= 0.0) {
+        // (the roots without cancellation: q = -(b + sign(b) sqrt(disc)) / 2, then q/a and c/q)
+        float q = -0.5 * (qb + (qb < 0.0 ? -1.0 : 1.0) * sqrt(disc));
+        for (int i = 0; i < 2; i++) {
+            float r = i == 0 ? q / qa : (q != 0.0 ? qc / q : -1.0);
+            if (r > lo && r < hi) m = min(m, (E * E * r * r * r * r + c2 * r * r + c1 * r + c0) / (E * E * r * r * r * r));
+        }
+    }
+    if (m > 1e29) m = climbing ? 1.0 : (E * E * rCam * rCam * rCam * rCam + c2 * rCam * rCam + c1 * rCam + c0) / (E * E * rCam * rCam * rCam * rCam);
+    return climbing ? 0.5 * m : -0.5 * m;
+}
+
+// the gas's light from one sample of the path of length dl at x (radius r,
+// our sheet): its emissivity, shifted as the gas there sees our ray (E, L_z).
+// Returns (light, light times shift)
+vec2 gasLight(vec3 x, float r, float isco, float E, float Lz, float dl) {
+    if (r < isco - 0.2 || r > 32.0) return vec2(0.0);
+    float j = flowDensity(x, r, isco);
+    if (j <= 1e-4) return vec2(0.0);
+    // the sample's 4-velocity N (d_t + Omega d_phi) and the shift it sees
+    float a = spin, r2 = r * r;
+    float A = r2 + a * a, f = 2.0 * M * r2 * r / max(r2 * r2 + a * a * x.z * x.z, 1e-12);
+    float Om = gasOmega(r, isco);
+    float rc2 = dot(x.xy, x.xy);
+    float lV = 1.0 - a * Om * rc2 / A;
+    float gVV = -1.0 + Om * Om * rc2 + f * lV * lV;
+    if (gVV >= -1e-3) return vec2(0.0);
+    float g = clamp(1.0 / (inversesqrt(-gVV) * (E - Om * Lz)), 0.02, 8.0);
+    float I = dl * j * pow(g, 3.5) * 1.6;
+    return vec2(I, I * g);
+}
+
 // the escape direction's bend vector about the look direction v: alpha the
 // angle between them, psi its azimuth in the basis (n1 toward the hole, n2)
 vec2 bendEncode(vec3 v, vec3 n1, vec3 n2, vec3 d) {
@@ -361,7 +413,7 @@ void main() {
         return;
     }
     float a = spin;
-    vec2 p = (qt_TexCoord0 - 0.5) * vec2(aspect, 1.0);
+    vec2 p = (qt_TexCoord0 - 0.5) * vec2(aspect, 1.0) * over;
     vec3 vW = normalize(camFwd + camRight * p.x - camUp * p.y);   // the look direction, world
     // a ray from a far camera that never comes near the hole: nothing to trace
     {
@@ -370,9 +422,13 @@ void main() {
         if (c > 0.0 && (b > 0.0 || b * b - c < 0.0)) { fragColor = vec4(0.0, 0.0, 0.0, 0.0); return; }
     }
     // the hole's own frame: the spin axis along z
-    vec3 e1 = normalize(cross(spinAxis, abs(spinAxis.x) < 0.9 ? vec3(1, 0, 0) : vec3(0, 1, 0)));
-    vec3 e2 = cross(spinAxis, e1);
-    mat3 K2W = mat3(e1, e2, spinAxis);
+    // (the axis made unit here: a look direction a few parts in 100 000 off
+    // unit length is a photon that far off null, and near the photon orbit
+    // that moves the closed form's edge by texels against the march's)
+    vec3 ax = normalize(spinAxis);
+    vec3 e1 = normalize(cross(ax, abs(ax.x) < 0.9 ? vec3(1, 0, 0) : vec3(0, 1, 0)));
+    vec3 e2 = cross(ax, e1);
+    mat3 K2W = mat3(e1, e2, ax);
     mat3 W2K = transpose(K2W);
     vec3 x = W2K * camPos;
     vec3 v = W2K * vW;
@@ -427,13 +483,22 @@ void main() {
         fragColor = vec4(rCam > rMinus ? infallGlow(rCam, fallE, w, E, sign(rdot), Lg, vW) : vec3(0.0), -1.0);
         return;
     }
+    // the shadow by its closed form (universe.frag's own edge): outside r+ by
+    // the potential; between the horizons every backward ray climbs and one
+    // with E > 0 reaches r+, where the potential decides. Below r- (math
+    // mode) and on the far sheet the march alone decides
+    bool lit = true;
+    if (sheet > 0.0 && rCam > rMinus) {
+        float xs = rCam > rPlus ? radialClass(E, Lz, Kc, a, rCam, rdot > 0.0, rPlus) : radialClass(E, Lz, Kc, a, rPlus, true, rPlus);
+        lit = xs > 0.0;
+    }
 
     // the march
-    float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
     int outcome = 0;                             // 0 lost, 1 our sky, 2 the other universe
     int stall = 0;
-    float I = 0.0, Ig = 0.0;                     // the gas's light, and its shift-weighted sum
+    vec2 gas = vec2(0.0);                        // the gas's light, and its shift-weighted sum
     vec3 dir = -dx0;
+    if (lit)
     for (int i = 0; i < STEPS; i++) {
         float r = m.r;
         motion(m, k, E, dx0, dk0);
@@ -449,7 +514,7 @@ void main() {
         // stuck at a horizon: the chart's edge (light from a universe we do not model)
         if (abs(r - rPlus) < 0.03 || abs(r - rMinus) < 0.03) { stall++; if (stall > 30) break; } else stall = 0;
         // smaller steps near the horizons and the ring, where paths curve hardest
-        float ds = max(0.02, 0.12 * (abs(r) - 0.3)) * (i == 0 ? jitter + 0.5 : 1.0);
+        float ds = max(0.02, STEP * (abs(r) - 0.3));
         float hh = ds / max(length(dx0), 1e-6);
         // RK4 on (x, k), the sheet rule at every stage
         vec3 dx1, dk1, dx2, dk2, dx3, dk3;
@@ -461,28 +526,28 @@ void main() {
         motion(ksMetric(x3, sheetAt(x, sheet, x3)), k3, E, dx3, dk3);
         vec3 xn = x + hh / 6.0 * (dx0 - 2.0 * dx1 - 2.0 * dx2 - dx3);
         k += hh / 6.0 * (dk0 - 2.0 * dk1 - 2.0 * dk2 - dk3);
-        sheet = sheetAt(x, sheet, xn);
-        x = xn;
-        m = ksMetric(x, sheet);
-        // the gas (our sheet only)
-        if (sheet > 0.0 && m.r > isco - 0.2 && m.r < 32.0) {
-            float j = flowDensity(x, m.r, isco);
-            if (j > 1e-4) {
-                // the sample's 4-velocity N (d_t + Omega d_phi) and the shift it sees
-                float Om = gasOmega(m.r, isco);
-                float rc2 = dot(x.xy, x.xy);
-                float lV = 1.0 - a * Om * rc2 / m.A;
-                float gVV = -1.0 + Om * Om * rc2 + m.f * lV * lV;
-                if (gVV < -1e-3) {
-                    float g = 1.0 / (inversesqrt(-gVV) * (E - Om * Lz));
-                    g = clamp(g, 0.02, 8.0);
-                    float boost = pow(g, 3.5);
-                    float dl = ds * j * boost * 1.6;
-                    I += dl;
-                    Ig += dl * g;
-                }
+        // a step is ds long in space; one that lands far from there was
+        // taken where the coordinate speed vanishes (a ray grazing r+, which
+        // once came back out as a single bright texel inside the shadow)
+        if (dot(xn - x, xn - x) > 4.0 * ds * ds) break;
+        float sheetN = sheetAt(x, sheet, xn);
+        // the gas (our sheet only), sampled on the chord: at its middle, or
+        // at its quarter points where the step is long (beyond ~3.6 Rs the
+        // turbulence is finer than a step, and one sample a step shows as
+        // bands; that used to be hidden by a jittered first step, at the
+        // price of a fixed grain, texel by texel)
+        if (sheet > 0.0 && sheetN > 0.0) {
+            if (ds > 0.6) {
+                vec3 xa = mix(x, xn, 0.25), xb = mix(x, xn, 0.75);
+                gas += gasLight(xa, ksRadius(xa, 1.0), isco, E, Lz, 0.5 * ds) + gasLight(xb, ksRadius(xb, 1.0), isco, E, Lz, 0.5 * ds);
+            } else {
+                vec3 xa = mix(x, xn, 0.5);
+                gas += gasLight(xa, ksRadius(xa, 1.0), isco, E, Lz, ds);
             }
         }
+        sheet = sheetN;
+        x = xn;
+        m = ksMetric(x, sheet);
     }
     if (outcome == 0) {
         // the shadow, or the dark below: lit only by the gas falling in ahead.
@@ -513,5 +578,5 @@ void main() {
     }
     vec2 bend = bendEncode(vW, n1, n2, K2W * dir);
     if (outcome == 2) { fragColor = vec4(bend, -1.0, 1.0); return; }
-    fragColor = vec4(bend, I, I > 0.0 ? Ig / I : 1.0);
+    fragColor = vec4(bend, gas.x, gas.x > 0.0 ? gas.y / gas.x : 1.0);
 }
