@@ -166,6 +166,9 @@ float ssin(float x) {
     return sin(mod(x, 6.2831853));
 }
 
+// interleaved gradient noise: well spread over neighbouring pixels, for dither
+float ign(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
+
 // hashes without sine (Dave Hoskins): no visible lattice patterns
 float hash12(vec2 p) {
     vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -1275,6 +1278,17 @@ int holeKind(vec4 t) { return t.a < 0.0 ? 1 : t.b < 0.0 ? 2 : t.a == 0.0 ? 3 : 0
 // block. Which kind: the nearest texel's, unless the caller knows its side
 // of the shadow's edge from the closed form (side 1: the dark, 0: the sky,
 // -1: unknown); then that side's texels are read wherever the four hold any.
+// Where the edge is unknown (below the inner horizon and on the far sheet the
+// march alone decides) rays that pass close to the ring end up on either
+// sheet, or lost, from one texel to the next: single texels of our sky inside
+// the disc that shows the other universe, single dark ones in the glow around
+// it. A texel whose kind none of the other three shares is such a stray and
+// is left out (the heaviest of the others is read instead), so it cannot
+// show as a speck. A real region's edge always has two texels of the four.
+// The same there for a sky texel whose ray took another road past the ring
+// and gathered a fraction of the gas light its neighbours did: where three
+// of the four agree (within 30%) and the fourth has under 0.6 of theirs, it
+// is left out too: it showed as a dark speck in the glow around the disc.
 // Bend vectors are blended as directions where they differ by more than
 // BEND_BLEND: the encoding folds at alpha = 180 degrees (a ray turned 184
 // degrees is written as 176 on the other side), so two neighbours like
@@ -1300,6 +1314,23 @@ vec4 holeRead(vec2 uv, vec3 rd, vec3 n1, vec3 n2, int side) {
         if (k1 != 1 && w1 > best) { best = w1; k = k1; }
         if (k2 != 1 && w2 > best) { best = w2; k = k2; }
         if (k3 != 1 && w3 > best) { best = w3; k = k3; }
+    } else if (side == -1 && (k0 == k ? 1 : 0) + (k1 == k ? 1 : 0) + (k2 == k ? 1 : 0) + (k3 == k ? 1 : 0) == 1) {
+        int stray = k;
+        float best = -1.0;
+        if (k0 != stray && w0 > best) { best = w0; k = k0; }
+        if (k1 != stray && w1 > best) { best = w1; k = k1; }
+        if (k2 != stray && w2 > best) { best = w2; k = k2; }
+        if (k3 != stray && w3 > best) { best = w3; k = k3; }
+    }
+    if (side == -1 && k == 0 && k0 == 0 && k1 == 0 && k2 == 0 && k3 == 0) {
+        float lo = min(min(t0.b, t1.b), min(t2.b, t3.b)), hi = max(max(t0.b, t1.b), max(t2.b, t3.b));
+        // the least of the other three: the sum less the lowest and the highest, less the middle two's larger
+        float mid2 = t0.b + t1.b + t2.b + t3.b - lo - hi;
+        float lo2 = mid2 - max(max(min(t0.b, t1.b), min(t2.b, t3.b)), min(max(t0.b, t1.b), max(t2.b, t3.b)));
+        lo2 = clamp(lo2, lo, hi);
+        if (hi > 0.02 && lo2 > 0.7 * hi && lo < 0.6 * lo2) {
+            if (t0.b == lo) k0 = -1; else if (t1.b == lo) k1 = -1; else if (t2.b == lo) k2 = -1; else k3 = -1;
+        }
     }
     // the texels of that kind: their weights, the heaviest one, their spread
     w0 = k0 == k ? w0 : -1.0; w1 = k1 == k ? w1 : -1.0; w2 = k2 == k ? w2 : -1.0; w3 = k3 == k ? w3 : -1.0;
@@ -1539,13 +1570,17 @@ void main() {
             // (in the scripted view: from the top of the screen to the
             // bottom, over about 3 s), until nothing else is left: at 1 the
             // screen is one colour. Then it fades to black (below).
+            // The brightening is for what the front has not reached: under
+            // the front the picture is veiled by the square of what is left
+            // of it and gets no lift, so the sky squeezed into arcs between
+            // the horizons does not show through the light as bands.
             float c = gxFallClose;
             float mu = dot(rd, normalize(gxCam / RS_KPC));     // 1: back up the axis; -1: straight down
             const float W = 0.7;                          // the front's width, in cos(angle)
             float lit = smoothstep(0.0, 1.0, (mu - mix(1.0, -1.0 - W, c)) / W);
-            gc *= mix(vec3(1.0), vec3(1.0, 1.25, 1.9), c) * (1.0 + 1.5 * c);
+            gc *= mix(mix(vec3(1.0), vec3(1.0, 1.25, 1.9), c) * (1.0 + 1.5 * c), vec3(1.0), lit);
             vec3 front = mix(vec3(0.16, 0.30, 0.85), vec3(0.80, 0.88, 1.0), lit * lit) * (0.35 + 0.65 * c * c);
-            gc = mix(gc, front, lit);
+            gc = mix(gc, front, 1.0 - (1.0 - lit) * (1.0 - lit));
         }
         if (gxRealSky > 0.0) {
             // the real sky from here: galactic longitude from the Centre
@@ -1576,9 +1611,14 @@ void main() {
     if (hudLevel > 0.0)
         col += hud(p, t, accent.rgb, themed(vec3(0.95, 0.15, 0.62), 0.38));
 
-    // static dither against banding in the faint gas, never on black
+    // Dither against banding in every wide smooth gradient (the faint gas,
+    // the fall's closing light, the fades to and from black): triangular
+    // noise of one 8-bit step either way, from interleaved gradient noise
+    // (Jimenez 2014) on the target's own texels, so the rounding to the
+    // display's steps turns into grain too fine to see instead of contours.
+    // Static, and never on black: a dark pixel stays off.
     float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
-    col += (hash12(uv * resolution) - 0.5) / 255.0 * smoothstep(0.004, 0.02, lum);
+    col += (ign(gl_FragCoord.xy) + ign(gl_FragCoord.xy + vec2(47.0, 17.0)) - 1.0) / 255.0 * smoothstep(0.004, 0.02, lum);
 
     fragColor = vec4(max(col, 0.0), 1.0) * qt_Opacity;
 }
