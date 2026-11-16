@@ -223,7 +223,9 @@ view and for every body, from one table and one set of rules
 When none of the subject's parts suits the zoom, the record that holds it
 takes over: beside the Sun you see the Sun's layers, from 100,000 light-years
 the Galaxy's bar, the Sun's orbit and the Fermi bubbles, from further still
-the Local Group. Flight has no body, so nothing is drawn there.
+the Local Group. Where no line of the subject or of what holds it suits the
+zoom, `C` still answers: the story band names the subject and, at `full`,
+says its headline. Flight has no body, so nothing is drawn there.
 
 **How a line tells you what it is.** One legend for every body:
 
@@ -283,7 +285,8 @@ its words in the table and is not drawn: ten of the 126 today.
 
 - The five single stars (Betelgeuse, Vega, Sirius, Alpha Centauri, Polaris)
   have rows, but the Milky Way view cannot come closer to a place than
-  0.2 pc, far too far to see a star's surface. `anatomyDemo` shows them.
+  0.2 pc, far too far to see a star's surface. There `C` says the star's
+  name and headline; `anatomyDemo` shows the lines.
 - The Sun's termination shock and heliopause need a view about 300 AU
   tall at true scale. The chase view from the Sun stops at 14 AU, so today
   it reaches the edge of the corona and no further.
@@ -1100,8 +1103,9 @@ on `hole_layer.py` times the layer's draw.
 `tests/harness/anatomy.sh` runs the anatomy layer the same headless way
 (about two minutes): the views one after another with the layer on, checked
 by `anatomy_check.js` for JavaScript errors, the subject of each view, the
-fade on a journey, the text levels, `K`, the walk through the story band and
-the room the lines and labels keep. It also prints what a pass costs.
+fade on a journey, the text levels, `K`, the walk through the story band, a
+star too far for its lines (named all the same) and the room the lines and
+labels keep. It also prints what a pass costs.
 
 `tests/harness/fall.sh [--math] [--esc <s>] [--gpu <driver>]` runs a whole fall headless
 (`--esc 30`: Esc thirty screen seconds in, and the way home from there):

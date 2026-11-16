@@ -222,7 +222,7 @@ Item {
   property int anatWords: 0                       // the words of its labels, for the clock
   property string anatLit: ""                     // the row being told
   property var anatPointer: null                  // the pointer, in the first screen's pixels
-  readonly property var anatRun: ({ key: "", calm: "", still: true, said: "", walk: null, hover: "", c: null, readoutUntil: 0, passes: 0, ms: 0, at: 0, last: 0 })
+  readonly property var anatRun: ({ key: "", calm: "", still: true, said: "", subject: "", walk: null, hover: "", c: null, readoutUntil: 0, passes: 0, ms: 0, at: 0, last: 0 })
   readonly property real anatLevel: Math.min(0.75, hudBrightness * 1.8)   // the lines' brightness: the hints'
   readonly property var anatHint: ["C", "anatomy: show / hide what it is made of"]
   function setAnatomy(word) {
@@ -230,7 +230,7 @@ Item {
     const to = w === "on" ? true : w === "off" ? false : w === "toggle" ? !anatomy : null
     if (to === null) return
     touchText()
-    anatRun.said = ""
+    anatRun.said = ""; anatRun.subject = ""
     anatRun.walk = to ? { pending: true } : null
     if (!to) { say("anatomy", "ANATOMY OFF  ·  C BRINGS IT BACK", ""); if (anatLit !== "") anatLit = "" }
     if (to === anatomy) return
@@ -331,7 +331,7 @@ Item {
     if (!rec || (m === 0 && mix.anat.g === 0)) {
       if (anatOut) { anatOut = null; anatWords = 0; R.key = "" }
       if (anatLit !== "") anatLit = ""
-      if (!rec) R.said = ""
+      if (!rec) { R.said = ""; R.subject = "" }
       return
     }
     // faded on the idle clock: nothing is worked out until something brings the text back
@@ -359,19 +359,23 @@ Item {
       anatWords = Tx.words(Anat.wordsOf(out))
     }
     const out = anatOut
-    if (!out) { if (anatLit !== "") anatLit = ""; return }
     // what it says, at `full`: the body's headline when the drawing becomes
-    // another body's, and once after C the lines one by one, the largest first
+    // another body's (where no line of the subject or of what holds it suits
+    // the zoom, the subject's own, once: C always answers), and once after C
+    // the lines one by one, the largest first
     const guide = Tx.shows(textShown, "guide") && !film && anatDemo === ""
-    const row = id => out.rows.find(r => r.id === id)
-    const fact = id => Anat.factOf(Anat.byId(out.id).rows.find(r => r.id === id), R.c, out.g)
-    if (m > 0.5 && R.still && out.id !== R.said) {
-      R.said = out.id
+    const named = out ? Anat.byId(out.id) : rec
+    if (m > 0.5 && R.still && (out ? out.id !== R.said : rec.id !== R.subject)) {
+      R.said = named.id
+      R.subject = rec.id
       R.readoutUntil = now + 4000
       Tx.touchZone(textModel, "dial")
-      say("anatomy", "ANATOMY  ·  " + out.title, guide ? Anat.byId(out.id).headline : "")
-      if (R.walk && R.walk.pending) R.walk = guide ? { told: ({}) } : null
+      say("anatomy", "ANATOMY  ·  " + named.title, guide ? named.headline : "")
+      if (R.walk && R.walk.pending) R.walk = guide && out ? { told: ({}) } : null
     }
+    if (!out) { if (anatLit !== "") anatLit = ""; return }
+    const row = id => out.rows.find(r => r.id === id)
+    const fact = id => Anat.factOf(named.rows.find(r => r.id === id), R.c, out.g)
     const mine = story.cur && story.cur.who === "anatomy" ? story.cur : null
     if (R.walk && !R.walk.pending) {
       Tx.touchZone(textModel, "anat", 1)   // the lines stay up while they are told

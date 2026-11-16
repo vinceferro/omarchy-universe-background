@@ -1,5 +1,5 @@
 // the anatomy harness's driver: turns the anatomy on and visits a view after
-// another (the Galaxy's home, the black hole with and without K, Earth,
+// another (the Galaxy's home, the black hole with and without K, a star, Earth,
 // Saturn, Sky mode, a body in a frame of its own), logging IPC
 // anatomyReport and the story band four times a second (anatomy.sh reads
 // the rows). Each stage waits for what it is about, or times out.
@@ -19,6 +19,7 @@ Window {
     { name: "hole with K", go: () => ipc.mathMode(true), until: r => since > 8 },
     { name: "text names", go: () => { ipc.mathMode(false); ipc.text("names") }, until: r => since > 10 },
     { name: "text off", go: () => ipc.text("off"), until: r => since > 10 },
+    { name: "betelgeuse", go: () => { ipc.text("full"); ipc.fly("Betelgeuse") }, until: r => r.subject === "betelgeuse" && r.parked && r.still && /Betelgeuse/.test(bg.storyTitle), max: 240 },
     { name: "earth", go: () => { ipc.text("full"); ipc.focus(3) }, until: r => r.drawn === "earth" && r.mix >= 1 && r.still && /Earth/.test(bg.storyTitle), max: 160 },
     { name: "saturn", go: () => ipc.focus(6), until: r => r.drawn === "saturn" && r.mix >= 1 && since > 12, max: 120 },
     { name: "sun", go: () => ipc.focus(0), until: r => r.parked && since > 30, max: 120 },

@@ -37,6 +37,9 @@ check("the bright side has its figure once the camera rests", hole.rep.rows.some
 // the levels: the drawing stays at every level (the labels' gates are the text's own)
 const off = last("text off")
 check("at names and at off the lines are still drawn", last("text names").rep.drawn === "sgrA" && off.rep.drawn === "sgrA" && off.rep.rows.length > 0 && off.text.shown === "off")
+// a subject none of whose lines suits any zoom the view reaches (a single star from 0.2 pc) still answers
+const star = last("betelgeuse")
+check("a star too far for its lines: nothing drawn, its name and headline said", star.rep.subject === "betelgeuse" && star.rep.drawn === "" && star.story === "ANATOMY  ·  Betelgeuse" && /red supergiant/.test(star.body), star.story)
 // the system view
 const earth = last("earth"), saturn = last("saturn"), sun = last("sun")
 check("Earth pinned: its cores and mantle", earth.rep.subject === "earth" && ["innerCore", "outerCore", "mantle"].every(i => ids(earth).includes(i)), ids(earth).join(" "))
