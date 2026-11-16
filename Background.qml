@@ -6,6 +6,9 @@ import QtQuick
 import QtQuick.Effects
 import QtQuick.Shapes
 import qs.Commons
+// qualified as well: Omarchy 4.0.2 (still the newest on aarch64) only resolves
+// Color through the module name; 4.0.6 accepts both
+import qs.Commons as Commons
 import qs.Ui
 import "lib/camera.js" as Cam
 import "lib/fall.js" as Fall
@@ -2113,10 +2116,10 @@ Item {
     // pending; the latest theme payload should still apply.
     if (pendingThemeVersion < 0) return
     pendingThemeFallbackTimer.stop()
-    Color.loadColors(pendingColorsRaw)
-    // Color.loadShell also refreshes Style so the type scale flips with the
+    Commons.Color.loadColors(pendingColorsRaw)
+    // Commons.Color.loadShell also refreshes Style so the type scale flips with the
     // background reveal instead of waiting for a separate reload path.
-    Color.loadShell(pendingShellRaw)
+    Commons.Color.loadShell(pendingShellRaw)
     Style.scheduleRefresh()
     pendingThemeVersion = -1
     pendingColorsRaw = ""
