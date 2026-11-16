@@ -182,9 +182,11 @@ Item {
   function touchText() { Tx.touch(textModel) }
   // word: a level, "next", "prev", or "toggle" (the cockpit key). It ends a
   // hold, is saved, and names itself in the story band
-  function setText(word) {
+  function setText(word, from) {
     const st = Tx.apply({ level: textLevel || "full", lower: textLower }, word)
     if (!st) return
+    // the shell's log says what changed the level (a key and an IPC call leave no other trace)
+    if (st.level !== textLevel) console.info("universe.background: text level " + (textLevel || "unset") + " -> " + st.level + " (" + word + ", " + (from || "a call") + ")")
     textHold = ""
     textLower = st.lower
     if (st.level !== textLevel) { textLevel = st.level; saveText() }
@@ -3479,13 +3481,13 @@ Item {
 
     // the cockpit key (Super+Alt+J): full, and the last level below it
     function toggleHud(): void {
-      root.setText("toggle")
+      root.setText("toggle", "IPC toggleHud")
     }
 
     // the text level: off, names or full; next and prev cycle (T, Shift+T);
     // toggle is toggleHud. Remembered across restarts
     function text(level: string): void {
-      root.setText(level)
+      root.setText(level, "IPC text")
     }
 
     // a level for now (a film, a tour), over the saved one and never saved;
@@ -5011,8 +5013,8 @@ Item {
             return
           }
           const k = event.text.toLowerCase()
-          if (k === "h") { root.setText("toggle"); event.accepted = true; return }
-          if (k === "t") { root.setText(event.modifiers & Qt.ShiftModifier ? "prev" : "next"); event.accepted = true; return }
+          if (k === "h") { root.setText("toggle", "key H"); event.accepted = true; return }
+          if (k === "t") { root.setText(event.modifiers & Qt.ShiftModifier ? "prev" : "next", "key T"); event.accepted = true; return }
           if (k === "c" && root.explore !== "flight") { root.setAnatomy("toggle"); event.accepted = true; return }
           if (root.explore === "sky") {
             const arrowsS = { [Qt.Key_Left]: "left", [Qt.Key_Right]: "right", [Qt.Key_Up]: "up", [Qt.Key_Down]: "down" }
