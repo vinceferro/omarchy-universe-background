@@ -89,6 +89,11 @@ function frame(view, yaw, pitch, o) {
     const none = hs.filter(h => !A.byPlace(h.name, false)).map(h => h.name)
     check("every place of the Milky Way view has a record (" + hs.length + " places)", none.length === 0, none.join(", "))
     check("the hole's record is the black hole's place", A.byPlace(hs.find(h => h.kind === "blackhole").name, false).id === "sgrA")
+    // the picture's rings (universe.frag's ringPattern, in globe radii) against the table's, in km
+    const rp = fs.readFileSync(path.join(path.dirname(process.argv[3]), "universe.frag"), "utf8").match(/float ringPattern[\s\S]*?smoothstep\(([\d.]+), ([\d.]+), re\)\)\s*\* \(1\.0 - 0\.85 \* smoothstep\(([\d.]+), ([\d.]+), re\) \* \(1\.0 - smoothstep\(([\d.]+), ([\d.]+), re\)/).slice(1).map(Number)
+    const sat = A.byId("saturn"), km = (id, k) => sat.rows.find(r => r.id === id).shape[k] / sat.radius
+    check("Saturn as drawn: the Cassini Division and the A ring's edge lie where the table's lines do", Math.abs((rp[2] + rp[3]) / 2 - km("cassini", "r0")) < 0.005 && Math.abs((rp[4] + rp[5]) / 2 - km("cassini", "r1")) < 0.005 && Math.abs((rp[0] + rp[1]) / 2 - km("ringA", "r1")) < 0.012,
+          [(rp[2] + rp[3]) / 2, km("cassini", "r0"), (rp[4] + rp[5]) / 2, km("cassini", "r1"), (rp[0] + rp[1]) / 2, km("ringA", "r1")].map(v => v.toFixed(3)).join(" "))
   }
 }
 

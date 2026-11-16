@@ -435,10 +435,14 @@ vec4 bodyAt(int i) {
     return i == 0 ? body0 : i == 1 ? body1 : i == 2 ? body2 : i == 3 ? body3 : i == 4 ? body4 : i == 5 ? body5 : moonBody;
 }
 
-// Saturn-style ring brightness at ring radius re (in planet radii)
+// Saturn-style ring brightness at ring radius re (in planet radii: the
+// globe's 58,232 km). The Cassini Division (117,507 to 122,340 km: 2.02 to
+// 2.10) and the A ring's outer edge (136,780 km: 2.35) are where the NSSDCA
+// rings fact sheet has them, so the anatomy's lines (lib/anatomy-data.js)
+// lie on the gap and the edge that are drawn
 float ringPattern(float re, float fp) {
-    return smoothstep(1.32, 1.40, re) * (1.0 - smoothstep(2.20, 2.30, re))
-         * (1.0 - 0.85 * smoothstep(1.80, 1.83, re) * (1.0 - smoothstep(1.90, 1.93, re)))
+    return smoothstep(1.32, 1.40, re) * (1.0 - smoothstep(2.32, 2.36, re))
+         * (1.0 - 0.85 * smoothstep(2.005, 2.03, re) * (1.0 - smoothstep(2.09, 2.115, re)))
          * (0.80 + 0.20 * sin(re * 40.0) * lod(40.0 / 6.283, fp)
                  + 0.10 * sin(re * 170.0) * lod(170.0 / 6.283, fp)
                  + 0.06 * sin(re * 530.0) * lod(530.0 / 6.283, fp));
