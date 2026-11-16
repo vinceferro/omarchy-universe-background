@@ -4,7 +4,9 @@ const fs = require("fs"), path = require("path")
 const kerrSrc = fs.readFileSync(path.join(path.dirname(process.argv[2]), "kerr.js"), "utf8").replace(".pragma library", "")
 const src = fs.readFileSync(process.argv[2], "utf8").replace(".pragma library", "").replace(/^\.import .*$/m, "")
 const Fall = new Function(kerrSrc + "\nconst Kerr = { horizons, polarPhotonOrbit, axisEnergyFromRest, axisSpeed, axisFall, tableR, tableTau, ksMetric, axisInfaller, cameraRay, carterKAxis, radialClass };\n" + src
-  + "\nreturn { GM_C3, RS_C, TAU_MAX_INSIDE, S_PHOTON, S_HORIZON, S_OTHER, E_MATH, R_END_MATH, T_INNER, T_SLOW, S_SLOW, S_LIGHT, T_FADE, S_CAPTION, CAPTIONS, light, caption, timeline, tauAtR, rAt, speedAt, tau, rate, sAtTau, phase, begin, step,\n  RS_KM, S_SHOVE, S_BACK, TILT_BACK, TILT_NEAR, EXP_ADAPT, EXP_MIN, EXP_MAX, ray, shadowEdge, rimTilt, viewE, look, boost, exposure, next };")()
+  + "\nreturn { GM_C3, RS_C, TAU_MAX_INSIDE, S_PHOTON, S_HORIZON, S_OTHER, E_MATH, R_END_MATH, T_INNER, T_SLOW, S_SLOW, S_LIGHT, T_FADE, S_TELL, S_RING, CAPTIONS, light, story, localSpeed, timeline, tauAtR, rAt, speedAt, tau, rate, sAtTau, phase, begin, step,\n  RS_KM, S_SHOVE, S_BACK, TILT_BACK, TILT_NEAR, EXP_ADAPT, EXP_MIN, EXP_MAX, ray, shadowEdge, rimTilt, viewE, look, boost, exposure, next };")()
+// the story band the captions go to (lib/text.js): the same model Background.qml steps
+const Tx = new Function(fs.readFileSync(path.join(path.dirname(process.argv[2]), "text.js"), "utf8").replace(".pragma library", "") + "\nreturn { words, read, storyCreate, say, storyStep, storyOpacity, storyWho, STORY_IN_S, STORY_OUT_S }")()
 let fails = 0
 function check(name, ok, info) { console.log((ok ? "ok   " : "FAIL ") + name + (info !== undefined ? "  " + info : "")); if (!ok) fails++ }
 
@@ -382,45 +384,76 @@ check("light: a beat of 3 to 5 s, begun once the slowing has (never before it)",
 check("light: none in mathematics mode or without spin", Fall.light(tm, tm.sEnd) === 0 && Fall.light(tm, tm.sReal) === 0 && Fall.light(tl, tl.sEnd) === 0)
 // stepping at 165 Hz, as Background.qml does: when the fade begins
 function run(F, hz, onFrame) { for (let i = 0; i < hz * 120; i++) { const o = Fall.step(F, 1 / hz); onFrame(o, F.s); if (o.left === 0 && o.fade && F.s > F.tl.sEnd + 5) break } }
-let fadeAt = -1, lightAtFade = -1, rateAtFade = -1, said = [], saidAt = [], lastSaid = null
-run(Fall.begin(6, A), 165, (o, s) => {
-  if (o.fade && fadeAt < 0) { fadeAt = s; lightAtFade = o.light; rateAtFade = o.rate }
-  if (o.caption !== lastSaid) { said.push(o.caption); saidAt.push(s); lastSaid = o.caption }
-})
-check("realistic: the fade begins at r-, the light closed and the camera at rest", Math.abs(fadeAt - tk.sEnd) < 0.01 && lightAtFade === 1 && rateAtFade === 0, fadeAt.toFixed(2) + " s")
+// what the fall says goes to the story band, as Background.qml does it: each
+// event is said when its frame comes, and the band shows it for its reading time
+function play(F, hz) {
+  const S = Tx.storyCreate(), rows = [], said = []
+  let fadeAt = -1, atFade = null
+  for (let i = 0; i < hz * 140; i++) {
+    const o = Fall.step(F, 1 / hz)
+    if (o.say !== "" && !o.fade) { const c = Fall.CAPTIONS[o.say]; Tx.say(S, "fall", c.title, c.body); said.push({ key: o.say, s: F.s }) }
+    if (o.fade && fadeAt < 0) { fadeAt = F.s; atFade = o }
+    Tx.storyStep(S, 1 / hz)
+    rows.push({ s: F.s, title: S.cur ? S.cur.title + "|" + S.cur.body : "", up: Tx.storyOpacity(S), light: o.light, r: o.r })
+    if (o.left === 0 && o.fade && F.s > F.tl.sEnd + 12) break
+  }
+  const of = key => { const c = Fall.CAPTIONS[key]; return rows.filter(r => r.title === c.title + "|" + c.body) }
+  return { rows: rows, said: said, fadeAt: fadeAt, atFade: atFade,
+           full: key => of(key).filter(r => r.up === 1).length / hz,                       // seconds fully up
+           from: key => { const q = of(key).filter(r => r.up === 1); return q.length ? q[0].s : Infinity },
+           to: key => { const q = of(key).filter(r => r.up === 1); return q.length ? q[q.length - 1].s : -Infinity },
+           need: key => Tx.read(Tx.words(Fall.CAPTIONS[key].title + " " + Fall.CAPTIONS[key].body)) }
+}
+const pk = play(Fall.begin(6, A), 165), pm = play(Fall.begin(6, A, true), 165), p0 = play(Fall.begin(6, 0), 165)
+const fadeAt = pk.fadeAt
+check("realistic: the fade begins at r-, the light closed and the camera at rest", Math.abs(fadeAt - tk.sEnd) < 0.01 && pk.atFade.light === 1 && pk.atFade.rate === 0, fadeAt.toFixed(2) + " s")
 check("realistic: 18.4 s from the outer horizon to the fade (it was 12.7 s)", Math.abs(fadeAt - Fall.S_HORIZON - 18.4) < 0.02, (fadeAt - Fall.S_HORIZON).toFixed(2))
-check("realistic captions: looking back during the glance, the event horizon at the crossing for 4 s, between the horizons, then the inner horizon to the end",
-      said.join("|") === "|sky-behind||event-horizon||between||inner-horizon" && Math.abs(saidAt[1] - 11) < 0.01 && Math.abs(saidAt[2] - 17) < 0.01 && Math.abs(saidAt[3] - 24) < 0.01
-      && Math.abs(saidAt[4] - 28) < 0.01 && Math.abs(saidAt[5] - 29) < 0.01 && Math.abs(saidAt[6] - (tk.sInner - 1)) < 0.01 && Math.abs(saidAt[7] - tk.sInner) < 0.01 && saidAt[6] - saidAt[5] >= 4, saidAt.map(v => v.toFixed(1)).join(" "))
-// a story caption is fully up 3 s after it is set (0.4 s pause, 2.6 s fade)
-check("realistic: the inner horizon's caption stands 4.5 s before the fade (and through the black)", Math.abs(fadeAt - (tk.sInner + 3) - 4.5) < 0.02 && tk.sInner - 28 > 3, (fadeAt - tk.sInner - 3).toFixed(2))
-let fadeM = -1, leftM = -1; said = []; saidAt = []; lastSaid = null
-run(Fall.begin(6, A, true), 165, (o, s) => {
-  if (o.fade && fadeM < 0) { fadeM = s; leftM = o.left }
-  if (o.caption !== lastSaid) { said.push(o.caption); saidAt.push(s); lastSaid = o.caption }
-})
-check("math: the fade begins with 2.2 s of proper time left, as before", leftM < Fall.T_FADE && leftM > Fall.T_FADE - 1 && Math.abs(fadeM - tm.sFade) < 0.01, leftM.toFixed(2) + " s left at " + fadeM.toFixed(2))
-check("math captions: looking back, event horizon, inner horizon, the ring, the other universe (no room for between the horizons)", said.join("|") === "|sky-behind||event-horizon||inner-horizon-math||ring|other-universe", said.join("|"))
-const span = k => saidAt[said.indexOf(k) + 1] - saidAt[said.indexOf(k)]
-check("math captions: each stands at least 4 s, with 2 s between unrelated ones; the ring's is up before the disk", span("event-horizon") >= 3.99 && span("inner-horizon-math") >= 4 && span("ring") >= 5.5 && tm.sRing - tm.sInnerEnd >= 2 && tm.sRing + 3 < tm.sReal && tm.sOther > tm.sReal && tm.sEnd - tm.sOther > 10, [span("event-horizon"), span("inner-horizon-math"), span("ring"), tm.sEnd - tm.sOther].map(v => v.toFixed(1)).join(" "))
-let fade0 = -1, left0 = -1; said = []; lastSaid = null
-run(Fall.begin(6, 0), 165, (o, s) => { if (o.fade && fade0 < 0) { fade0 = s; left0 = o.left } if (o.caption !== lastSaid) { said.push(o.caption); lastSaid = o.caption } })
-check("a = 0: no inner horizon, no slowdown: the fade 2.2 s before the singularity, the one caption", !tl.slow && left0 < Fall.T_FADE && left0 > Fall.T_FADE - 0.02 && said.join("|") === "|sky-behind||event-horizon|", left0.toFixed(3))
+check("the story is a list of events, in order of screen time, each with a caption", [tk, tm, tl].every(t => t.story.length >= 2 && t.story.every((e, i) => Fall.CAPTIONS[e.key] && isFinite(e.s) && (i === 0 || e.s > t.story[i - 1].s))))
+check("realistic says: looking back (11 s), the event horizon at the crossing, the inner horizon 6 s before its light",
+      pk.said.map(e => e.key).join("|") === "sky-behind|event-horizon|inner-horizon" && Math.abs(pk.said[0].s - 11) < 0.01 && Math.abs(pk.said[1].s - 24) < 0.01 && Math.abs(pk.said[2].s - (tk.sEnd - Fall.S_LIGHT - Fall.S_TELL)) < 0.01, pk.said.map(e => e.s.toFixed(1)).join(" "))
+check("math says the same up to the inner horizon, then the ring and the other universe: one fall, two endings",
+      pm.said.map(e => e.key).join("|") === "sky-behind|event-horizon|inner-horizon-math|ring|other-universe" && pm.said[0].s === pk.said[0].s && pm.said[1].s === pk.said[1].s, pm.said.map(e => e.s.toFixed(1)).join(" "))
+check("each event is said once, on the frame its time comes", [pk, pm, p0].every(p => new Set(p.said.map(e => e.key)).size === p.said.length) && pk.said.every((e, i) => e.s - tk.story[i].s >= 0 && e.s - tk.story[i].s < 1 / 165 + 1e-9))
+// reading time: every caption of both falls stands fully up for its whole
+// reading time (lib/text.js read(): 1.5 s + 0.3 s a word)
+for (const [name, p] of [["realistic", pk], ["math", pm], ["a = 0", p0]]) {
+  const short = p.said.filter(e => p.full(e.key) < p.need(e.key) - 2 / 165)
+  check(name + ": every caption is fully up for its reading time", short.length === 0, p.said.map(e => e.key + " " + p.full(e.key).toFixed(1) + "/" + p.need(e.key).toFixed(1)).join(", "))
+  const late = p.said.filter(e => p.from(e.key) - e.s > 4.5)
+  check(name + ": none comes up more than 4.5 s after its event", late.length === 0, p.said.map(e => (p.from(e.key) - e.s).toFixed(1)).join(" "))
+}
+check("the event horizon's caption is up within a second of the crossing", pk.from("event-horizon") - 24 < 1 && pm.from("event-horizon") - 24 < 1)
+check("realistic: the inner horizon's caption is fully up at least 3 s before its light begins, and read before the black",
+      tk.sEnd - Fall.S_LIGHT - pk.from("inner-horizon") >= 3 && pk.to("inner-horizon") <= tk.sEnd + 2, (tk.sEnd - Fall.S_LIGHT - pk.from("inner-horizon")).toFixed(2) + " s before the light; down " + (pk.to("inner-horizon") - tk.sEnd).toFixed(2) + " s after the fade begins")
+check("math: the inner horizon's caption is up as r- is crossed; the ring's while we pass the disk; the far side's is read before the fade",
+      pm.from("inner-horizon-math") < Fall.sAtTau(tm, tm.tauInner) + 0.5 && pm.to("inner-horizon-math") > Fall.sAtTau(tm, tm.tauInner)
+      && pm.from("ring") < tm.sReal && pm.to("ring") > tm.sReal && pm.to("other-universe") < tm.sFade,
+      [pm.from("inner-horizon-math"), Fall.sAtTau(tm, tm.tauInner), pm.from("ring"), tm.sReal, pm.to("other-universe"), tm.sFade].map(v => v.toFixed(1)).join(" "))
+check("math: the fade begins with 2.2 s of proper time left, as before", pm.atFade.left < Fall.T_FADE && pm.atFade.left > Fall.T_FADE - 1 && Math.abs(pm.fadeAt - tm.sFade) < 0.01, pm.atFade.left.toFixed(2) + " s left at " + pm.fadeAt.toFixed(2))
+check("a = 0: no inner horizon, no slowdown: the fade 2.2 s before the singularity, two captions", !tl.slow && p0.atFade.left < Fall.T_FADE && p0.atFade.left > Fall.T_FADE - 0.02 && p0.said.map(e => e.key).join("|") === "sky-behind|event-horizon", p0.atFade.left.toFixed(3))
 // the inverse on the whole realistic timeline, above the horizon too (the
 // ending's closed form is for its own stretch only)
 let invAll = 0
 for (let s = 0.5; s < tk.sEnd; s += 0.25) invAll = Math.max(invAll, Math.abs(Fall.sAtTau(tk, Fall.tau(tk, s)) - s))
 check("realistic: s(tau(s)) round trip from the start to r-, above the horizon too", invAll < 1e-6, invAll.toExponential(1))
-check("realistic: a fall joined above the horizon (begin at 1.5, 1.0) starts at that radius, before the crossing", [1.5, 1.0].every(r => { const F = Fall.begin(r, A); return F.s > 0 && F.s < Fall.S_HORIZON && Math.abs(Fall.rAt(F.tl, Fall.tau(F.tl, F.s)) - r) < 1e-6 && Fall.caption(F.tl, F.s) === "" }))
+check("realistic: a fall joined above the horizon (begin at 1.5, 1.0) starts at that radius, before the crossing, the horizon's caption still to come", [1.5, 1.0].every(r => { const F = Fall.begin(r, A); return F.s > 0 && F.s < Fall.S_HORIZON && Math.abs(Fall.rAt(F.tl, Fall.tau(F.tl, F.s)) - r) < 1e-6 && F.tl.story[F.told].key === "event-horizon" }))
 const tx = Fall.timeline(6, 0.5)
 check("extremal spin (the horizons coincide): no stretch to slow, every time finite, the fade at the horizon", tx.tSlow === 0 && [tx.sReal, tx.sEnd, tx.sFade, tx.sInner].every(isFinite) && tx.sFade === Fall.S_HORIZON && Fall.tau(tx, tx.sEnd) === tx.tauEnd && Fall.sAtTau(tx, tx.tauEnd) === tx.sEnd)
-check("a crossing in free flight (begin at 0.6) starts on the event horizon's caption", Fall.caption(tk, Fall.begin(0.6, A).s) === "event-horizon")
-// the words: every key the timeline can return has a caption, short enough
-// for the story band; the K hint is in the realistic ending only
+{
+  const F = Fall.begin(0.6, A), o = Fall.step(F, 1 / 165)
+  check("a crossing in free flight (begin at 0.6) starts on the event horizon's caption, and does not say the glance back it never made", o.say === "event-horizon" && F.told === 2 && Fall.begin(6, A).told === 0)
+}
+// the words: every event has a caption that says what is there (no "nothing", "no longer", "never")
 const keys = Object.keys(Fall.CAPTIONS), nWords = t => t.split(/\s+/).length
-check("captions: a title and a body each, at most 25 words", keys.every(k => Fall.CAPTIONS[k].title && Fall.CAPTIONS[k].body && nWords(Fall.CAPTIONS[k].body) <= 25), keys.map(k => nWords(Fall.CAPTIONS[k].body)).join(" "))
-check("captions: the K hint closes the realistic inner horizon's, on its own line, and is nowhere else", /\nK: follow the mathematics through the ring$/.test(Fall.CAPTIONS["inner-horizon"].body) && keys.every(k => k === "inner-horizon" || !/\bK\b/.test(Fall.CAPTIONS[k].body)))
-check("captions: the outer horizon's says nothing marks it", Fall.CAPTIONS["event-horizon"].title === "Event horizon" && /othing marks it/.test(Fall.CAPTIONS["event-horizon"].body))
+check("captions: a title and a body each, at most 32 words", keys.every(k => Fall.CAPTIONS[k].title && Fall.CAPTIONS[k].body && nWords(Fall.CAPTIONS[k].body) <= 32), keys.map(k => nWords(Fall.CAPTIONS[k].body)).join(" "))
+check("captions: every key is said by one of the two falls, and no caption carries a key hint", keys.every(k => tk.story.concat(tm.story).some(e => e.key === k)) && keys.every(k => !/\bK\b|\n/.test(Fall.CAPTIONS[k].body)))
+check("captions say what is there: none is a bare negation", keys.every(k => !/\b(nothing|no longer|never|not physics)\b/i.test(Fall.CAPTIONS[k].body)))
+check("captions: the event horizon's says it is crossed smoothly", Fall.CAPTIONS["event-horizon"].title === "Event horizon" && /as smoothly as open space/.test(Fall.CAPTIONS["event-horizon"].body))
+// the figures the card quotes come from here
+check("the plunge: 0.79 c to someone hovering at the start, 0.75 c at infinity", Math.abs(Fall.localSpeed(tm, 6, tm.E) - 0.79) < 0.005 && Math.abs(Math.sqrt(1 - 1 / (tm.E * tm.E)) - 0.745) < 0.001, Fall.localSpeed(tm, 6, tm.E).toFixed(3))
+check("from rest the local speed starts at 0", Fall.localSpeed(tk, 6, tk.E) < 1e-6)
+check("between the horizons on our own clock: 14.9 s from rest, 9 s in the plunge", Math.abs(tk.tauInner - tk.tauHorizon - 14.9) < 0.1 && Math.abs(tm.tauInner - tm.tauHorizon - 9.15) < 0.1, (tk.tauInner - tk.tauHorizon).toFixed(1) + " " + (tm.tauInner - tm.tauHorizon).toFixed(1))
+check("the approach is shown about 40 times faster from rest (946 s in 24), about 7 times in the plunge", Math.abs(tk.tauHorizon / Fall.S_HORIZON - 39.4) < 0.5 && Math.abs(tm.tauHorizon / Fall.S_HORIZON - 7.2) < 0.5, (tk.tauHorizon / Fall.S_HORIZON).toFixed(1) + " " + (tm.tauHorizon / Fall.S_HORIZON).toFixed(1))
 
 // 9. the view: the shadow's rim, the frame's energy, the script, the exposure, the landmark ahead
 {
