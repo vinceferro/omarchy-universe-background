@@ -326,7 +326,7 @@ Item {
       f = { C: P, k: R / rec.radius, basis: Anat.basisOf(rec.axis && rec.axis.v ? rec.axis.v : [0, 1, 0]),
             cam: { C: b.C, right: b.right, up: b.up, fwd: b.fwd, focal: b.focal, o: b.o },
             sunDir: pl > 0 ? [-P[0] / pl, -P[1] / pl, -P[2] / pl] : null,
-            oneScale: sysCam.sigma.x > 0.999 && !galactic, resolve: () => null }
+            oneScale: sysCam.sigma.x > 0.999 && !galactic, limb: rec.radius, resolve: () => null }
     } else if (explore === "galaxy" || explore === "sky") {
       // the Milky Way view and Sky mode: kiloparsecs
       const sky = explore === "sky"
@@ -391,7 +391,7 @@ Item {
     const moved = S.movedAt === now, rest = now - S.movedAt >= 150
     S.sel = sel
     if (!(key !== S.key || moved || (rest && !S.still))) return cur
-    if (!(rest || S.key === "" || now - S.at >= 5 * S.last)) return cur
+    if (!(rest || S.key === "" || now - S.at >= Math.max(10, 5 * S.last))) return cur
     env.still = rest; lensE.still = rest
     const t0 = Date.now()
     const out = Anat.draw(sel, frameOf, env, lensE)
@@ -1844,7 +1844,7 @@ Item {
       anatHint,
       textHint,
       ["H", "cockpit on / off"],
-      ["ESC / RIGHT-CLICK", gxFromSystem ? "back to the solar system" : "back to the universe"]
+      ["ESC / RIGHT-CLICK", gxSel !== -1 || gxView >= 0 ? "home: the Sun in its Galaxy" : gxFromSystem ? "back to the solar system" : "back to the universe"]
     ]) : explore !== "system" ? [] : galactic ? [
       ["-  =", galSlow === 1 ? "slow the Sun to see the coils" : "slower / faster Sun (now 1/" + galSlow + ")"],
       ["I", root.guides ? "hide the trails" : "show 2-year trails (guide lines)"],

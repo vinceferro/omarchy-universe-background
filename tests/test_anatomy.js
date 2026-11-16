@@ -370,6 +370,14 @@ for (const [screen, lay, disc, rail] of SCREENS) {
   const crust = earthL.rows.find(r => r.id === "crust") || earthL.rows.find(r => r.id === "mantle")
   check("Earth in the lens, to scale: cores, mantle and the inner belt, the surface a third of the way to the rim's line", ["innerCore", "outerCore", "mantle", "innerBelt"].every(i => ids.includes(i)) && Math.abs(crust.size / D - 6371 * 0.8 / 19371) < 0.02, ids.join(" ") + "; Earth " + Math.round(crust.size) + " px of " + Math.round(D))
   console.log("     the lens shows, in radii across: " + spans.join(", "))
+  // on the body, a planet's own surface lies on the limb the picture has (a ball of its mean radius); the lens shows the true flattening
+  {
+    const sat = A.byId("saturn"), cs = ctx(sat), fs = frame(58232 * 6, 0.6, 0.0, { focal: 1 }); fs.limb = sat.radius
+    const span = pts => [Math.max(...pts.map(q => q[0])) - Math.min(...pts.map(q => q[0])), Math.max(...pts.map(q => q[1])) - Math.min(...pts.map(q => q[1]))]
+    const on = span(A.rowGeometry(sat.rows.find(r => r.id === "cloudTops"), fs, cs, e).curves[0].pts), R = 2 * 58232 / Math.sqrt(36 * 58232 * 58232 - 58232 * 58232) * e.H
+    const inL = span(A.rowGeometry(sat.rows.find(r => r.id === "cloudTops"), A.lensFrame(sat, fs, cs, false), cs, A.lensEnv(e, D, to)).curves[0].pts)
+    check("Saturn's cloud tops on the body: the rendered ball's limb, to the pixel; in the lens: flattened by a tenth", Math.abs(on[0] - R) < 1 && Math.abs(on[1] - R) < 1 && Math.abs(inL[1] / inL[0] - 54364 / 60268) < 0.01, on.map(v => v.toFixed(1)).join(" x ") + " for " + R.toFixed(1) + "; lens " + (inL[1] / inL[0]).toFixed(3))
+  }
   // the hole through the telescope: the shadow this eye sees, magnified
   const hole = A.byId("sgrA"), ch = ctx(hole), fh = frame(400, 1.1, 0.3), oh = A.compose(hole, A.lensFrame(hole, fh, ch, false), ch, A.lensEnv(e, D, to))
   check("the hole from 400 Rs in the lens: its shadow, horizon and spin axis", !!oh && ["shadow", "horizon", "spinAxis"].every(i => oh.rows.some(r => r.id === i)), oh ? oh.rows.map(r => r.id).join(" ") : "")

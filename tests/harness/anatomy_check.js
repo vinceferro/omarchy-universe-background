@@ -72,7 +72,7 @@ check("the Sun in the overview is small: in the lens, its core, tachocline and p
 check("the stage and the lens cross-fade", of("sun").some(r => r.rep.lensMix > 0 && r.rep.lensMix < 1) || of("sun").some(r => r.rep.mix < 1))
 // Sky mode
 const sky = last("sky")
-check("Sky mode: the Milky Way from inside", sky.rep.subject === "milkyWay" && sky.rep.rows.length > 0, ids(sky).join(" "))
+check("Sky mode: the Milky Way from inside, on the sky itself", sky.rep.subject === "milkyWay" && !sky.rep.lens && sky.rep.rows.length > 0, ids(sky).join(" "))
 // anatomyDemo is a visit: it goes to the body and turns the anatomy on
 const dj = last("demo jupiter"), dor = last("demo orion"), ds = last("demo sun")
 check("anatomyDemo jupiter: the system view pinned on Jupiter, the anatomy on, drawn on the body", dj.rep.on && /^system/.test(dj.status) && dj.rep.subject === "jupiter" && !dj.rep.lens && ids(dj).includes("cloudTops"), ids(dj).join(" "))
