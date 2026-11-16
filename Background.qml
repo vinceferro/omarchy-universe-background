@@ -21,6 +21,7 @@ import "lib/quality.js" as Q
 import "lib/layout.js" as Lay
 import "lib/dial.js" as Dial
 import "lib/sun.js" as Sun
+import "lib/anatomy.js" as Anat
 
 Item {
   id: root
@@ -176,6 +177,7 @@ Item {
     presHints = Tx.presence(textModel, "hints"); presCaption = Tx.presence(textModel, "caption")
     presDial = Tx.presence(textModel, "dial")
     presSys = Math.max(presDial, Tx.presence(textModel, "sys")); presUnits = Math.max(presDial, Tx.presence(textModel, "units"))
+    presAnat = Tx.presence(textModel, "anat")
   }
   function touchText() { Tx.touch(textModel) }
   // word: a level, "next", "prev", or "toggle" (the cockpit key). It ends a
@@ -188,6 +190,212 @@ Item {
     if (st.level !== textLevel) { textLevel = st.level; saveText() }
     touchText()
     say("text", st.level === "off" ? "TEXT OFF  ·  T BRINGS IT BACK" : "TEXT  ·  " + st.level.toUpperCase(), "")
+  }
+  // ---- Anatomy (C, IPC `anatomy <on|off|toggle>`; lib/anatomy.js) ----
+  // What the body in front is made of, as thin lines with short labels: one
+  // table and one set of rules for every body. It describes the view's one
+  // subject (anatSubject): the pinned body, the chosen place, or the view's
+  // own object (the Sun in the system view, the Milky Way in its own view
+  // and in Sky mode); when none of the subject's rows suits the zoom, the
+  // record that holds it takes over (the Sun's place: its Galaxy, then the
+  // Local Group). It is a setting like the text level: one word in a state
+  // file, named in the story band when it changes.
+  //
+  // It joins what the text already has, with no rule of its own: the lines
+  // are a drawing (shown at every level, like the orbit lines), the names
+  // are `names`, the numbers `guide`; all of it is one zone on the idle
+  // clock (`anat`), so a parked view keeps nothing lit; the headline and the
+  // facts go to the story band at `full` (turning it on walks the lines
+  // once, the largest first, each lit while its fact is up; any key ends the
+  // walk; pointing at a line says its fact); the label pass keeps lines and
+  // labels inside the safe rect and out of the rail, the caption, the HUD's
+  // disc and a story caption; mathematics rows show with K only; a journey
+  // (a flight to a place, the fall, the way home) fades the lines and they
+  // return on arrival.
+  property bool anatomy: false
+  readonly property string anatFile: stateHome + "/universe-background/anatomy"
+  property string anatDemo: ""                    // IPC anatomyDemo: a record in a frame of its own, for checks
+  property real anatDemoSpan: 0                   //   how many of its units fill the screen's height (0: twelve of its radii)
+  property real anatMix: 0                        // eased 0..1: on, with a subject, parked
+  property real presAnat: 0                       // its zone on the idle clock
+  property var anatOut: null                      // what is drawn (Anat.compose), in the first screen's pixels
+  property int anatWords: 0                       // the words of its labels, for the clock
+  property string anatLit: ""                     // the row being told
+  property var anatPointer: null                  // the pointer, in the first screen's pixels
+  readonly property var anatRun: ({ key: "", calm: "", still: true, said: "", subject: "", walk: null, hover: "", c: null, readoutUntil: 0, passes: 0, ms: 0, at: 0, last: 0 })
+  readonly property real anatLevel: Math.min(0.75, hudBrightness * 1.8)   // the lines' brightness: the hints'
+  readonly property var anatHint: ["C", "anatomy: show / hide what it is made of"]
+  function setAnatomy(word) {
+    const w = String(word || "").trim().toLowerCase()
+    const to = w === "on" ? true : w === "off" ? false : w === "toggle" ? !anatomy : null
+    if (to === null) return
+    touchText()
+    anatRun.said = ""; anatRun.subject = ""
+    anatRun.walk = to ? { pending: true } : null
+    if (!to) { say("anatomy", "ANATOMY OFF  ·  C BRINGS IT BACK", ""); if (anatLit !== "") anatLit = "" }
+    if (to === anatomy) return
+    anatomy = to
+    anatFileProc.command = ["bash", "-c", "mkdir -p \"$(dirname \"$1\")\" && printf '%s\\n' \"$2\" > \"$1\"", "_", anatFile, to ? "on" : "off"]
+    anatFileProc.running = true
+  }
+  // any key ends the walk (the caption up is read out)
+  function anatEndWalk() { if (anatRun.walk) { anatRun.walk = null; say("anatomy", "", "") } }
+  Process { id: anatFileProc }
+  Process {
+    running: true
+    command: ["cat", root.anatFile]
+    stdout: StdioCollector { onStreamFinished: if (String(text || "").trim() === "on") root.anatomy = true }
+  }
+  // the view's one subject, as a record of the table (null: this view has none)
+  function anatSubject() {
+    if (anatDemo !== "") return Anat.byId(anatDemo)
+    if (explore === "system") return Anat.bySys(follow >= 0 && !galactic ? follow : 0)
+    if (explore === "galaxy") return gxSel >= 0 ? Anat.byPlace(place(gxSel).name, !!place(gxSel).dwarf) : Anat.byAt(gxSel === -1 ? "sun" : "centre")
+    if (explore === "sky") return Anat.byAt("centre")
+    return null
+  }
+  // parked: no journey under way (zooming and orbiting are not journeys)
+  function anatParked() {
+    if (anatDemo !== "") return true
+    if (explore === "system") return !sysCam.flying()
+    if (explore === "galaxy") return !fallState && !gxReturn && gxVoyage.remain < 0.03 * gxVoyage.dist()
+    return explore === "sky"
+  }
+  // a sky position (J2000 degrees) as a point of the Milky Way view, at the place's own distance and carried with it
+  function anatSkyPoint(C, pl, ra, dec) {
+    const rad = Math.PI / 180, e = [Math.cos(dec * rad) * Math.cos(ra * rad), Math.cos(dec * rad) * Math.sin(ra * rad), Math.sin(dec * rad)]
+    const T = [[-0.0548755604, 0.4941094279, -0.8676661490], [-0.8734370902, -0.4448296300, -0.1980763734], [-0.4838350155, 0.7469822445, 0.4559837762]]
+    const g = [0, 1, 2].map(j => T[0][j] * e[0] + T[1][j] * e[1] + T[2][j] * e[2])     // galactic: toward the centre, toward l = 90, north
+    const s0 = sunPosAt(0), d = pl.dpc / 1000
+    const o = [s0[0] + g[1] * d - pl.pos[0], s0[1] - g[0] * d - pl.pos[1], s0[2] + g[2] * d - pl.pos[2]]   // from the place's centre, today
+    const carried = !(pl.kind === "galaxy" || Math.hypot(pl.pos[0], pl.pos[1]) > 20), b = carried ? sunOmega * gxMyr : 0, c = Math.cos(b), sn = Math.sin(b)
+    return [C[0] + o[0] * c + o[1] * sn, C[1] + o[1] * c - o[0] * sn, C[2] + o[2]]
+  }
+  // A record's frame in the view in front (lib/anatomy.js: where its centre
+  // is, how long its unit is there, its axes, the eye), with the context its
+  // live values read; null when the record has no place in this view.
+  function anatFrame(rec) {
+    const c = { a: holeSpin, rsKpc: rsKpc, unitS: rec.unitKm / 299792.458, place: ({}), t: gxMyr }
+    const demo = anatDemo !== "" && rec.id === anatDemo
+    if (anatDemo !== "" && !demo) return null
+    let f = null
+    if (rec.sys !== undefined && (explore === "system" || (demo && explore !== "galaxy" && explore !== "sky") || (demo && rec.at === undefined))) {
+      // the system view: display units, the body as it is drawn
+      const i = rec.sys, P = demo ? [0, 0, 0] : bodyP(i), R = demo ? 1 : bodyR(i), b = sysCam.b, pl = Math.hypot(P[0], P[1], P[2])
+      if (!demo && !b) return null
+      f = { C: P, k: R / rec.radius, basis: Anat.basisOf(rec.axis && rec.axis.v ? rec.axis.v : [0, 1, 0]),
+            cam: demo ? null : { C: b.C, right: b.right, up: b.up, fwd: b.fwd, focal: b.focal, o: b.o },
+            sunDir: demo ? [1, 0, 0] : pl > 0 ? [-P[0] / pl, -P[1] / pl, -P[2] / pl] : null,
+            oneScale: demo || (sysCam.sigma.x > 0.999 && !galactic), resolve: () => null }
+    } else if (explore === "galaxy" || explore === "sky" || demo) {
+      // the Milky Way view and Sky mode: kiloparsecs
+      const sky = explore === "sky" && !demo
+      if (sky && !rec.sky) return null
+      let C = null, pl = null
+      if (rec.place !== undefined) { const i = placeIndex(rec.place); if (i < 0) return null; C = hotspotPos(i); pl = place(i) }
+      else if (rec.dwarf) { if (gxSel < 0 || !place(gxSel).dwarf) return null; C = hotspotPos(gxSel); pl = place(gxSel) }
+      else if (rec.at === "sun") C = sunPosAt(sky ? 0 : gxMyr)
+      else if (rec.at === "centre") C = [0, 0, 0]
+      else return null
+      if (pl) c.place = Dw.list().find(d => d.name === pl.name || d.hotspot === pl.name) || pl
+      const myr = sky ? 0 : gxMyr   // Sky mode is the sky today
+      const sun = sunPosAt(myr), b = sunOmega * myr, ax = rec.axis
+      const basis = ax === "spin" ? Anat.basisOf([holeSpinAxis.x, holeSpinAxis.y, holeSpinAxis.z])
+                  : ax === "sight" ? Anat.basisOf([sun[0] - C[0], sun[1] - C[1], sun[2] - C[2]], ncpDir)        // ex: north on the sky, ey: east
+                  : ax === "galactic" ? [[Math.cos(b), -Math.sin(b), 0], [Math.sin(b), Math.cos(b), 0], [0, 0, 1]]  // turning with the disk
+                  : ax && ax.disk === "m31" ? Anat.basisOf(m31Disk.normal, m31Disk.major)
+                  : Anat.basisOf(ax && ax.v ? ax.v : [0, 0, 1])
+      f = { C: C, k: rec.kpcPerUnit ? rec.kpcPerUnit(c) : rec.unitKm / 3.0856776e16, basis: basis,
+            cam: demo ? null : sky ? { C: sunPosAt(0), right: [skyRight.x, skyRight.y, skyRight.z], up: [skyUp.x, skyUp.y, skyUp.z], fwd: [skyFwd.x, skyFwd.y, skyFwd.z], focal: skyFocal(), o: [0, 0] }
+                 : { C: gxCam, right: [gxRight.x, gxRight.y, gxRight.z], up: [gxUp.x, gxUp.y, gxUp.z], fwd: [gxFwd.x, gxFwd.y, gxFwd.z], focal: 1, o: [0, 0] },
+            sunDir: null, oneScale: true,
+            resolve: spec => {
+              if (spec === "sun") return sun
+              const i = spec.place !== undefined ? placeIndex(spec.place) : spec.toPlace !== undefined ? placeIndex(spec.toPlace) : -1
+              if (spec.place !== undefined) return i >= 0 ? hotspotPos(i) : null
+              if (spec.toPlace !== undefined) { if (i < 0) return null; const Q = hotspotPos(i); return [C[0] + (Q[0] - C[0]) * spec.fraction, C[1] + (Q[1] - C[1]) * spec.fraction, C[2] + (Q[2] - C[2]) * spec.fraction] }
+              return spec.ra !== undefined && pl ? anatSkyPoint(C, pl, spec.ra, spec.dec) : null
+            } }
+    }
+    if (!f) return null
+    if (demo) f.cam = Anat.demoCam(f, anatDemoSpan > 0 ? anatDemoSpan : 12 * (typeof rec.radius === "function" ? rec.radius(c) || 1 : rec.radius))
+    return { frame: f, c: c }
+  }
+  // One pass a tick (after the label passes: it takes the room they left).
+  function anatStep(dt, now) {
+    const R = anatRun
+    const rec = (anatomy || anatDemo !== "") && liveBackground ? anatSubject() : null
+    mix.anat.g = rec && anatParked() ? 1 : 0
+    const m = mix.anat.step(dt)
+    if (m !== anatMix) anatMix = m
+    if (!rec || (m === 0 && mix.anat.g === 0)) {
+      if (anatOut) { anatOut = null; anatWords = 0; R.key = "" }
+      if (anatLit !== "") anatLit = ""
+      if (!rec) { R.said = ""; R.subject = "" }
+      return
+    }
+    // faded on the idle clock: nothing is worked out until something brings the text back
+    if (presAnat === 0 && anatOut && !anatRun.walk) return
+    // the drawing: redone when the view, the room or the row being told changed
+    const L0 = lay0, zones = labelZones()
+    const frames = {}, frameOf = r => frames[r.id] !== undefined ? frames[r.id] : (frames[r.id] = anatFrame(r))
+    let key = (mathMode ? "K" : "") + anatLit + "|" + zones.all.map(o => o.r !== undefined ? Math.round(o.cx / 2) + "," + Math.round(o.cy / 2) + "," + Math.round(o.r) : Math.round(o.x) + "," + Math.round(o.y) + "," + Math.round(o.w) + "," + Math.round(o.h)).join(";")
+    let calm = ""
+    for (const r of Anat.chain(rec)) { const f = frameOf(r); if (f) { key += "|" + Anat.frameKey(r, f.frame, f.c); calm += "|" + Anat.frameKey(r, f.frame, f.c, 3) } }
+    // still: the camera rests (or only creeps the last thousandth in)
+    const still = calm === R.calm
+    R.calm = calm
+    // while the view moves the pass takes at most a third of the time (a line is then a frame behind at worst)
+    if ((key !== R.key || still !== R.still) && (still || now - R.at >= 3 * R.last)) {
+      R.still = still
+      R.key = key
+      const t0 = Date.now()
+      const out = Anat.composeChain(rec, frameOf, null, { W: L0.W, H: L0.H, safe: L0.safe, obstacles: zones.all, tok: L0.tok, sides: labelState.sides, math: mathMode, lit: anatLit,
+                                                         still: R.still, textW: (t, small) => textW(t, small ? L0.tok.micro : L0.tok.label) })
+      R.c = out ? frameOf(Anat.byId(out.id)).c : null
+      R.at = Date.now(); R.last = R.at - t0
+      R.passes++; R.ms += R.last                // what the pass costs (IPC anatomyReport)
+      anatOut = out
+      anatWords = Tx.words(Anat.wordsOf(out))
+    }
+    const out = anatOut
+    // what it says, at `full`: the body's headline when the drawing becomes
+    // another body's (where no line of the subject or of what holds it suits
+    // the zoom, the subject's own, once: C always answers), and once after C
+    // the lines one by one, the largest first
+    const guide = Tx.shows(textShown, "guide") && !film && anatDemo === ""
+    const named = out ? Anat.byId(out.id) : rec
+    if (m > 0.5 && R.still && (out ? out.id !== R.said : rec.id !== R.subject)) {
+      R.said = named.id
+      R.subject = rec.id
+      R.readoutUntil = now + 4000
+      Tx.touchZone(textModel, "dial")
+      say("anatomy", "ANATOMY  ·  " + named.title, guide ? named.headline : "")
+      if (R.walk && R.walk.pending) R.walk = guide && out ? { told: ({}) } : null
+    }
+    if (!out) { if (anatLit !== "") anatLit = ""; return }
+    const row = id => out.rows.find(r => r.id === id)
+    const fact = id => Anat.factOf(named.rows.find(r => r.id === id), R.c, out.g)
+    const mine = story.cur && story.cur.who === "anatomy" ? story.cur : null
+    if (R.walk && !R.walk.pending) {
+      Tx.touchZone(textModel, "anat", 1)   // the lines stay up while they are told
+      const waiting = story.line.some(c => c.who === "anatomy")
+      if (!guide || mix.anat.g === 0) R.walk = null
+      else if (!waiting && (!mine || (story.up >= 1 && mine.age >= mine.need))) {
+        // the largest line drawn now that has not been told
+        const next = out.rows.find(r => !R.walk.told[r.id])
+        if (next) { R.walk.told[next.id] = true; say("anatomy", next.name, fact(next.id)) }
+        else R.walk = null
+      }
+    } else if (!R.walk) {
+      // pointing at a line says its fact
+      const over = anatPointer && m > 0.5 && presAnat > 0.5 ? Anat.hit(out, anatPointer[0], anatPointer[1], 7) : ""
+      if (over !== R.hover) { R.hover = over; if (over !== "" && guide) say("anatomy", row(over).name, fact(over)) }
+    }
+    // lit: the row whose fact is up, else the one under the pointer
+    const told = mine && storyShow > 0.05 ? out.rows.find(r => r.name === mine.title) : null
+    const lit = told ? told.id : !R.walk && R.hover !== "" && row(R.hover) ? R.hover : ""
+    if (lit !== anatLit) anatLit = lit
   }
   property real hudBrightness: 0.38
   readonly property real hudLevel: hudBrightness * gateCockpit * cockpitYield
@@ -457,6 +665,7 @@ Item {
     if (captionWords > 0 && up(gateGuide * presCaption)) showing.push("caption detail")
     if (up(sysHover * gateNames)) showing.push("hover hint")
     if (storyShow > 0.01) showing.push("story caption")
+    if (anatOut && up(anatMix * presAnat)) showing.push("anatomy")
     return JSON.stringify({ level: textLevel, hold: textHold, film: film, shown: textShown, showing: showing, screens: Quickshell.screens.map(s => {
       const l = layOf(s), e = Lay.hudExtent(l), h = Lay.hudAt(l, [hudDrift.x, hudDrift.y])
       return { screen: s.name, size: [s.width, s.height],
@@ -518,7 +727,8 @@ Item {
     chase: new Cam.Spring(0, Cam.W_MODE),      // labels give way to markers in the chase view
     yield: new Cam.Spring(1, Cam.W_MODE),      // the HUD steps back for a subject inside its ring
     exposure: new Cam.Spring(1, 1.3),          // the sky brightens slowly on an empty workspace
-    fallFade: new Cam.Spring(0, 2.9)           // the fall's black, 2 s each way (0.98 at 2.0 s)
+    fallFade: new Cam.Spring(0, 2.9),          // the fall's black, 2 s each way (0.98 at 2.0 s)
+    anat: new Cam.Spring(0, Cam.W_MODE)        // the anatomy's lines: away on a journey, back on arrival
   })
 
   onAnimateChanged: if (!animate && !sleeping) explore = "universe"
@@ -813,6 +1023,7 @@ Item {
   readonly property real sunOmega: 30.32 / 977.79 // radians per million years
   property real gxExposure: 3.0
   property vector3d gxCamPos: Qt.vector3d(0, 8.15, 30)
+  property var gxCam: [0, 8.15, 30]               // the same eye in doubles (the anatomy's lines are worked out from it)
   property vector3d gxFwd: Qt.vector3d(0, 0, -1)
   property vector3d gxRight: Qt.vector3d(1, 0, 0)
   property vector3d gxUp: Qt.vector3d(0, 1, 0)
@@ -1407,6 +1618,7 @@ Item {
       ["1 - 7  /  TAB", "the named views"],
       ["DRAG / ARROWS", "look around (WASD too)"],
       ["SCROLL / Q E", "zoom"],
+      anatHint,
       textHint,
       ["H", "cockpit on / off"],
       ["ESC / RIGHT-CLICK", "back to the universe"]
@@ -1437,6 +1649,7 @@ Item {
       ["[  ]", "time-lapse: the Galaxy turns (" + gxRateNames[gxRateIndex].toLowerCase() + ")"],
       ["N", "back to now"],
       ["X", "the solar system"],
+      anatHint,
       textHint,
       ["H", "cockpit on / off"],
       ["ESC / RIGHT-CLICK", gxFromSystem ? "back to the solar system" : "back to the universe"]
@@ -1448,6 +1661,7 @@ Item {
       ["SCROLL / Q E", "camera distance"],
       ["[  ]", "slower / faster time"],
       ["N", "back to now"],
+      anatHint,
       textHint,
       ["H", "cockpit on / off"],
       ["G / ESC / RIGHT-CLICK", "back to the system"]
@@ -1460,6 +1674,7 @@ Item {
       ["TAB / 0-6 / M", "chase another body (M: Moon)"],
       ["[  ]", "slower / faster time"],
       ["N", "back to now"],
+      anatHint,
       textHint,
       ["H", "cockpit on / off"],
       ["V / ESC / RIGHT-CLICK", "back to the system"]
@@ -1479,6 +1694,7 @@ Item {
       ["O", "auto orbit"],
       ["[  ]", "slower / faster time"],
       ["N", "back to now"],
+      anatHint,
       textHint,
       ["H", "cockpit on / off"],
       ["ESC / RIGHT-CLICK", "back to the universe"]
@@ -2175,7 +2391,7 @@ Item {
       // (falling, the view turns every frame: always)
       const moved = !!fallState || Math.hypot(cam[0] - gxCamPos.x, cam[1] - gxCamPos.y, cam[2] - gxCamPos.z) > gxDist * 1e-5
                  || Math.abs(fwd.x - gxFwd.x) + Math.abs(fwd.y - gxFwd.y) + Math.abs(fwd.z - gxFwd.z) > 1e-6
-      if (moved) gxCamPos = Qt.vector3d(cam[0], cam[1], cam[2])
+      if (moved) { gxCamPos = Qt.vector3d(cam[0], cam[1], cam[2]); gxCam = cam }
       gxHoleNear = Math.hypot(cam[0], cam[1], cam[2]) < 1e-5
       if (gxHoleNear) gxCamRs = Qt.vector3d(cam[0] / rsKpc, cam[1] / rsKpc, cam[2] / rsKpc)
       if (moved) {
@@ -2335,7 +2551,7 @@ Item {
     // steers, so nothing would touch the clock): it holds its own text up
     if (fallState) touchText()
     Tx.dwell(textModel, hudPointerIn && gateCockpit > 0.5, dt)
-    Tx.step(textModel, dt, textShown, { label: 0, card: cardWords, hints: hintWords, caption: captionWords, dial: Tx.DIAL_WORDS, sys: 0, units: 0 }, ["sys", "units"])
+    Tx.step(textModel, dt, textShown, { label: 0, card: cardWords, hints: hintWords, caption: captionWords, dial: Tx.DIAL_WORDS, sys: 0, units: 0, anat: anatWords }, ["sys", "units"])
     readTextModel()
     // the story band: the caption up and how far (the screens' bands bind to these)
     Tx.storyStep(story, dt)
@@ -2660,6 +2876,8 @@ Item {
           want.readout = Dial.readout("flight", { thrust: th * 100 }, dialChars)
         } else if (explore === "universe") want.gap = gapMoon()   // parked: the Moon as it is tonight
       }
+      // the hub's line names the anatomy for a moment when it comes up or turns to another body
+      if (want && now < anatRun.readoutUntil) want.readout = "ANATOMY"
       if (want) dialRun.want = want
       // where the beacons' words and the dial's landmark labels stand on the
       // first screen (as the readout places them, from measured widths):
@@ -2683,13 +2901,15 @@ Item {
       dialStep(dt, now)
     }
 
+    anatStep(dt, now)
+
     mix.exposure.g = emptyWorkspace && explore === "universe" ? 1.9 : 1
     exposure = mix.exposure.step(dt)
 
     // anything still easing keeps the idle clock at its full rate (see idleFps)
     idleBusy = bootLevel < 1 || sys > 0 || galaxyMix > 0 || skyMix > 0 || navMix > 0 || galMix > 0 || fallFade > 0 || sysCam.flying()
       || mix.viewX.moving() || mix.viewY.moving() || mix.hover.moving() || mix.exposure.moving()
-      || mix.speed.moving() || mix.strafeX.moving() || mix.strafeY.moving() || textModel.moving || story.moving || mix.yield.moving()
+      || mix.speed.moving() || mix.strafeX.moving() || mix.strafeY.moving() || textModel.moving || story.moving || mix.yield.moving() || mix.anat.moving() || (anatMix > 0 && (!anatRun.still || anatRun.key === ""))
     gauges = Qt.vector3d(cpu, gpu, mem)
   }
 
@@ -3169,6 +3389,39 @@ Item {
       root.touchText()
     }
 
+    // anatomy: what the body in front is made of, as lines and labels (C):
+    // on, off or toggle. Remembered across restarts
+    function anatomy(state: string): void {
+      root.setAnatomy(state)
+    }
+
+    // any body's anatomy without flying there, for checks: a record's id
+    // (anatomyReport lists them) in a frame of its own, the body in the middle
+    // of the screen seen from 20 degrees above its equator, `span` of its
+    // units to the screen's height (0: twelve of its radii). No captions. ""
+    // or off ends it
+    function anatomyDemo(body: string, span: real): void {
+      const b = String(body).trim()
+      root.anatDemo = Anat.byId(b) ? b : ""
+      root.anatDemoSpan = span > 0 ? span : 0
+      root.anatRun.key = ""
+      root.touchText()
+    }
+
+    // as JSON: the setting, the subject, the record drawn and every row of it
+    // (tag, size and strokes in the first screen's pixels, its label and
+    // where it stands), how many passes were worked out and the milliseconds
+    // they took in all, and the table's ids
+    function anatomyReport(): string {
+      const o = root.anatOut, sub = root.anatSubject(), r2 = v => Math.round(v * 10) / 10
+      return JSON.stringify({ on: root.anatomy, demo: root.anatDemo, subject: sub ? sub.id : "", parked: root.anatParked(), mix: r2(root.anatMix), presence: r2(root.presAnat),
+        math: root.mathMode, drawn: o ? o.id : "", lit: root.anatLit, still: root.anatRun.still, measured: o && o.g ? o.g : null, passes: root.anatRun.passes, passMs: root.anatRun.ms,
+        rows: o ? o.rows.map(r => ({ id: r.id, tag: r.tag, size: Math.round(r.size), strokes: r.segs.length, text: r.text, num: r.num, folded: r.folded,
+          label: r.lab.show ? { x: Math.round(r.lab.x), y: Math.round(r.lab.y), w: Math.round(r.lab.w), h: Math.round(r.lab.h) } : null,
+          box: r.seen.length ? (() => { let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; for (const p of r.seen) { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]) } return [Math.round(x0), Math.round(y0), Math.round(x1), Math.round(y1)] })() : null })) : [],
+        records: Anat.records().map(b => b.id) })
+    }
+
     // mathematics mode: the fall follows the extended Kerr solution through
     // the inner horizon and the ring into the other universe (not physics);
     // takes effect at the next fall
@@ -3554,7 +3807,7 @@ Item {
                 camFwd = root.gxFwd
                 camRight = root.gxRight
                 camUp = root.gxUp
-                flowTime = root.shaderTime * 30 / 42.3
+                flowTime = root.shaderTime * 30 / Fall.RS_C   // 30 times life, in Rs/c (lib/fall.js: 40.88 s at 4.15 million Suns, the mass the labels are worked out with)
               }
             }
             Connections {
@@ -4318,6 +4571,74 @@ Item {
         }
       }
 
+      // ---- anatomy (lib/anatomy.js): the lines and the labels of the body in front ----
+      // One renderer for every body: a stroke per row (solid, dashed or
+      // dotted by its tag: the dashes come cut from the pass) and its name
+      // and number where the label pass put them. Nothing exists while it
+      // is off, faded on the idle clock or away on a journey.
+      Loader {
+        id: anatLayer
+        anchors.fill: parent
+        active: panel.live && !!root.anatOut && root.anatMix * root.presAnat > 0.004
+        sourceComponent: Component {
+          Item {
+            id: anat
+            readonly property var rows: root.anatOut ? root.anatOut.rows : []
+            // the pass works in the first screen's pixels
+            readonly property real kx: panel.width / root.lay0.W
+            readonly property real ky: panel.height / root.lay0.H
+            opacity: root.anatMix * root.presAnat
+            Repeater {
+              model: anat.rows.length
+              Item {
+                id: arow
+                required property int index
+                readonly property var r: anat.rows[index] || null
+                readonly property bool lit: !!r && r.id === root.anatLit
+                anchors.fill: parent
+                Shape {
+                  anchors.fill: parent
+                  preferredRendererType: Shape.CurveRenderer
+                  ShapePath {
+                    strokeColor: Qt.alpha(arow.lit ? root.hudHighlight : Color.foreground, root.anatLevel * (arow.lit ? 1 : arow.r && arow.r.soft ? 0.5 : 0.8))
+                    strokeWidth: arow.lit ? 1.8 : 1.2
+                    fillColor: "transparent"
+                    capStyle: ShapePath.RoundCap
+                    joinStyle: ShapePath.RoundJoin
+                    PathMultiline { paths: arow.r ? arow.r.segs.map(s => s.map(p => Qt.point(p[0] * anat.kx, p[1] * anat.ky))) : [] }
+                  }
+                }
+                Row {
+                  visible: !!arow.r && arow.r.lab.show
+                  x: arow.r ? arow.r.lab.x * anat.kx : 0
+                  y: arow.r ? (arow.r.lab.y + arow.r.lab.h / 2) * anat.ky - height / 2 : 0
+                  spacing: panel.tok.gap
+                  Words {
+                    host: panel.under
+                    opacity: root.gateNames
+                    text: arow.r ? arow.r.text : ""
+                    color: arow.lit ? root.hudHighlight : Qt.alpha(Color.foreground, 0.8)
+                    font.family: Style.resolvedFontFamily
+                    font.pixelSize: panel.tok.label
+                    font.letterSpacing: panel.tok.label * panel.tok.track.normal
+                  }
+                  Words {
+                    host: panel.under
+                    anchors.baseline: parent.children[0].baseline
+                    opacity: root.gateGuide
+                    text: arow.r ? arow.r.num : ""
+                    color: Qt.alpha(Color.foreground, 0.55)
+                    font.family: Style.resolvedFontFamily
+                    font.pixelSize: panel.tok.micro
+                    font.letterSpacing: panel.tok.micro * panel.tok.track.normal
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
       // planet names in the system view, beside each planet
       Repeater {
         model: root.planetInfo
@@ -4502,6 +4823,7 @@ Item {
         focus: root.explore !== "universe"
         Keys.onPressed: function(event) {
           root.touchText()
+          root.anatEndWalk()
           if (event.key === Qt.Key_Escape) {
             root.back()
             event.accepted = true
@@ -4510,6 +4832,7 @@ Item {
           const k = event.text.toLowerCase()
           if (k === "h") { root.setText("toggle"); event.accepted = true; return }
           if (k === "t") { root.setText(event.modifiers & Qt.ShiftModifier ? "prev" : "next"); event.accepted = true; return }
+          if (k === "c" && root.explore !== "flight") { root.setAnatomy("toggle"); event.accepted = true; return }
           if (root.explore === "sky") {
             const arrowsS = { [Qt.Key_Left]: "left", [Qt.Key_Right]: "right", [Qt.Key_Up]: "up", [Qt.Key_Down]: "down" }
             if (arrowsS[event.key]) {
@@ -4667,6 +4990,7 @@ Item {
         onPositionChanged: function(mouse) {
           root.hudPointerIn = Math.hypot(mouse.x - panel.hudCx, mouse.y - panel.hudCy) < panel.hud.R
           if (root.explore !== "universe") root.touchText()
+          root.anatPointer = [mouse.x * root.lay0.W / width, mouse.y * root.lay0.H / height]
           const pt = root.toP(mouse.x, mouse.y, width, height)
           if (root.explore === "galaxy" && !pressed) {
             // hovering: the tick finds the place under the pointer (gxHover)
@@ -4766,6 +5090,7 @@ Item {
           root.hoverSystem = false
           root.hudPointerIn = false
           root.gxPointer = null
+          root.anatPointer = null
         }
         onClicked: function(mouse) {
           if (!wasClick) return
