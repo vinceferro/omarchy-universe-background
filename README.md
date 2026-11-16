@@ -1108,6 +1108,36 @@ through the story band, a
 star too far for its lines (named all the same) and the room the lines and
 labels keep. It also prints what a pass costs.
 
+`tests/harness/anatomy_cost.sh` measures what the layer costs a frame (about
+five minutes). It is the same headless run on the real scene graph with Qt's
+Null device (`QT_QUICK_BACKEND=rhi QSG_RHI_BACKEND=null`): Shape's curve
+renderer, the text and the batching do their CPU work, and nothing reaches a
+GPU or a screen. `anatomy_cost.qml` goes through the views with the layer off
+and on, at rest, arriving after a flight and orbiting; `anatomy_cost.js`
+prints for each stage how many frames ran the pass, its mean and longest
+time, the strokes and points handed to the renderer, the scene graph's time
+a frame, and the pass's parts at rest (the frames, the keys, the geometry
+with its four dearest rows, fold, clip, dash, labels, and at the hole the
+shadow's outline and the gas's light). It measures CPU time on the machine
+it runs on; the GPU's own time is outside it. Measured on the 5K box
+(i7-10700K, a 5120x2160 screen) on 16 November 2026, text level `full`:
+
+| View at rest | Rows, strokes, points | One pass | Passes a second |
+|---|---|---|---|
+| Sagittarius A* at 20 Rs | 13, 667, 1,847 | 5.1 to 5.9 ms | 10 to 22 |
+| Saturn pinned | 8, 118, 1,190 | 6.3 ms | 9 to 16 |
+| Earth pinned | 6, 9, 498 | 3.7 ms | 24 |
+| The Galaxy's home | 4, 7, 284 | 1.3 ms | 9 to 16 |
+| Sky mode | 2, 2, 75 | 0.8 ms | 3 |
+
+At rest every one of those passes is set off by the room, not by the view:
+the HUD's disc and its words drift a pixel at a time, and their boxes are
+part of the pass's key, so the rate follows the drift's speed, which rises
+and falls over five minutes. At the level `names` (no disc) the same views
+run no pass at rest. Arriving at the hole, the second in which the camera settles
+runs 50 passes of 10 ms each (the shadow's outline and the gas's light are
+worked out again each time).
+
 `tests/harness/fall.sh [--math] [--esc <s>] [--gpu <driver>]` runs a whole fall headless
 (`--esc 30`: Esc thirty screen seconds in, and the way home from there):
 `Background.qml`'s own logic under `qmlscene6` on the offscreen platform,
