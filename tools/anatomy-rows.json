@@ -1,0 +1,2697 @@
+{
+ "schema": "anatomy rows v1 (design.md section 5). shape and label are JSON descriptors: a number set, or {fn: ...} naming the live code value. kinds: surface, band, point, screen. tags: measured (solid), model (dashed), mathematics (dotted, K only).",
+ "limits": {
+  "name": 28,
+  "label": 26,
+  "factWords": 24,
+  "headlineWords": 26
+ },
+ "spin": {
+  "aOverM": 0.94,
+  "a": 0.47,
+  "RsKm": 12255988,
+  "RsOverC_s": 40.88
+ },
+ "checkedKey": {
+  "web": "number confirmed on the cited page in this pass",
+  "code": "computed by or read from the wallpaper's code",
+  "secondary": "confirmed only through a secondary page or search summary of the cited source",
+  "recalled": "not confirmed on the web in this pass"
+ },
+ "bodies": [
+  {
+   "id": "sgrA",
+   "title": "Sagittarius A*",
+   "class": "blackhole",
+   "unit": "Rs",
+   "unitKm": 12255988,
+   "axis": "ctx.holeSpinAxis",
+   "headline": "A spinning black hole, seen from the side. The flat edge and the bright side are the same side: the one turning toward you.",
+   "rows": [
+    {
+     "id": "shadow",
+     "name": "Shadow",
+     "kind": "screen",
+     "shape": {
+      "fn": "kerr.shadowOutline(ctx.cam, ctx.a)"
+     },
+     "label": {
+      "fn": "shadowWidth",
+      "atEquator": "4.77 Rs"
+     },
+     "tag": "model",
+     "fact": "The shadow, 4.77 Rs wide from the side: about Mercury's distance from the Sun.",
+     "source": "lib/kerr.js at a/M = 0.94 (Background.qml holeSpin); Rs from lib/fall.js (4.15e6 Msun)",
+     "url": [
+      "file:lib/kerr.js"
+     ],
+     "checked": "code"
+    },
+    {
+     "id": "flatEdge",
+     "name": "Flat edge",
+     "kind": "screen",
+     "shape": {
+      "fn": "shadowOutline: point nearest the centre",
+      "atEquator": 1.32
+     },
+     "label": "1.32 Rs",
+     "tag": "model",
+     "fact": "The spin carries light with it, so light can skim closer on this side.",
+     "source": "lib/kerr.js at a/M = 0.94 (Background.qml holeSpin); Rs from lib/fall.js (4.15e6 Msun)",
+     "url": [
+      "file:lib/kerr.js"
+     ],
+     "checked": "code"
+    },
+    {
+     "id": "roundEdge",
+     "name": "Round edge",
+     "kind": "screen",
+     "shape": {
+      "fn": "shadowOutline: point farthest from the centre",
+      "atEquator": 3.45
+     },
+     "label": "3.45 Rs",
+     "tag": "model",
+     "fact": "On this side light meets the spin head-on, so the shadow reaches wider.",
+     "source": "lib/kerr.js at a/M = 0.94 (Background.qml holeSpin); Rs from lib/fall.js (4.15e6 Msun)",
+     "url": [
+      "file:lib/kerr.js"
+     ],
+     "checked": "code"
+    },
+    {
+     "id": "noSpin",
+     "name": "Without spin",
+     "kind": "surface",
+     "shape": {
+      "circleOnScreen": 5.196,
+      "centre": "hole"
+     },
+     "label": "5.20 Rs",
+     "tag": "model",
+     "fact": "Without spin the shadow would be this circle.",
+     "source": "lib/kerr.js at a/M = 0.94 (Background.qml holeSpin); Rs from lib/fall.js (4.15e6 Msun)",
+     "url": [
+      "file:lib/kerr.js"
+     ],
+     "checked": "code"
+    },
+    {
+     "id": "offset",
+     "name": "Centre and offset",
+     "kind": "point",
+     "shape": {
+      "at": [
+       0,
+       0,
+       0
+      ],
+      "tickTo": "shadowMiddle",
+      "atEquator": 1.06
+     },
+     "label": "1.06 Rs",
+     "tag": "model",
+     "fact": "The hole sits here. Its shadow is pushed to one side by the spin.",
+     "source": "lib/kerr.js at a/M = 0.94 (Background.qml holeSpin); Rs from lib/fall.js (4.15e6 Msun)",
+     "url": [
+      "file:lib/kerr.js"
+     ],
+     "checked": "code"
+    },
+    {
+     "id": "spinAxis",
+     "name": "Spin axis",
+     "kind": "band",
+     "shape": {
+      "axisLine": true,
+      "turn": 1,
+      "fn": "kerr.horizonOmega(rPlus, a)"
+     },
+     "label": "one turn in 6.1 min",
+     "tag": "model",
+     "fact": "Spin 0.94 is one best-fit model. The horizon turns once in 6.1 minutes, and the depth of the D depends on it.",
+     "source": "lib/kerr.js at a/M = 0.94 (Background.qml holeSpin); Rs from lib/fall.js (4.15e6 Msun); EHT Collaboration 2022, ApJL 930 L12 (Sgr A* Paper I)",
+     "url": [
+      "file:lib/kerr.js",
+      "https://eventhorizontelescope.org/publications/first-sagittarius-event-horizon-telescope-results-i-shadow-supermassive-black-hole"
+     ],
+     "checked": "code"
+    },
+    {
+     "id": "horizon",
+     "name": "Event horizon",
+     "kind": "surface",
+     "shape": {
+      "fn": "kerr.ksSurface(kerr.horizons(a).rPlus, a)",
+      "r": 0.6706,
+      "drawnEquator": 0.8189
+     },
+     "label": "0.67 Rs",
+     "tag": "model",
+     "fact": "The event horizon. The shadow around it is about three times wider, because light bends.",
+     "source": "lib/kerr.js at a/M = 0.94 (Background.qml holeSpin); Rs from lib/fall.js (4.15e6 Msun)",
+     "url": [
+      "file:lib/kerr.js"
+     ],
+     "checked": "code"
+    },
+    {
+     "id": "ergosphere",
+     "name": "Ergosphere",
+     "kind": "surface",
+     "shape": {
+      "fn": "kerr.ksSurface(kerr.ergoRadius(theta, a), a)",
+      "rEquator": 1.0,
+      "rPole": 0.6706
+     },
+     "label": "1.0 Rs at the equator",
+     "tag": "model",
+     "fact": "Inside here, space itself is carried round with the hole.",
+     "source": "lib/kerr.js at a/M = 0.94 (Background.qml holeSpin); Rs from lib/fall.js (4.15e6 Msun)",
+     "url": [
+      "file:lib/kerr.js"
+     ],
+     "checked": "code"
+    },
+    {
+     "id": "photonShell",
+     "name": "Photon shell",
+     "kind": "band",
+     "shape": {
+      "rings": [
+       0.7126,
+       1.9732
+      ],
+      "polar": 1.2535,
+      "fn": "kerr.photonOrbit(a, +1/-1), kerr.polarPhotonOrbit(a)"
+     },
+     "label": "0.71 to 1.97 Rs",
+     "tag": "model",
+     "fact": "Light can circle the hole between these two rings.",
+     "source": "lib/kerr.js at a/M = 0.94 (Background.qml holeSpin); Rs from lib/fall.js (4.15e6 Msun)",
+     "url": [
+      "file:lib/kerr.js"
+     ],
+     "checked": "code"
+    },
+    {
+     "id": "isco",
+     "name": "Inner edge of the gas",
+     "kind": "band",
+     "shape": {
+      "ring": 1.0118,
+      "turn": 1,
+      "fn": "kerr.isco(a, 1), kerr.gasOmega(r, a)"
+     },
+     "label": "1.01 Rs, 8.2 min orbit",
+     "tag": "model",
+     "fact": "Gas orbits down to here, once every 8.2 minutes.",
+     "source": "lib/kerr.js at a/M = 0.94 (Background.qml holeSpin); Rs from lib/fall.js (4.15e6 Msun)",
+     "url": [
+      "file:lib/kerr.js"
+     ],
+     "checked": "code"
+    },
+    {
+     "id": "brightSide",
+     "name": "Bright side",
+     "kind": "point",
+     "shape": {
+      "onRing": "isco",
+      "side": "approaching",
+      "fn": "kerr.gasShift ratio ^ 3.5"
+     },
+     "label": {
+      "fn": "N times brighter"
+     },
+     "tag": "model",
+     "fact": "This gas is coming toward you, so its light arrives concentrated and bluer: N times brighter than the far side.",
+     "source": "lib/kerr.js at a/M = 0.94 (Background.qml holeSpin); Rs from lib/fall.js (4.15e6 Msun)",
+     "url": [
+      "file:lib/kerr.js"
+     ],
+     "checked": "code"
+    },
+    {
+     "id": "dimSide",
+     "name": "Dim side",
+     "kind": "point",
+     "shape": {
+      "onRing": "isco",
+      "side": "receding",
+      "fn": "kerr.gasShift ratio ^ 3.5"
+     },
+     "label": {
+      "fn": "1/N as bright"
+     },
+     "tag": "model",
+     "fact": "This gas is moving away, so its light arrives thinned out and redder.",
+     "source": "lib/kerr.js at a/M = 0.94 (Background.qml holeSpin); Rs from lib/fall.js (4.15e6 Msun)",
+     "url": [
+      "file:lib/kerr.js"
+     ],
+     "checked": "code"
+    },
+    {
+     "id": "ehtRing",
+     "name": "Measured ring",
+     "kind": "surface",
+     "shape": {
+      "circleOnScreen": 5.15,
+      "centre": "shadowMiddle"
+     },
+     "label": "5.2 Rs across",
+     "tag": "measured",
+     "fact": "The Event Horizon Telescope measured a glowing ring this wide in 2017: 51.8 millionths of an arcsecond.",
+     "source": "EHT Collaboration 2022, ApJL 930 L12 (Sgr A* Paper I)",
+     "url": [
+      "https://eventhorizontelescope.org/publications/first-sagittarius-event-horizon-telescope-results-i-shadow-supermassive-black-hole"
+     ],
+     "checked": "web",
+     "derived": "51.8 +/- 2.3 microarcsec / (Rs 1.2256e7 km at the code's 8150 pc = 10.05 microarcsec) = 5.15 Rs"
+    },
+    {
+     "id": "innerHorizon",
+     "name": "Inner horizon",
+     "kind": "surface",
+     "shape": {
+      "fn": "kerr.ksSurface(kerr.horizons(a).rMinus, a)",
+      "r": 0.3294
+     },
+     "label": "0.33 Rs",
+     "tag": "mathematics",
+     "fact": "A second horizon inside the first. The equations go on through it; nature may not.",
+     "source": "lib/kerr.js at a/M = 0.94 (Background.qml holeSpin); Rs from lib/fall.js (4.15e6 Msun)",
+     "url": [
+      "file:lib/kerr.js"
+     ],
+     "checked": "code",
+     "math": true
+    },
+    {
+     "id": "ring",
+     "name": "Ring singularity",
+     "kind": "band",
+     "shape": {
+      "ring": 0.47,
+      "fn": "a"
+     },
+     "label": "0.47 Rs",
+     "tag": "mathematics",
+     "fact": "In a spinning hole the centre is a ring, not a point.",
+     "source": "lib/kerr.js at a/M = 0.94 (Background.qml holeSpin); Rs from lib/fall.js (4.15e6 Msun)",
+     "url": [
+      "file:lib/kerr.js"
+     ],
+     "checked": "code",
+     "math": true
+    },
+    {
+     "id": "farSheet",
+     "name": "Far sheet",
+     "kind": "surface",
+     "shape": {
+      "disk": 0.47,
+      "fn": "sheet logic (ksRadius, sheetAt)"
+     },
+     "label": "through the ring",
+     "tag": "mathematics",
+     "fact": "Through the ring the equations open onto another space. Nothing says it is real.",
+     "source": "lib/kerr.js at a/M = 0.94 (Background.qml holeSpin); Rs from lib/fall.js (4.15e6 Msun)",
+     "url": [
+      "file:lib/kerr.js"
+     ],
+     "checked": "code",
+     "math": true
+    },
+    {
+     "id": "s2",
+     "name": "Star S2's closest pass",
+     "kind": "surface",
+     "shape": {
+      "sphere": 1465
+     },
+     "label": "120 AU",
+     "tag": "measured",
+     "fact": "The star S2 dives to here every 16 years, at 7,650 km a second.",
+     "source": "GRAVITY Collaboration 2018, A&A 615 L15",
+     "url": [
+      "https://arxiv.org/abs/1807.09409"
+     ],
+     "checked": "web",
+     "derived": "120 AU / Rs(1.2256e7 km) = 1,465 Rs; the paper's rounded figure is ~1,400 Rs"
+    },
+    {
+     "id": "nsc",
+     "name": "Nuclear star cluster",
+     "kind": "surface",
+     "shape": {
+      "sphere": 10600000.0
+     },
+     "label": "4.2 pc",
+     "tag": "measured",
+     "fact": "Half the light of the 25 million Suns crowded round the hole comes from inside here.",
+     "source": "Schoedel et al. 2014, A&A 566 A47",
+     "url": [
+      "https://arxiv.org/abs/1403.6657"
+     ],
+     "checked": "web"
+    }
+   ]
+  },
+  {
+   "id": "sun",
+   "title": "Sun",
+   "class": "star",
+   "unit": "Rsun",
+   "unitKm": 695700,
+   "axis": "sun spin axis",
+   "headline": "A ball of glowing gas with a furnace at its heart. Its wind blows a bubble that reaches four times farther than Neptune.",
+   "rows": [
+    {
+     "id": "core",
+     "name": "Core",
+     "kind": "surface",
+     "shape": {
+      "sphere": 0.25
+     },
+     "label": "0.25 R",
+     "tag": "model",
+     "fact": "Almost all the Sun's power is made in this inner quarter, at 15 million degrees.",
+     "source": "Solar core, Wikipedia (99% of fusion power inside 0.24 R); NASA Science: Sun facts",
+     "url": [
+      "https://en.wikipedia.org/wiki/Solar_core",
+      "https://science.nasa.gov/sun/facts/"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "tachocline",
+     "name": "Tachocline",
+     "kind": "surface",
+     "shape": {
+      "sphere": 0.713
+     },
+     "label": "0.713 R",
+     "tag": "measured",
+     "fact": "Below this line energy creeps out as light. Above it the gas boils, carrying heat up to the surface.",
+     "source": "Christensen-Dalsgaard et al. 1991; Basu & Antia 1997 (0.713 R), as reviewed in arXiv:1003.3888",
+     "url": [
+      "https://arxiv.org/abs/1003.3888"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "photosphere",
+     "name": "Photosphere",
+     "kind": "surface",
+     "shape": {
+      "sphere": 1.0
+     },
+     "label": "695,700 km",
+     "tag": "measured",
+     "fact": "The surface we see, 5,500 °C. The thin corona above it reaches 2 million.",
+     "source": "NASA Sun Fact Sheet (NSSDCA); NASA Science: Sun facts",
+     "url": [
+      "https://nssdc.gsfc.nasa.gov/planetary/factsheet/sunfact.html",
+      "https://science.nasa.gov/sun/facts/"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "alfven",
+     "name": "Edge of the corona",
+     "kind": "surface",
+     "shape": {
+      "sphere": 18.8
+     },
+     "label": "about 19 R",
+     "tag": "measured",
+     "fact": "Inside here the gas still belongs to the Sun. Parker Solar Probe first flew in at 18.8 radii in 2021.",
+     "source": "NASA SVS 4958, Parker Solar Probe: crossing the Alfven surface (28 Apr 2021, 18.8 Rsun)",
+     "url": [
+      "https://svs.gsfc.nasa.gov/4958"
+     ],
+     "checked": "web",
+     "note": "The Alfven surface is wrinkled and moves; pre-crossing estimates were 10 to 20 Rsun."
+    },
+    {
+     "id": "terminationShock",
+     "name": "Termination shock",
+     "kind": "surface",
+     "shape": {
+      "sphere": 19138,
+      "au": [
+       84,
+       94
+      ]
+     },
+     "label": "84 to 94 AU",
+     "tag": "measured",
+     "fact": "Here the Sun's wind drops below the speed of sound. The Voyagers crossed at 94 and 84 AU.",
+     "source": "NASA Voyager interstellar mission",
+     "url": [
+      "https://science.nasa.gov/mission/voyager/interstellar-mission"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "heliopause",
+     "name": "Heliopause",
+     "kind": "surface",
+     "shape": {
+      "sphere": 25804,
+      "au": 120
+     },
+     "label": "about 120 AU",
+     "tag": "measured",
+     "fact": "The Sun's wind reaches this far. Voyager 1 crossed at 121.6 AU in 2012, Voyager 2 at 119.",
+     "source": "NASA Voyager interstellar mission; Voyager 2 heliopause papers 2019, Nature Astronomy (summary in Eos)",
+     "url": [
+      "https://science.nasa.gov/mission/voyager/interstellar-mission",
+      "https://eos.org/articles/voyager-2s-interstellar-arrival-was-kind-of-familiar-thats-surprising"
+     ],
+     "checked": "web"
+    }
+   ]
+  },
+  {
+   "id": "mercury",
+   "title": "Mercury",
+   "class": "planet",
+   "unit": "km",
+   "unitKm": 1,
+   "axis": "planet spin axis",
+   "headline": "A small world that is mostly metal: an iron core wrapped in a thin shell of rock.",
+   "rows": [
+    {
+     "id": "innerCore",
+     "name": "Solid inner core",
+     "kind": "surface",
+     "shape": {
+      "sphere": 1000
+     },
+     "label": "about 1,000 km",
+     "tag": "model",
+     "fact": "A solid iron heart about half the width of the whole core, close to the size of Earth's.",
+     "source": "Genova et al. 2019, GRL 46, 3625",
+     "url": [
+      "https://dspace.mit.edu/handle/1721.1/125259"
+     ],
+     "checked": "web",
+     "note": "Genova 2019: inner core 0.3 to 0.7 of the outer core radius."
+    },
+    {
+     "id": "core",
+     "name": "Core",
+     "kind": "surface",
+     "shape": {
+      "sphere": 2074
+     },
+     "label": "2,074 km",
+     "tag": "model",
+     "fact": "Mostly core: iron fills 85% of the radius, and part of it is molten.",
+     "source": "NASA Science: Mercury facts",
+     "url": [
+      "https://science.nasa.gov/mercury/facts/"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "surface",
+     "name": "Surface",
+     "kind": "surface",
+     "shape": {
+      "sphere": 2439.7
+     },
+     "label": "2,439.7 km",
+     "tag": "measured",
+     "fact": "Rock only about 400 km thick lies over the great core.",
+     "source": "NASA Mercury Fact Sheet (NSSDCA); NASA Science: Mercury facts",
+     "url": [
+      "https://nssdc.gsfc.nasa.gov/planetary/factsheet/mercuryfact.html",
+      "https://science.nasa.gov/mercury/facts/"
+     ],
+     "checked": "web"
+    }
+   ]
+  },
+  {
+   "id": "venus",
+   "title": "Venus",
+   "class": "planet",
+   "unit": "km",
+   "unitKm": 1,
+   "axis": "planet spin axis",
+   "headline": "Earth's twin in size, wrapped in unbroken cloud over the hottest surface of any planet.",
+   "rows": [
+    {
+     "id": "core",
+     "name": "Core",
+     "kind": "surface",
+     "shape": {
+      "sphere": 3200
+     },
+     "label": "about 3,200 km",
+     "tag": "model",
+     "fact": "An iron core much like Earth's, sized by models: no seismometer has listened here yet.",
+     "source": "Venus review 2024 (clouds 47 to 70 km; core 3,200 km model; Margot et al. 2021: 3,500 +/- 500 km)",
+     "url": [
+      "https://arxiv.org/abs/2404.07669"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "surface",
+     "name": "Surface",
+     "kind": "surface",
+     "shape": {
+      "sphere": 6051.8
+     },
+     "label": "6,051.8 km",
+     "tag": "measured",
+     "fact": "Rock at 464 °C under air 92 times as heavy as ours.",
+     "source": "NASA Venus Fact Sheet (NSSDCA)",
+     "url": [
+      "https://nssdc.gsfc.nasa.gov/planetary/factsheet/venusfact.html"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "clouds",
+     "name": "Cloud deck",
+     "kind": "surface",
+     "shape": {
+      "shell": [
+       6099.8,
+       6121.8
+      ]
+     },
+     "label": "48 to 70 km up",
+     "tag": "measured",
+     "fact": "Clouds of sulfuric acid, over 20 km deep, cover the whole planet.",
+     "source": "Venus review 2024 (clouds 47 to 70 km; core 3,200 km model; Margot et al. 2021: 3,500 +/- 500 km)",
+     "url": [
+      "https://arxiv.org/abs/2404.07669"
+     ],
+     "checked": "web"
+    }
+   ]
+  },
+  {
+   "id": "earth",
+   "title": "Earth",
+   "class": "planet",
+   "unit": "km",
+   "unitKm": 1,
+   "axis": "planet spin axis",
+   "headline": "Iron at the centre, rock around it, a skin of sea and air, and a magnetic shield far out in space.",
+   "rows": [
+    {
+     "id": "innerCore",
+     "name": "Inner core",
+     "kind": "surface",
+     "shape": {
+      "sphere": 1221
+     },
+     "label": "1,221 km",
+     "tag": "measured",
+     "fact": "Solid iron and nickel, about as hot as the Sun's surface.",
+     "source": "NASA Science: Earth facts",
+     "url": [
+      "https://science.nasa.gov/earth/facts/"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "outerCore",
+     "name": "Outer core",
+     "kind": "surface",
+     "shape": {
+      "sphere": 3485
+     },
+     "label": "2,890 km down",
+     "tag": "measured",
+     "fact": "Liquid iron, 2,300 km deep. Its slow churning makes Earth's magnetic field.",
+     "source": "NASA Science: Earth facts; NASA Earth Fact Sheet (NSSDCA)",
+     "url": [
+      "https://science.nasa.gov/earth/facts/",
+      "https://nssdc.gsfc.nasa.gov/planetary/factsheet/earthfact.html"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "mantle",
+     "name": "Mantle",
+     "kind": "surface",
+     "shape": {
+      "sphere": 6341
+     },
+     "label": "2,900 km thick",
+     "tag": "measured",
+     "fact": "Hot rock that flows like thick caramel over millions of years.",
+     "source": "NASA Science: Earth facts",
+     "url": [
+      "https://science.nasa.gov/earth/facts/"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "crust",
+     "name": "Crust and ocean",
+     "kind": "surface",
+     "shape": {
+      "shell": [
+       6341,
+       6371
+      ]
+     },
+     "label": "30 km on land, 5 at sea",
+     "tag": "measured",
+     "fact": "The ground we live on: 30 km thick under land, 5 under the sea floor.",
+     "source": "NASA Science: Earth facts",
+     "url": [
+      "https://science.nasa.gov/earth/facts/"
+     ],
+     "checked": "web",
+     "fold": "mantle"
+    },
+    {
+     "id": "innerBelt",
+     "name": "Inner Van Allen belt",
+     "kind": "band",
+     "shape": {
+      "annulus": [
+       7971,
+       19371
+      ]
+     },
+     "label": "1,600 to 13,000 km up",
+     "tag": "measured",
+     "fact": "Fast protons held by Earth's magnetic field.",
+     "source": "NASA SVS 11212, Van Allen belts",
+     "url": [
+      "https://svs.gsfc.nasa.gov/11212"
+     ],
+     "checked": "secondary"
+    },
+    {
+     "id": "outerBelt",
+     "name": "Outer Van Allen belt",
+     "kind": "band",
+     "shape": {
+      "annulus": [
+       25371,
+       46371
+      ]
+     },
+     "label": "19,000 to 40,000 km up",
+     "tag": "measured",
+     "fact": "A wider ring of fast electrons that swells and shrinks with the Sun's weather.",
+     "source": "NASA SVS 11212, Van Allen belts",
+     "url": [
+      "https://svs.gsfc.nasa.gov/11212"
+     ],
+     "checked": "secondary"
+    },
+    {
+     "id": "magnetopause",
+     "name": "Magnetopause",
+     "kind": "surface",
+     "shape": {
+      "sphere": 63710,
+      "toward": "sun"
+     },
+     "label": "about 10 Earth radii",
+     "tag": "measured",
+     "fact": "Earth's magnetic shield holds the Sun's wind off here, 10 Earth radii out on the day side.",
+     "source": "NOAA SWPC: Earth's magnetosphere",
+     "url": [
+      "https://www.swpc.noaa.gov/phenomena/earths-magnetosphere"
+     ],
+     "checked": "web"
+    }
+   ]
+  },
+  {
+   "id": "moon",
+   "title": "Moon",
+   "class": "moon",
+   "unit": "km",
+   "unitKm": 1,
+   "axis": "moon spin axis",
+   "headline": "A small world with a small heart: its iron core fills only a fifth of the radius.",
+   "rows": [
+    {
+     "id": "innerCore",
+     "name": "Solid inner core",
+     "kind": "surface",
+     "shape": {
+      "sphere": 240
+     },
+     "label": "240 km",
+     "tag": "measured",
+     "fact": "A solid iron ball, found in 2011 in the Apollo seismometers' old recordings.",
+     "source": "Weber et al. 2011, Science 331, 309 (NASA release)",
+     "url": [
+      "https://geology.com/nasa/moon-internal-structure"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "outerCore",
+     "name": "Fluid outer core",
+     "kind": "surface",
+     "shape": {
+      "sphere": 330
+     },
+     "label": "330 km",
+     "tag": "measured",
+     "fact": "Liquid iron around the solid heart.",
+     "source": "Weber et al. 2011, Science 331, 309 (NASA release)",
+     "url": [
+      "https://geology.com/nasa/moon-internal-structure"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "meltLayer",
+     "name": "Partly molten layer",
+     "kind": "surface",
+     "shape": {
+      "sphere": 480
+     },
+     "label": "480 km",
+     "tag": "model",
+     "fact": "Soft, partly melted rock wraps the core.",
+     "source": "Weber et al. 2011, Science 331, 309 (NASA release)",
+     "url": [
+      "https://geology.com/nasa/moon-internal-structure"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "crust",
+     "name": "Crust",
+     "kind": "surface",
+     "shape": {
+      "shell": [
+       1699.4,
+       1737.4
+      ]
+     },
+     "label": "34 to 43 km thick",
+     "tag": "measured",
+     "fact": "The pale crust is 34 to 43 km thick, weighed from orbit by the GRAIL twins.",
+     "source": "Wieczorek et al. 2013, Science 339, 671; NASA Moon Fact Sheet (NSSDCA)",
+     "url": [
+      "https://ntrs.nasa.gov/citations/20130013613",
+      "https://nssdc.gsfc.nasa.gov/planetary/factsheet/moonfact.html"
+     ],
+     "checked": "web"
+    }
+   ],
+   "headlineSource": "Weber et al. 2011, Science 331, 309 (NASA release)",
+   "headlineUrl": "https://geology.com/nasa/moon-internal-structure"
+  },
+  {
+   "id": "mars",
+   "title": "Mars",
+   "class": "planet",
+   "unit": "km",
+   "unitKm": 1,
+   "axis": "planet spin axis",
+   "headline": "A cold desert with a liquid metal heart, measured by one lander listening for marsquakes.",
+   "rows": [
+    {
+     "id": "core",
+     "name": "Liquid core",
+     "kind": "surface",
+     "shape": {
+      "sphere": 1650
+     },
+     "label": "1,650 to 1,830 km",
+     "tag": "measured",
+     "fact": "Liquid iron, sized from marsquakes. The newest readings put its edge near 1,650 km.",
+     "source": "NASA Mars Fact Sheet (NSSDCA), with its 1,650 to 1,675 km footnote",
+     "url": [
+      "https://nssdc.gsfc.nasa.gov/planetary/factsheet/marsfact.html"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "surface",
+     "name": "Surface",
+     "kind": "surface",
+     "shape": {
+      "sphere": 3389.5
+     },
+     "label": "3,389.5 km",
+     "tag": "measured",
+     "fact": "Under the red dust the crust is 24 to 72 km thick.",
+     "source": "NASA Mars Fact Sheet (NSSDCA), with its 1,650 to 1,675 km footnote; Knapmeyer-Endrun et al. 2021, Science 373, 438 (summary)",
+     "url": [
+      "https://nssdc.gsfc.nasa.gov/planetary/factsheet/marsfact.html",
+      "https://www.sci.news/space/insight-crust-mantle-core-mars-09897.html"
+     ],
+     "checked": "web"
+    }
+   ]
+  },
+  {
+   "id": "jupiter",
+   "title": "Jupiter",
+   "class": "planet",
+   "unit": "km",
+   "unitKm": 1,
+   "axis": "planet spin axis",
+   "headline": "A giant with no ground. Clouds give way to an ocean of hydrogen squeezed until it acts like metal.",
+   "rows": [
+    {
+     "id": "diluteCore",
+     "name": "Dilute core",
+     "kind": "surface",
+     "shape": {
+      "sphere": 44000.0,
+      "soft": true
+     },
+     "label": "to about 0.6 R",
+     "tag": "model",
+     "fact": "No hard centre: heavy elements are mixed through the inner 60% of the radius.",
+     "source": "Militzer et al. 2022, PSJ 3, 185",
+     "url": [
+      "https://resolver.caltech.edu/CaltechAUTHORS:20220804-981005000"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "metallicH",
+     "name": "Metallic hydrogen",
+     "kind": "surface",
+     "shape": {
+      "sphere": 55900.0,
+      "soft": true
+     },
+     "label": "from about 0.8 R",
+     "tag": "model",
+     "fact": "Below here hydrogen is pressed so hard it carries electricity like a metal, and makes the magnetic field.",
+     "source": "Planetary models and laboratory work (transition near 0.8 to 0.9 R); NASA Science: Jupiter facts",
+     "url": [
+      "https://physicsworld.com/a/has-liquid-metallic-hydrogen-on-jupiter-been-recreated-in-the-lab/",
+      "https://science.nasa.gov/jupiter/jupiter-facts/"
+     ],
+     "checked": "secondary"
+    },
+    {
+     "id": "cloudTops",
+     "name": "Cloud tops",
+     "kind": "surface",
+     "shape": {
+      "spheroid": [
+       71488,
+       66842
+      ]
+     },
+     "label": "71,488 by 66,842 km",
+     "tag": "measured",
+     "fact": "A day under 10 hours flattens Jupiter: 9,300 km wider than it is tall.",
+     "source": "Juno radio occultations, Nature Astronomy 2026 (NASA release)",
+     "url": [
+      "https://science.nasa.gov/blogs/science-news/2026/02/04/nasas-juno-mission-redefines-size-shape-of-jupiter"
+     ],
+     "checked": "web",
+     "note": "Juno 2026 values at the 1-bar level; the NSSDCA fact sheet still lists 71,492 by 66,854 km. The code's mean radius 69,911 km is the older mean (new: 69,886)."
+    },
+    {
+     "id": "ioTorus",
+     "name": "Io's ring of gas",
+     "kind": "band",
+     "shape": {
+      "ring": 421700,
+      "turn": 1
+     },
+     "label": "5.9 Jupiter radii",
+     "tag": "measured",
+     "fact": "Volcanoes on the moon Io feed a glowing ring of gas along its orbit.",
+     "source": "Io orbit 421,700 km = 5.9 RJ (Juno torus occultations)",
+     "url": [
+      "https://meetingorganizer.copernicus.org/EGU25/EGU25-19287.html"
+     ],
+     "checked": "secondary"
+    },
+    {
+     "id": "magnetopause",
+     "name": "Magnetopause",
+     "kind": "surface",
+     "shape": {
+      "sphere": 4500000.0,
+      "toward": "sun",
+      "range": [
+       4500000.0,
+       6580000.0
+      ]
+     },
+     "label": "63 to 92 radii",
+     "tag": "measured",
+     "fact": "The largest structure the planets own: its magnetic bubble starts 63 to 92 radii sunward.",
+     "source": "Joy et al. 2002, JGR 107, 1309",
+     "url": [
+      "https://doi.org/10.1029/2001JA009146"
+     ],
+     "checked": "web",
+     "note": "NASA's Jupiter page gives 1 to 3 million km (14 to 42 radii), which disagrees with Joy et al. 2002; the paper is used."
+    }
+   ]
+  },
+  {
+   "id": "saturn",
+   "title": "Saturn",
+   "class": "planet",
+   "unit": "km",
+   "unitKm": 1,
+   "axis": "planet spin axis",
+   "headline": "The most flattened planet, circled by rings as wide as two thirds of the way from Earth to the Moon.",
+   "rows": [
+    {
+     "id": "fuzzyCore",
+     "name": "Fuzzy core",
+     "kind": "surface",
+     "shape": {
+      "sphere": 36200.0,
+      "soft": true
+     },
+     "label": "to about 0.6 R",
+     "tag": "model",
+     "fact": "Ripples in the rings show a core with no edge, spread over 60% of the radius.",
+     "source": "Mankovich & Fuller 2021, Nature Astronomy 5, 1103",
+     "url": [
+      "https://arxiv.org/abs/2104.13385"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "cloudTops",
+     "name": "Cloud tops",
+     "kind": "surface",
+     "shape": {
+      "spheroid": [
+       60268,
+       54364
+      ]
+     },
+     "label": "60,268 by 54,364 km",
+     "tag": "measured",
+     "fact": "Spin flattens Saturn by a tenth: the most squashed planet of all.",
+     "source": "NASA Saturn Fact Sheet (NSSDCA)",
+     "url": [
+      "https://nssdc.gsfc.nasa.gov/planetary/factsheet/saturnfact.html"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "ringD",
+     "name": "D ring",
+     "kind": "band",
+     "shape": {
+      "annulus": [
+       66900,
+       74510
+      ]
+     },
+     "label": "66,900 km",
+     "tag": "measured",
+     "fact": "The faint innermost ring, reaching down toward the cloud tops.",
+     "source": "NASA Saturnian Rings Fact Sheet (NSSDCA)",
+     "url": [
+      "https://nssdc.gsfc.nasa.gov/planetary/factsheet/satringfact.html"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "ringC",
+     "name": "C ring",
+     "kind": "band",
+     "shape": {
+      "annulus": [
+       74658,
+       91975
+      ]
+     },
+     "label": "74,658 km",
+     "tag": "measured",
+     "fact": "A dim, see-through ring about 5 m thick.",
+     "source": "NASA Saturnian Rings Fact Sheet (NSSDCA)",
+     "url": [
+      "https://nssdc.gsfc.nasa.gov/planetary/factsheet/satringfact.html"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "ringB",
+     "name": "B ring",
+     "kind": "band",
+     "shape": {
+      "annulus": [
+       91975,
+       117507
+      ]
+     },
+     "label": "91,975 km",
+     "tag": "measured",
+     "fact": "The brightest and heaviest ring.",
+     "source": "NASA Saturnian Rings Fact Sheet (NSSDCA)",
+     "url": [
+      "https://nssdc.gsfc.nasa.gov/planetary/factsheet/satringfact.html"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "cassini",
+     "name": "Cassini Division",
+     "kind": "band",
+     "shape": {
+      "annulus": [
+       117507,
+       122340
+      ]
+     },
+     "label": "about 4,700 km wide",
+     "tag": "measured",
+     "fact": "A dark gap about 4,700 km wide between the two bright rings.",
+     "source": "NASA Saturnian Rings Fact Sheet (NSSDCA); NASA Science: Saturn facts",
+     "url": [
+      "https://nssdc.gsfc.nasa.gov/planetary/factsheet/satringfact.html",
+      "https://science.nasa.gov/saturn/facts/"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "ringA",
+     "name": "A ring",
+     "kind": "band",
+     "shape": {
+      "annulus": [
+       122340,
+       136780
+      ]
+     },
+     "label": "to 136,780 km",
+     "tag": "measured",
+     "fact": "The main rings are 273,600 km from edge to edge and about 10 m thick.",
+     "source": "NASA Saturnian Rings Fact Sheet (NSSDCA); NASA Science: Saturn facts",
+     "url": [
+      "https://nssdc.gsfc.nasa.gov/planetary/factsheet/satringfact.html",
+      "https://science.nasa.gov/saturn/facts/"
+     ],
+     "checked": "web",
+     "derived": "2 x 136,780 km = 273,560 km"
+    },
+    {
+     "id": "ringF",
+     "name": "F ring",
+     "kind": "band",
+     "shape": {
+      "ring": 139826
+     },
+     "label": "139,826 km",
+     "tag": "measured",
+     "fact": "A narrow thread of ice just outside the main rings.",
+     "source": "NASA Saturnian Rings Fact Sheet (NSSDCA)",
+     "url": [
+      "https://nssdc.gsfc.nasa.gov/planetary/factsheet/satringfact.html"
+     ],
+     "checked": "web"
+    }
+   ],
+   "headlineSource": "NASA Saturnian Rings Fact Sheet (NSSDCA)",
+   "headlineUrl": "https://nssdc.gsfc.nasa.gov/planetary/factsheet/satringfact.html"
+  },
+  {
+   "id": "betelgeuse",
+   "title": "Betelgeuse",
+   "class": "star",
+   "unit": "Rsun",
+   "unitKm": 695700,
+   "axis": null,
+   "headline": "A red supergiant near the end of its life, so swollen that it would fill the inner Solar System.",
+   "rows": [
+    {
+     "id": "marsOrbit",
+     "name": "Mars's orbit, for scale",
+     "kind": "band",
+     "shape": {
+      "ring": 327.6
+     },
+     "label": "1.5 AU",
+     "tag": "measured",
+     "fact": "Put Betelgeuse where the Sun is and Mars would orbit deep inside it.",
+     "source": "Background.qml planetInfo (JPL elements)",
+     "url": [
+      "file:Background.qml"
+     ],
+     "checked": "code"
+    },
+    {
+     "id": "surface",
+     "name": "Surface",
+     "kind": "surface",
+     "shape": {
+      "sphere": 764,
+      "soft": true
+     },
+     "label": "764 Suns wide",
+     "tag": "model",
+     "fact": "About 764 times the Sun's width: most of the way out to Jupiter.",
+     "source": "Joyce et al. 2020, ApJ 902, 63",
+     "url": [
+      "https://arxiv.org/abs/2006.09837"
+     ],
+     "checked": "web",
+     "derived": "764 Rsun = 3.55 AU; Jupiter 5.20 AU"
+    }
+   ]
+  },
+  {
+   "id": "vega",
+   "title": "Vega",
+   "class": "star",
+   "unit": "Rsun",
+   "unitKm": 695700,
+   "axis": "line of sight from the Sun (pole-on, about 5 degrees)",
+   "headline": "A star spinning so fast it bulges. We look almost straight down on its pole.",
+   "rows": [
+    {
+     "id": "surface",
+     "name": "Flattened surface",
+     "kind": "surface",
+     "shape": {
+      "spheroid": [
+       2.818,
+       2.362
+      ]
+     },
+     "label": "2.82 by 2.36 Suns",
+     "tag": "measured",
+     "fact": "One turn takes about 17 hours, so the equator bulges a fifth wider than the poles.",
+     "source": "Yoon et al. 2010, in van Belle 2012 review; Monnier et al. 2012 (0.71 d, pole-on); Monnier et al. 2012, ApJL 761 L3",
+     "url": [
+      "https://arxiv.org/abs/1204.2572",
+      "https://arxiv.org/abs/1211.6055"
+     ],
+     "checked": "web",
+     "derived": "0.71 d = 17 h; 2.818 / 2.362 = 1.19"
+    }
+   ]
+  },
+  {
+   "id": "sirius",
+   "title": "Sirius",
+   "class": "star",
+   "unit": "AU",
+   "unitKm": 149597870.7,
+   "axis": "orbit normal of Sirius B",
+   "headline": "The brightest star of our night sky, with a tiny dead star circling it every 50 years.",
+   "rows": [
+    {
+     "id": "siriusA",
+     "name": "Sirius A",
+     "kind": "point",
+     "shape": {
+      "at": [
+       0,
+       0,
+       0
+      ]
+     },
+     "label": "2.06 Suns",
+     "tag": "measured",
+     "fact": "A white star twice the Sun's mass, 8.6 light-years away.",
+     "source": "Bond et al. 2017, ApJ 840, 70",
+     "url": [
+      "https://arxiv.org/abs/1703.10625"
+     ],
+     "checked": "web",
+     "derived": "code dpc 2.64 pc = 8.6 ly"
+    },
+    {
+     "id": "orbitB",
+     "name": "Sirius B's orbit",
+     "kind": "band",
+     "shape": {
+      "ellipse": {
+       "a": 19.8,
+       "e": 0.591
+      }
+     },
+     "label": "8 to 31 AU",
+     "tag": "measured",
+     "fact": "Sirius B swings between 8 and 31 AU, once every 50 years.",
+     "source": "Bond et al. 2017, ApJ 840, 70",
+     "url": [
+      "https://arxiv.org/abs/1703.10625"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "siriusB",
+     "name": "Sirius B",
+     "kind": "point",
+     "shape": {
+      "onEllipse": "orbitB"
+     },
+     "label": "Earth-sized",
+     "tag": "measured",
+     "fact": "A white dwarf: the mass of the Sun pressed into a ball smaller than Earth.",
+     "source": "Bond et al. 2017, ApJ 840, 70",
+     "url": [
+      "https://arxiv.org/abs/1703.10625"
+     ],
+     "checked": "web",
+     "derived": "0.0081 Rsun = 5,640 km = 0.88 Earth radii"
+    }
+   ]
+  },
+  {
+   "id": "alphaCen",
+   "title": "Alpha Centauri",
+   "class": "star",
+   "unit": "AU",
+   "unitKm": 149597870.7,
+   "axis": "orbit normal of A-B",
+   "headline": "Our nearest neighbours: two Sun-like stars in a close dance, and a small red one far outside.",
+   "rows": [
+    {
+     "id": "orbitAB",
+     "name": "A and B's orbit",
+     "kind": "band",
+     "shape": {
+      "ellipse": {
+       "a": 23.4,
+       "e": 0.52
+      }
+     },
+     "label": "11 to 36 AU",
+     "tag": "measured",
+     "fact": "The pair close to Saturn's distance and part to Pluto's, once every 80 years.",
+     "source": "Akeson et al. 2021, AJ 162, 14; orbit range as tabulated on Wikipedia",
+     "url": [
+      "https://en.wikipedia.org/wiki/Alpha_Centauri"
+     ],
+     "checked": "secondary"
+    },
+    {
+     "id": "proxima",
+     "name": "Proxima",
+     "kind": "point",
+     "shape": {
+      "distance": 13000
+     },
+     "label": "13,000 AU",
+     "tag": "measured",
+     "fact": "The nearest star to the Sun, 13,000 AU from the pair on a 550,000-year orbit.",
+     "source": "Kervella et al. 2017, A&A 598 L7",
+     "url": [
+      "https://arxiv.org/abs/1611.03495"
+     ],
+     "checked": "web"
+    }
+   ]
+  },
+  {
+   "id": "polaris",
+   "title": "Polaris",
+   "class": "star",
+   "unit": "Rsun",
+   "unitKm": 695700,
+   "axis": null,
+   "headline": "The North Star is a breathing giant: it swells and shrinks every four days.",
+   "rows": [
+    {
+     "id": "sun",
+     "name": "The Sun, for scale",
+     "kind": "surface",
+     "shape": {
+      "sphere": 1
+     },
+     "label": "1 Sun",
+     "tag": "measured",
+     "fact": "Our Sun, drawn to the same scale.",
+     "source": "NASA Sun Fact Sheet (NSSDCA)",
+     "url": [
+      "https://nssdc.gsfc.nasa.gov/planetary/factsheet/sunfact.html"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "surface",
+     "name": "Surface",
+     "kind": "surface",
+     "shape": {
+      "sphere": 46
+     },
+     "label": "46 Suns wide",
+     "tag": "measured",
+     "fact": "46 times the Sun's width and five times its mass, with a faint companion on a 30-year orbit.",
+     "source": "Evans et al. 2024, ApJ 971, 190; CHARA Array release on Polaris, 2024",
+     "url": [
+      "https://arxiv.org/abs/2407.09641",
+      "https://sciencedaily.com/releases/2024/08/240820124556.htm"
+     ],
+     "checked": "web"
+    }
+   ]
+  },
+  {
+   "id": "pleiades",
+   "title": "Pleiades",
+   "class": "cluster",
+   "unit": "pc",
+   "unitKm": 30856776000000.0,
+   "axis": null,
+   "headline": "A young family of blue stars, passing through a dust cloud that glows in their light.",
+   "rows": [
+    {
+     "id": "tidal",
+     "name": "Edge of the cluster",
+     "kind": "surface",
+     "shape": {
+      "sphere": 11.6
+     },
+     "label": "11.6 pc",
+     "tag": "model",
+     "fact": "Inside this line the cluster's own gravity holds about 1,250 stars together.",
+     "source": "Lodieu et al. 2019, A&A 628 A66",
+     "url": [
+      "https://arxiv.org/abs/1906.03924"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "merope",
+     "name": "Merope's cloud",
+     "kind": "point",
+     "shape": {
+      "simbad": "Merope"
+     },
+     "label": "reflected light",
+     "tag": "measured",
+     "fact": "The blue haze is a passing cloud of dust, lit by the stars and drifting toward Merope.",
+     "source": "NASA Hubble Messier catalog: M45",
+     "url": [
+      "https://science.nasa.gov/mission/hubble/science/explore-the-night-sky/hubble-messier-catalog/messier-45/"
+     ],
+     "checked": "web"
+    }
+   ]
+  },
+  {
+   "id": "hyades",
+   "title": "Hyades",
+   "class": "cluster",
+   "unit": "pc",
+   "unitKm": 30856776000000.0,
+   "axis": null,
+   "headline": "The nearest star cluster, slowly coming apart: stars trail 170 pc ahead of it along its orbit.",
+   "rows": [
+    {
+     "id": "core",
+     "name": "Core",
+     "kind": "surface",
+     "shape": {
+      "sphere": 3.1
+     },
+     "label": "3.1 pc",
+     "tag": "model",
+     "fact": "The crowded middle of the cluster.",
+     "source": "Roeser et al. 2011, A&A 531 A92",
+     "url": [
+      "https://arxiv.org/abs/1105.6093"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "tidal",
+     "name": "Edge of the cluster",
+     "kind": "surface",
+     "shape": {
+      "sphere": 9
+     },
+     "label": "9 pc",
+     "tag": "model",
+     "fact": "Inside this line gravity holds about 360 star systems. Those outside drift away.",
+     "source": "Roeser et al. 2011, A&A 531 A92; Roeser et al. 2019, A&A 621 L2",
+     "url": [
+      "https://arxiv.org/abs/1105.6093",
+      "https://arxiv.org/abs/1811.03845"
+     ],
+     "checked": "web"
+    }
+   ],
+   "headlineSource": "Roeser et al. 2019, A&A 621 L2",
+   "headlineUrl": "https://arxiv.org/abs/1811.03845"
+  },
+  {
+   "id": "omegaCen",
+   "title": "Omega Centauri",
+   "class": "globular",
+   "unit": "pc",
+   "unitKm": 30856776000000.0,
+   "axis": null,
+   "headline": "Four million Suns in one ball of stars: probably the bare heart of a galaxy the Milky Way swallowed.",
+   "rows": [
+    {
+     "id": "imbh",
+     "name": "Central black hole",
+     "kind": "point",
+     "shape": {
+      "at": [
+       0,
+       0,
+       0
+      ]
+     },
+     "label": "8,200 Suns or more",
+     "tag": "measured",
+     "fact": "Seven stars race round the centre: a black hole of at least 8,200 Suns holds them.",
+     "source": "Haeberle et al. 2024, Nature 631, 285",
+     "url": [
+      "https://arxiv.org/abs/2405.06015"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "halfMass",
+     "name": "Half the stars",
+     "kind": "surface",
+     "shape": {
+      "sphere": 10.4
+     },
+     "label": "10.4 pc",
+     "tag": "model",
+     "fact": "Half of the cluster's 3.9 million Suns of stars lie inside this sphere.",
+     "source": "Baumgardt globular cluster database: NGC 5139",
+     "url": [
+      "https://people.smp.uq.edu.au/HolgerBaumgardt/globular/fits/ngc5139.html"
+     ],
+     "checked": "web"
+    }
+   ],
+   "headlineSource": "Baumgardt globular cluster database: NGC 5139",
+   "headlineUrl": "https://people.smp.uq.edu.au/HolgerBaumgardt/globular/fits/ngc5139.html"
+  },
+  {
+   "id": "tuc47",
+   "title": "47 Tucanae",
+   "class": "globular",
+   "unit": "pc",
+   "unitKm": 30856776000000.0,
+   "axis": null,
+   "headline": "An ancient ball of stars, packed so tightly that dead stars are spun back to life.",
+   "rows": [
+    {
+     "id": "halfMass",
+     "name": "Half the stars",
+     "kind": "surface",
+     "shape": {
+      "sphere": 6.4
+     },
+     "label": "6.4 pc",
+     "tag": "model",
+     "fact": "Half of the cluster's 850,000 Suns of stars lie inside this sphere.",
+     "source": "Baumgardt globular cluster database: NGC 104",
+     "url": [
+      "https://people.smp.uq.edu.au/HolgerBaumgardt/globular/fits/ngc0104.html"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "pulsars",
+     "name": "Pulsar swarm",
+     "kind": "point",
+     "shape": {
+      "at": [
+       0,
+       0,
+       0
+      ]
+     },
+     "label": "42 pulsars",
+     "tag": "measured",
+     "fact": "42 pulsars are known near the centre, each spinning hundreds of times a second.",
+     "source": "Freire: the 47 Tucanae pulsars (42 known, May 2026)",
+     "url": [
+      "https://www3.mpifr-bonn.mpg.de/staff/pfreire/47Tuc/"
+     ],
+     "checked": "web"
+    }
+   ]
+  },
+  {
+   "id": "westerlund1",
+   "title": "Westerlund 1",
+   "class": "cluster",
+   "unit": "pc",
+   "unitKm": 30856776000000.0,
+   "axis": null,
+   "headline": "The Milky Way's heavyweight young cluster: 50,000 to 100,000 Suns of new stars.",
+   "rows": [
+    {
+     "id": "magnetar",
+     "name": "Magnetar",
+     "kind": "point",
+     "shape": {
+      "simbad": "CXOU J164710.2-455216"
+     },
+     "label": "dead star",
+     "tag": "measured",
+     "fact": "A magnetar: the collapsed core of a star that has already exploded here.",
+     "source": "EWOCS-III (JWST), arXiv:2411.13051",
+     "url": [
+      "https://arxiv.org/abs/2411.13051"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "giants",
+     "name": "Giant stars",
+     "kind": "point",
+     "shape": {
+      "at": [
+       0,
+       0,
+       0
+      ]
+     },
+     "label": "24 Wolf-Rayet stars",
+     "tag": "measured",
+     "fact": "24 Wolf-Rayet stars and over 100 blue supergiants crowd the cluster.",
+     "source": "EWOCS-III (JWST), arXiv:2411.13051",
+     "url": [
+      "https://arxiv.org/abs/2411.13051"
+     ],
+     "checked": "web"
+    }
+   ],
+   "headlineSource": "EWOCS-III (JWST), arXiv:2411.13051",
+   "headlineUrl": "https://arxiv.org/abs/2411.13051"
+  },
+  {
+   "id": "orion",
+   "title": "Orion Nebula",
+   "class": "nebula",
+   "unit": "pc",
+   "unitKm": 30856776000000.0,
+   "axis": null,
+   "frame": "photo (sky coordinates)",
+   "headline": "A glowing hollow on the near face of a dark cloud, lit by four young stars at its heart.",
+   "rows": [
+    {
+     "id": "trapezium",
+     "name": "Trapezium",
+     "kind": "point",
+     "shape": {
+      "simbad": "tet01 Ori C"
+     },
+     "label": "44 Suns",
+     "tag": "measured",
+     "fact": "Four young stars light the whole nebula. The brightest pair weighs 44 Suns.",
+     "source": "Kraus et al. 2009, A&A 497, 195; NASA Hubble Messier catalog: M42",
+     "url": [
+      "https://arxiv.org/abs/0902.0365",
+      "https://science.nasa.gov/mission/hubble/science/explore-the-night-sky/hubble-messier-catalog/messier-42/"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "bar",
+     "name": "Orion Bar",
+     "kind": "surface",
+     "shape": {
+      "sphere": 0.24,
+      "centre": {
+       "simbad": "tet01 Ori C"
+      },
+      "arc": "south-east"
+     },
+     "label": "0.24 pc",
+     "tag": "measured",
+     "fact": "The bright wall of the hollow, where starlight is eating into the cloud.",
+     "source": "PDRs4All III, arXiv:2310.08720 (Bar 2 arcmin from theta1 Ori C; 414 pc)",
+     "url": [
+      "https://arxiv.org/abs/2310.08720"
+     ],
+     "checked": "web",
+     "derived": "2 arcmin at 414 pc (1 arcsec = 0.002 pc) = 0.24 pc, projected"
+    },
+    {
+     "id": "coldCloud",
+     "name": "Cold cloud behind",
+     "kind": "point",
+     "shape": {
+      "simbad": "NAME BN Object"
+     },
+     "label": "hidden stars",
+     "tag": "model",
+     "fact": "Behind the glow lies a cold, dark cloud where more stars are forming now.",
+     "source": "O'Dell 2001, ARA&A 39, 99 (not web-checked in this pass)",
+     "url": [
+      "https://doi.org/10.1146/annurev.astro.39.1.99"
+     ],
+     "checked": "recalled"
+    }
+   ]
+  },
+  {
+   "id": "carina",
+   "title": "Carina Nebula · Eta Carinae",
+   "class": "nebula",
+   "unit": "pc",
+   "unitKm": 30856776000000.0,
+   "axis": null,
+   "frame": "photo (sky coordinates)",
+   "headline": "A vast star nursery ruled by Eta Carinae, a double star that nearly destroyed itself in the 1840s.",
+   "rows": [
+    {
+     "id": "etaCar",
+     "name": "Eta Carinae",
+     "kind": "point",
+     "shape": {
+      "simbad": "eta Car"
+     },
+     "label": "5 million Suns bright",
+     "tag": "measured",
+     "fact": "Two giant stars circling every 5.5 years, shining like 5 million Suns.",
+     "source": "Smith 2017, MNRAS 471, 4465; Astronomy magazine on Eta Carinae",
+     "url": [
+      "https://arxiv.org/abs/1709.06210"
+     ],
+     "checked": "secondary"
+    },
+    {
+     "id": "homunculus",
+     "name": "Homunculus",
+     "kind": "surface",
+     "shape": {
+      "lobes": {
+       "length": 0.3
+      },
+      "centre": {
+       "simbad": "eta Car"
+      }
+     },
+     "label": "about 1 light-year",
+     "tag": "measured",
+     "fact": "Two lobes of dust thrown out in the 1840s outburst, now a light-year long.",
+     "source": "NASA SVS 11568: Eta Carinae and the Homunculus",
+     "url": [
+      "https://svs.gsfc.nasa.gov/old/11568"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "trumpler14",
+     "name": "Trumpler 14",
+     "kind": "point",
+     "shape": {
+      "simbad": "Trumpler 14"
+     },
+     "label": "2.5 million years old",
+     "tag": "measured",
+     "fact": "A cluster of newborn giants whose light carves the pillars around it.",
+     "source": "NASA Hubble: The Carina Nebula, star birth in the extreme",
+     "url": [
+      "https://science.nasa.gov/missions/hubble/the-carina-nebula-star-birth-in-the-extreme/"
+     ],
+     "checked": "web"
+    }
+   ]
+  },
+  {
+   "id": "eagle",
+   "title": "Eagle Nebula",
+   "class": "nebula",
+   "unit": "pc",
+   "unitKm": 30856776000000.0,
+   "axis": null,
+   "frame": "photo (sky coordinates)",
+   "headline": "A star nursery whose new cluster is carving the cloud into towers of gas.",
+   "rows": [
+    {
+     "id": "pillars",
+     "name": "Pillars of Creation",
+     "kind": "point",
+     "shape": {
+      "simbad": "NAME Pillars of Creation"
+     },
+     "label": "4 to 5 light-years tall",
+     "tag": "measured",
+     "fact": "Towers of cold gas 4 to 5 light-years tall, with stars forming at their tips.",
+     "source": "NASA Hubble Messier catalog: M16",
+     "url": [
+      "https://science.nasa.gov/mission/hubble/science/explore-the-night-sky/hubble-messier-catalog/messier-16"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "ngc6611",
+     "name": "Cluster NGC 6611",
+     "kind": "point",
+     "shape": {
+      "simbad": "NGC 6611"
+     },
+     "label": "1 to 2 million years old",
+     "tag": "measured",
+     "fact": "These young stars made the pillars: their light wears the cloud away.",
+     "source": "NASA Hubble Messier catalog: M16",
+     "url": [
+      "https://science.nasa.gov/mission/hubble/science/explore-the-night-sky/hubble-messier-catalog/messier-16"
+     ],
+     "checked": "secondary"
+    }
+   ]
+  },
+  {
+   "id": "lagoon",
+   "title": "Lagoon Nebula",
+   "class": "nebula",
+   "unit": "pc",
+   "unitKm": 30856776000000.0,
+   "axis": null,
+   "frame": "photo (sky coordinates)",
+   "headline": "A wide star nursery with a furious young star at its bright centre.",
+   "rows": [
+    {
+     "id": "herschel36",
+     "name": "Herschel 36",
+     "kind": "point",
+     "shape": {
+      "simbad": "Herschel 36"
+     },
+     "label": "200,000 Suns bright",
+     "tag": "measured",
+     "fact": "A star 32 times the Sun's mass and 200,000 times as bright, sculpting the cloud.",
+     "source": "NASA/ESA Hubble 28th anniversary: Lagoon Nebula",
+     "url": [
+      "https://esahubble.org/images/comparisons/heic1808a/"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "ngc6530",
+     "name": "Cluster NGC 6530",
+     "kind": "point",
+     "shape": {
+      "simbad": "NGC 6530"
+     },
+     "label": "several thousand stars",
+     "tag": "measured",
+     "fact": "A cluster of several thousand young stars born from this cloud.",
+     "source": "NASA Hubble Messier catalog: M8",
+     "url": [
+      "https://science.nasa.gov/mission/hubble/science/explore-the-night-sky/hubble-messier-catalog/messier-8/"
+     ],
+     "checked": "web"
+    }
+   ]
+  },
+  {
+   "id": "crab",
+   "title": "Crab Nebula",
+   "class": "remnant",
+   "unit": "pc",
+   "unitKm": 30856776000000.0,
+   "axis": null,
+   "frame": "photo (sky coordinates)",
+   "headline": "The wreck of a star seen to explode in 1054, still driven by the spinning core it left behind.",
+   "rows": [
+    {
+     "id": "pulsar",
+     "name": "Pulsar",
+     "kind": "point",
+     "shape": {
+      "simbad": "PSR B0531+21"
+     },
+     "label": "30 turns a second",
+     "tag": "measured",
+     "fact": "The star's crushed core, spinning 30 times a second and powering the whole glow.",
+     "source": "NASA Hubble Messier catalog: M1",
+     "url": [
+      "https://science.nasa.gov/mission/hubble/science/explore-the-night-sky/hubble-messier-catalog/messier-1/"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "innerRing",
+     "name": "Shock ring",
+     "kind": "band",
+     "shape": {
+      "ring": 0.15,
+      "centre": {
+       "simbad": "PSR B0531+21"
+      },
+      "tilted": true
+     },
+     "label": "1 light-year across",
+     "tag": "measured",
+     "fact": "Here the pulsar's wind slams into the nebula: a ring a light-year across.",
+     "source": "Chandra X-ray Center: Crab Nebula (Weisskopf et al. 2000)",
+     "url": [
+      "https://chandra.si.edu/photo/1999/0052/0052_hand.html"
+     ],
+     "checked": "web",
+     "derived": "1 ly diameter = 0.15 pc radius; the ring is tilted, its axis must be fitted on the photo"
+    },
+    {
+     "id": "shell",
+     "name": "Expanding shell",
+     "kind": "surface",
+     "shape": {
+      "sphere": 1.7,
+      "soft": true
+     },
+     "label": "11 light-years",
+     "tag": "measured",
+     "fact": "The star's outer layers, now 11 light-years wide and still spreading.",
+     "source": "NASA Hubble: a giant mosaic of the Crab Nebula",
+     "url": [
+      "https://science.nasa.gov/missions/hubble/a-giant-hubble-mosaic-of-the-crab-nebula/"
+     ],
+     "checked": "web",
+     "derived": "11 ly = 3.4 pc across (matches the hotspot size 3.4)"
+    }
+   ]
+  },
+  {
+   "id": "cygnusX",
+   "title": "Cygnus X / Cygnus OB2",
+   "class": "nebula",
+   "unit": "pc",
+   "unitKm": 30856776000000.0,
+   "axis": null,
+   "frame": "photo (sky coordinates)",
+   "headline": "One of the Galaxy's richest star nurseries, hidden behind dust and full of heavy young stars.",
+   "rows": [
+    {
+     "id": "cygOB2",
+     "name": "Cygnus OB2",
+     "kind": "point",
+     "shape": {
+      "simbad": "Cyg OB2"
+     },
+     "label": "16,500 Suns",
+     "tag": "measured",
+     "fact": "169 massive stars, weighing 16,500 Suns with their smaller siblings.",
+     "source": "Wright et al. 2015, MNRAS 449, 741",
+     "url": [
+      "https://arxiv.org/abs/1502.05718"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "cocoon",
+     "name": "Cosmic-ray cocoon",
+     "kind": "surface",
+     "shape": {
+      "sphere": 25,
+      "soft": true
+     },
+     "label": "50 pc wide",
+     "tag": "measured",
+     "fact": "The giant stars' winds have blown a bubble 50 pc wide, glowing in gamma rays.",
+     "source": "Ackermann et al. 2011, Science 334, 1103",
+     "url": [
+      "https://pubmed.ncbi.nlm.nih.gov/22116880/"
+     ],
+     "checked": "web"
+    }
+   ]
+  },
+  {
+   "id": "rosette",
+   "title": "Rosette Nebula",
+   "class": "nebula",
+   "unit": "pc",
+   "unitKm": 30856776000000.0,
+   "axis": null,
+   "frame": "photo (sky coordinates)",
+   "headline": "A rose of glowing gas with a hole in the middle, cleared by the stars born there.",
+   "rows": [
+    {
+     "id": "ngc2244",
+     "name": "Cluster NGC 2244",
+     "kind": "point",
+     "shape": {
+      "simbad": "HD 46150"
+     },
+     "label": "over 70 giant stars",
+     "tag": "measured",
+     "fact": "The young stars at the centre. Their winds and light hollowed out the rose.",
+     "source": "Rosette stellar-wind model paper, arXiv:1802.04828 (cavity radius 6.2 pc)",
+     "url": [
+      "https://arxiv.org/abs/1802.04828"
+     ],
+     "checked": "secondary"
+    },
+    {
+     "id": "cavity",
+     "name": "Central hollow",
+     "kind": "surface",
+     "shape": {
+      "sphere": 6.2,
+      "centre": {
+       "simbad": "HD 46150"
+      }
+     },
+     "label": "6.2 pc",
+     "tag": "measured",
+     "fact": "A hollow 6 pc in radius, swept clear by the cluster's winds.",
+     "source": "Rosette stellar-wind model paper, arXiv:1802.04828 (cavity radius 6.2 pc)",
+     "url": [
+      "https://arxiv.org/abs/1802.04828"
+     ],
+     "checked": "secondary"
+    }
+   ]
+  },
+  {
+   "id": "ringNebula",
+   "title": "Ring Nebula",
+   "class": "remnant",
+   "unit": "pc",
+   "unitKm": 30856776000000.0,
+   "axis": null,
+   "frame": "photo (sky coordinates)",
+   "headline": "The last breath of a Sun-like star: a glowing shell around the hot core it left bare.",
+   "rows": [
+    {
+     "id": "centralStar",
+     "name": "Central star",
+     "kind": "point",
+     "shape": {
+      "simbad": "NGC 6720"
+     },
+     "label": "135,000 K",
+     "tag": "measured",
+     "fact": "The star's bare core, on its way to becoming a white dwarf, lights the shell.",
+     "source": "Wesson et al. 2024, MNRAS 528, 3392 (JWST)",
+     "url": [
+      "https://arxiv.org/abs/2308.09027"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "shell",
+     "name": "Shell of globules",
+     "kind": "surface",
+     "shape": {
+      "photoOutline": "main ring",
+      "centre": {
+       "simbad": "NGC 6720"
+      }
+     },
+     "label": "20,000 globules",
+     "tag": "measured",
+     "fact": "The ring is broken into some 20,000 dense clumps of gas.",
+     "source": "Wesson et al. 2024, MNRAS 528, 3392 (JWST)",
+     "url": [
+      "https://arxiv.org/abs/2308.09027"
+     ],
+     "checked": "web"
+    }
+   ]
+  },
+  {
+   "id": "helix",
+   "title": "Helix Nebula",
+   "class": "remnant",
+   "unit": "pc",
+   "unitKm": 30856776000000.0,
+   "axis": null,
+   "frame": "photo (sky coordinates)",
+   "headline": "A dying star's shell seen end-on, close enough to show thousands of comet-shaped knots.",
+   "rows": [
+    {
+     "id": "centralStar",
+     "name": "Central star",
+     "kind": "point",
+     "shape": {
+      "simbad": "NGC 7293"
+     },
+     "label": "over 100,000 K",
+     "tag": "measured",
+     "fact": "A white dwarf in the making, hotter than 100,000 K, lights the gas it threw off.",
+     "source": "Helix central star, about 104,000 to 120,000 K (Napiwotzki 1999, as cited)",
+     "url": [
+      "https://en.wikipedia.org/wiki/Helix_Nebula"
+     ],
+     "checked": "secondary"
+    },
+    {
+     "id": "mainRing",
+     "name": "Main ring",
+     "kind": "band",
+     "shape": {
+      "ring": 0.45,
+      "faceOn": true
+     },
+     "label": "nearly 3 light-years",
+     "tag": "measured",
+     "fact": "A ring nearly 3 light-years across, studded with comet-shaped knots that point back at the star.",
+     "source": "NASA Hubble: iridescent glory of the nearby Helix Nebula; Matsuura et al. 2009, ApJ 700, 1067",
+     "url": [
+      "https://science.nasa.gov/missions/hubble/iridescent-glory-of-nearby-helix-nebula/",
+      "https://arxiv.org/abs/0906.2870"
+     ],
+     "checked": "web",
+     "derived": "3 ly diameter = 0.45 pc radius"
+    }
+   ]
+  },
+  {
+   "id": "gum",
+   "title": "Gum Nebula",
+   "class": "remnant",
+   "unit": "pc",
+   "unitKm": 30856776000000.0,
+   "axis": null,
+   "frame": "photo (sky coordinates)",
+   "headline": "A faint glowing shell so wide and near that it covers 36 degrees of our southern sky.",
+   "rows": [
+    {
+     "id": "shell",
+     "name": "Shell",
+     "kind": "surface",
+     "shape": {
+      "sphere": 145,
+      "soft": true
+     },
+     "label": "about 290 pc wide",
+     "tag": "model",
+     "fact": "A huge thin shell kept glowing by two brilliant stars, Zeta Puppis and Gamma Velorum.",
+     "source": "Gum Nebula studies 2026 (ionised by gamma2 Vel and zeta Pup; Vela pulsar inside the shell); Background.qml hotspots (size and position)",
+     "url": [
+      "https://arxiv.org/abs/2601.05791",
+      "file:Background.qml"
+     ],
+     "checked": "secondary"
+    },
+    {
+     "id": "vela",
+     "name": "Vela pulsar",
+     "kind": "point",
+     "shape": {
+      "simbad": "PSR B0833-45"
+     },
+     "label": "dead star",
+     "tag": "measured",
+     "fact": "The Vela pulsar and the wreck of its star lie inside the shell.",
+     "source": "Gum Nebula studies 2026 (ionised by gamma2 Vel and zeta Pup; Vela pulsar inside the shell)",
+     "url": [
+      "https://arxiv.org/abs/2601.05791"
+     ],
+     "checked": "web"
+    }
+   ],
+   "headlineSource": "Gum Nebula studies 2026 (ionised by gamma2 Vel and zeta Pup; Vela pulsar inside the shell)",
+   "headlineUrl": "https://arxiv.org/abs/2601.05791"
+  },
+  {
+   "id": "milkyWay",
+   "title": "Milky Way",
+   "class": "galaxy",
+   "unit": "kpc",
+   "unitKm": 3.0856776e+16,
+   "axis": "galactic north pole",
+   "headline": "Our galaxy: a bar of old stars, a disc of spiral arms, giant bubbles above and below, and a dark halo holding it all.",
+   "rows": [
+    {
+     "id": "cmz",
+     "name": "Central molecular zone",
+     "kind": "band",
+     "shape": {
+      "annulus": [
+       0,
+       0.3
+      ]
+     },
+     "label": "300 pc",
+     "tag": "measured",
+     "fact": "The Galaxy's densest gas clouds crowd the inner 300 pc around the black hole.",
+     "source": "Henshaw et al. 2023, Protostars and Planets VII",
+     "url": [
+      "https://arxiv.org/abs/2203.11223"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "bar",
+     "name": "Bar",
+     "kind": "band",
+     "shape": {
+      "bar": {
+       "half": 5.0,
+       "angleDeg": 30
+      }
+     },
+     "label": "5 kpc each way",
+     "tag": "measured",
+     "fact": "A bar of stars reaching 5 kpc each way, turned about 30 degrees from our line of sight.",
+     "source": "Wegg, Gerhard & Portail 2015, MNRAS 450, 4050",
+     "url": [
+      "https://arxiv.org/abs/1504.01401"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "localBubble",
+     "name": "Local Bubble",
+     "kind": "surface",
+     "shape": {
+      "sphere": 0.153,
+      "centre": "sun"
+     },
+     "label": "1,000 light-years",
+     "tag": "measured",
+     "fact": "The Sun sits in a hollow 1,000 light-years wide, blown by exploding stars 14 million years ago.",
+     "source": "Zucker et al. 2022, Nature 601, 334 (CfA release)",
+     "url": [
+      "https://www.cfa.harvard.edu/news/1000-light-year-wide-bubble-surrounding-earth-source-all-nearby-young-stars"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "sunOrbit",
+     "name": "Sun's orbit",
+     "kind": "band",
+     "shape": {
+      "ring": 8.15,
+      "turn": -1
+     },
+     "label": "8.15 kpc",
+     "tag": "measured",
+     "fact": "The Sun circles the centre at about 250 km a second: one lap in 200 million years.",
+     "source": "Bland-Hawthorn & Gerhard 2016, ARA&A 54, 529; Background.qml hotspots (size and position)",
+     "url": [
+      "https://arxiv.org/abs/1602.07702",
+      "file:Background.qml"
+     ],
+     "checked": "web",
+     "derived": "BH&G 2016: 248 +/- 3 km/s, 30.24 km/s/kpc, so 2 pi / Omega = 203 Myr; code 248.9 km/s at 8.15 kpc = 201 Myr"
+    },
+    {
+     "id": "fermi",
+     "name": "Fermi bubbles",
+     "kind": "surface",
+     "shape": {
+      "lobes": {
+       "height": 9.7,
+       "width": 5.9
+      }
+     },
+     "label": "about 10 kpc tall",
+     "tag": "measured",
+     "fact": "Two lobes of gamma-ray light, each reaching farther than the Sun is from the centre.",
+     "source": "Su, Slatyer & Finkbeiner 2010, ApJ 724, 1044",
+     "url": [
+      "https://arxiv.org/abs/1005.5480"
+     ],
+     "checked": "web",
+     "derived": "50 degrees and 40 degrees wide at the code's R0 8.15 kpc: tan(50)*8.15 = 9.7 kpc, 2*tan(20)*8.15 = 5.9 kpc; Su et al. quote roughly 10 kpc at R0 8.5"
+    },
+    {
+     "id": "erosita",
+     "name": "eROSITA bubbles",
+     "kind": "surface",
+     "shape": {
+      "lobes": {
+       "height": 14,
+       "width": null
+      }
+     },
+     "label": "14 kpc tall",
+     "tag": "measured",
+     "fact": "Larger bubbles of hot gas, seen in X-rays, wrap the gamma-ray ones.",
+     "source": "Predehl et al. 2020, Nature 588, 227",
+     "url": [
+      "https://arxiv.org/abs/2012.05840"
+     ],
+     "checked": "web",
+     "note": "width not verified; take it from the eROSITA map when drawn"
+    },
+    {
+     "id": "halo",
+     "name": "Dark halo",
+     "kind": "surface",
+     "shape": {
+      "sphere": 282,
+      "soft": true
+     },
+     "label": "about 280 kpc",
+     "tag": "model",
+     "fact": "Unseen matter reaches far beyond the stars and outweighs them many times over.",
+     "source": "Bland-Hawthorn & Gerhard 2016, ARA&A 54, 529; Deason et al. 2020, MNRAS 496, 3929",
+     "url": [
+      "https://arxiv.org/abs/1602.07702",
+      "https://arxiv.org/abs/2002.09497"
+     ],
+     "checked": "web"
+    }
+   ]
+  },
+  {
+   "id": "m31",
+   "title": "Andromeda Galaxy",
+   "class": "galaxy",
+   "unit": "kpc",
+   "unitKm": 3.0856776e+16,
+   "axis": "disc normal (lib/localgroup.js)",
+   "headline": "Our great neighbour: a spiral larger than ours, falling toward us at 109 km a second.",
+   "rows": [
+    {
+     "id": "blackHole",
+     "name": "Central black hole",
+     "kind": "point",
+     "shape": {
+      "at": [
+       0,
+       0,
+       0
+      ]
+     },
+     "label": "140 million Suns",
+     "tag": "measured",
+     "fact": "A black hole of 140 million Suns: over thirty times the mass of ours.",
+     "source": "Bender et al. 2005, ApJ 631, 280; van der Marel et al. 2012, ApJ 753, 8",
+     "url": [
+      "https://arxiv.org/abs/astro-ph/0509839",
+      "https://arxiv.org/abs/1205.6864"
+     ],
+     "checked": "web",
+     "derived": "1.4e8 / 4.15e6 (code) = 34"
+    },
+    {
+     "id": "ring",
+     "name": "Ring of fire",
+     "kind": "band",
+     "shape": {
+      "ring": 10
+     },
+     "label": "10 kpc",
+     "tag": "measured",
+     "fact": "Most of Andromeda's new stars form in this ring, 10 kpc from the centre.",
+     "source": "Gordon et al. 2006, ApJL 638 L87",
+     "url": [
+      "https://arxiv.org/abs/astro-ph/0601314"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "halo",
+     "name": "Halo",
+     "kind": "surface",
+     "shape": {
+      "sphere": 300,
+      "soft": true
+     },
+     "label": "about 300 kpc",
+     "tag": "model",
+     "fact": "Thin gas and scattered stars reach about 300 kpc: almost halfway to us.",
+     "source": "Lehner et al. 2020, ApJ 900, 9 (Project AMIGA); Ibata et al. 2014, ApJ 780, 128 (PAndAS)",
+     "url": [
+      "https://arxiv.org/abs/2002.07818",
+      "https://arxiv.org/abs/1311.5888"
+     ],
+     "checked": "web"
+    }
+   ],
+   "headlineSource": "van der Marel et al. 2012, ApJ 753, 8",
+   "headlineUrl": "https://arxiv.org/abs/1205.6864"
+  },
+  {
+   "id": "m33",
+   "title": "Triangulum Galaxy",
+   "class": "galaxy",
+   "unit": "kpc",
+   "unitKm": 3.0856776e+16,
+   "axis": "disc normal (lib/localgroup.js)",
+   "headline": "A smaller spiral with open arms, a giant star nursery, and no great black hole at its heart.",
+   "rows": [
+    {
+     "id": "centre",
+     "name": "Centre",
+     "kind": "point",
+     "shape": {
+      "at": [
+       0,
+       0,
+       0
+      ]
+     },
+     "label": "no giant black hole",
+     "tag": "measured",
+     "fact": "No giant black hole here: anything at the centre weighs under 1,500 Suns.",
+     "source": "Gebhardt et al. 2001, AJ 122, 2469",
+     "url": [
+      "https://arxiv.org/abs/astro-ph/0107135"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "ngc604",
+     "name": "NGC 604",
+     "kind": "point",
+     "shape": {
+      "simbad": "NGC 604"
+     },
+     "label": "1,300 light-years",
+     "tag": "measured",
+     "fact": "A star nursery 1,300 light-years across, holding over 200 of the hottest kind of star.",
+     "source": "NASA/JPL: peering into the tendrils of NGC 604 with Webb",
+     "url": [
+      "https://www.jpl.nasa.gov/news/peering-into-the-tendrils-of-ngc-604-with-nasas-webb/"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "x7",
+     "name": "M33 X-7",
+     "kind": "point",
+     "shape": {
+      "simbad": "M33 X-7"
+     },
+     "label": "black hole, 16 Suns",
+     "tag": "measured",
+     "fact": "A black hole of 16 Suns that is eclipsed by its giant partner every 3.45 days.",
+     "source": "Orosz et al. 2007, Nature 449, 872",
+     "url": [
+      "https://arxiv.org/abs/0710.3165"
+     ],
+     "checked": "web"
+    }
+   ]
+  },
+  {
+   "id": "lmc",
+   "title": "Large Magellanic Cloud",
+   "class": "galaxy",
+   "unit": "kpc",
+   "unitKm": 3.0856776e+16,
+   "axis": "disc normal (lib/localgroup.js)",
+   "headline": "The Milky Way's biggest companion: a small galaxy of 140 billion Suns with the Local Group's fiercest star nursery.",
+   "rows": [
+    {
+     "id": "tarantula",
+     "name": "Tarantula Nebula",
+     "kind": "point",
+     "shape": {
+      "simbad": "NGC 2070"
+     },
+     "label": "1,000 light-years",
+     "tag": "measured",
+     "fact": "A star nursery about 1,000 light-years wide. Its heaviest stars weigh 150 to 200 Suns.",
+     "source": "Kalari et al. 2022, ApJ 935, 162; NASA APOD 2024 March 8: the Tarantula zone (more than 1,000 light-years)",
+     "url": [
+      "https://arxiv.org/abs/2207.13078",
+      "https://science.nasa.gov/image-article/apod-2024-march-8-the-tarantula-zone/"
+     ],
+     "checked": "secondary",
+     "note": "size from a NASA-hosted summary (about 1,000 ly); estimates run from 650 to 1,860 ly"
+    },
+    {
+     "id": "sn1987a",
+     "name": "Supernova 1987A",
+     "kind": "point",
+     "shape": {
+      "simbad": "SN 1987A"
+     },
+     "label": "exploded 1987",
+     "tag": "measured",
+     "fact": "A star seen to explode in 1987, now ringed by a glowing loop 1.4 light-years wide.",
+     "source": "NASA Hubble: Supernova 1987A ring (1.37 light-years)",
+     "url": [
+      "https://science.nasa.gov/asset/hubble/supernova-1987a/"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "bridge",
+     "name": "Magellanic Bridge",
+     "kind": "band",
+     "shape": {
+      "segment": [
+       "lmc",
+       "smc"
+      ],
+      "length": 23.8
+     },
+     "label": "24 kpc",
+     "tag": "measured",
+     "fact": "A bridge of gas and young stars joins the two Clouds, pulled out when they last passed.",
+     "source": "Magellanic Bridge: gas and young stars stripped from the SMC about 200 Myr ago (search summary; arXiv:1112.6191); Background.qml hotspots (size and position)",
+     "url": [
+      "https://arxiv.org/abs/1112.6191",
+      "file:Background.qml"
+     ],
+     "checked": "secondary",
+     "derived": "distance between the code's LMC and SMC positions = 23.8 kpc"
+    }
+   ],
+   "headlineSource": "Erkal et al. 2019, MNRAS 487, 2685",
+   "headlineUrl": "https://arxiv.org/abs/1812.08192"
+  },
+  {
+   "id": "smc",
+   "title": "Small Magellanic Cloud",
+   "class": "galaxy",
+   "unit": "kpc",
+   "unitKm": 3.0856776e+16,
+   "axis": "disc normal (lib/localgroup.js)",
+   "headline": "A small galaxy stretched by its neighbours: in places it is 23 kpc deep along our line of sight.",
+   "rows": [
+    {
+     "id": "depth",
+     "name": "Depth",
+     "kind": "surface",
+     "shape": {
+      "spheroid": [
+       2.9,
+       11.5
+      ],
+      "along": "line of sight",
+      "soft": true
+     },
+     "label": "up to 23 kpc deep",
+     "tag": "measured",
+     "fact": "Seen from the side this galaxy is a long cloud, up to 23 kpc deep.",
+     "source": "SMC red clump depth study, arXiv:1310.4824 (search summary)",
+     "url": [
+      "https://arxiv.org/abs/1310.4824"
+     ],
+     "checked": "secondary"
+    },
+    {
+     "id": "bridge",
+     "name": "Magellanic Bridge",
+     "kind": "band",
+     "shape": {
+      "segment": [
+       "smc",
+       "lmc"
+      ],
+      "length": 23.8
+     },
+     "label": "24 kpc",
+     "tag": "measured",
+     "fact": "A bridge of gas and young stars joins the two Clouds, pulled out when they last passed.",
+     "source": "Magellanic Bridge: gas and young stars stripped from the SMC about 200 Myr ago (search summary; arXiv:1112.6191); Background.qml hotspots (size and position)",
+     "url": [
+      "https://arxiv.org/abs/1112.6191",
+      "file:Background.qml"
+     ],
+     "checked": "secondary",
+     "derived": "distance between the code's LMC and SMC positions = 23.8 kpc"
+    },
+    {
+     "id": "stream",
+     "name": "Magellanic Stream",
+     "kind": "band",
+     "shape": {
+      "arcDeg": 200
+     },
+     "label": "200 degrees of sky",
+     "tag": "measured",
+     "fact": "Gas torn from the Clouds trails across 200 degrees of our sky.",
+     "source": "Nidever et al. 2010, ApJ 723, 1618",
+     "url": [
+      "https://arxiv.org/abs/1009.0001"
+     ],
+     "checked": "web"
+    }
+   ],
+   "headlineSource": "SMC red clump depth study, arXiv:1310.4824 (search summary)",
+   "headlineUrl": "https://arxiv.org/abs/1310.4824"
+  },
+  {
+   "id": "sgrDwarf",
+   "title": "Sagittarius Dwarf",
+   "class": "galaxy",
+   "unit": "kpc",
+   "unitKm": 3.0856776e+16,
+   "axis": "disc normal (lib/localgroup.js)",
+   "headline": "A small galaxy the Milky Way is absorbing now, drawn out into a long stream of stars.",
+   "rows": [
+    {
+     "id": "halfLight",
+     "name": "Half its light",
+     "kind": "surface",
+     "shape": {
+      "fn": "dwarf.rh (2,587 pc), dwarf.ell, dwarf.pa"
+     },
+     "label": "2.6 kpc",
+     "tag": "measured",
+     "fact": "Half of this galaxy's light comes from inside this stretched oval.",
+     "source": "McConnachie 2012 via lib/dwarfs.js",
+     "url": [
+      "file:lib/dwarfs.js"
+     ],
+     "checked": "code"
+    }
+   ]
+  },
+  {
+   "id": "dwarf",
+   "title": "Dwarf galaxies (lib/dwarfs.js)",
+   "class": "dwarf",
+   "unit": "pc",
+   "unitKm": 30856776000000.0,
+   "axis": "dwarf.pa on the sky",
+   "headline": "A small, faint galaxy held together mostly by matter we cannot see.",
+   "rows": [
+    {
+     "id": "halfLight",
+     "name": "Half its light",
+     "kind": "surface",
+     "shape": {
+      "fn": "dwarf.rh, dwarf.ell, dwarf.pa"
+     },
+     "label": {
+      "fn": "dwarf.rh"
+     },
+     "tag": "measured",
+     "fact": "Half of this galaxy's light comes from inside this line.",
+     "source": "McConnachie 2012 via lib/dwarfs.js",
+     "url": [
+      "file:lib/dwarfs.js"
+     ],
+     "checked": "code"
+    },
+    {
+     "id": "segueDark",
+     "name": "Dark matter",
+     "kind": "surface",
+     "shape": {
+      "fn": "dwarf.rh",
+      "only": "Segue (I)"
+     },
+     "label": "580,000 Suns",
+     "tag": "measured",
+     "fact": "Segue 1: 580,000 Suns of mass inside 29 pc, almost none of it shining.",
+     "source": "Simon et al. 2011, ApJ 733, 46; McConnachie 2012 via lib/dwarfs.js",
+     "url": [
+      "https://arxiv.org/abs/1007.4198",
+      "file:lib/dwarfs.js"
+     ],
+     "checked": "web"
+    }
+   ]
+  },
+  {
+   "id": "localGroup",
+   "title": "Local Group",
+   "class": "group",
+   "unit": "kpc",
+   "unitKm": 3.0856776e+16,
+   "axis": null,
+   "headline": "Two great galaxies and their small companions, bound together while the rest of the universe expands away.",
+   "rows": [
+    {
+     "id": "mwHalo",
+     "name": "Milky Way's halo",
+     "kind": "surface",
+     "shape": {
+      "sphere": 282,
+      "centre": "milkyWay",
+      "soft": true
+     },
+     "label": "about 280 kpc",
+     "tag": "model",
+     "fact": "The Milky Way's dark halo: the reach of its gravity over its small companions.",
+     "source": "Bland-Hawthorn & Gerhard 2016, ARA&A 54, 529",
+     "url": [
+      "https://arxiv.org/abs/1602.07702"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "m31Halo",
+     "name": "Andromeda's halo",
+     "kind": "surface",
+     "shape": {
+      "sphere": 300,
+      "centre": "m31",
+      "soft": true
+     },
+     "label": "about 300 kpc",
+     "tag": "model",
+     "fact": "Andromeda's halo. Together the two halos span most of the 760 kpc between the galaxies.",
+     "source": "Lehner et al. 2020, ApJ 900, 9 (Project AMIGA); Background.qml hotspots (size and position)",
+     "url": [
+      "https://arxiv.org/abs/2002.07818",
+      "file:Background.qml"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "barycentre",
+     "name": "Centre of mass",
+     "kind": "point",
+     "shape": {
+      "between": [
+       "milkyWay",
+       "m31"
+      ],
+      "fraction": 0.55
+     },
+     "label": "55% of the way",
+     "tag": "model",
+     "fact": "The balance point of the group, a little over halfway to Andromeda.",
+     "source": "Karachentsev et al. 2009, MNRAS 393, 1265",
+     "url": [
+      "https://arxiv.org/abs/0811.4610"
+     ],
+     "checked": "web"
+    },
+    {
+     "id": "zeroVelocity",
+     "name": "Edge of the group",
+     "kind": "surface",
+     "shape": {
+      "sphere": 960,
+      "centre": "barycentre"
+     },
+     "label": "0.96 Mpc",
+     "tag": "measured",
+     "fact": "Inside this surface, gravity has won over cosmic expansion: 2 to 3 trillion Suns hold together.",
+     "source": "Karachentsev et al. 2009, MNRAS 393, 1265; van der Marel et al. 2012, ApJ 753, 8",
+     "url": [
+      "https://arxiv.org/abs/0811.4610",
+      "https://arxiv.org/abs/1205.6864"
+     ],
+     "checked": "web"
+    }
+   ]
+  }
+ ]
+}
