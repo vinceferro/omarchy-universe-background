@@ -94,7 +94,6 @@ Item {
     if (ra < 0) ra += 24
     return [ra, Math.asin(Math.max(-1, Math.min(1, e[2]))) * 180 / Math.PI]
   }
-  function fmtRa(h) { const hh = Math.floor(h), mm = Math.floor((h - hh) * 60); return hh + "H " + (mm < 10 ? "0" : "") + mm + "M" }
   // screen angle of a direction v from the eye, given a camera basis and focal
   // length (works behind the camera too). Things already on screen are
   // labelled there, so they get no beacon (null)
@@ -477,7 +476,6 @@ Item {
   // Simulated time (ms since the epoch). The universe view is always live;
   // in the system view [ ] step through these rates and N returns to now.
   readonly property var simRates: [1, 60, 3600, 86400, 604800, 2629800, 31557600]
-  readonly property var simRateNames: ["LIVE", "1 MIN/S", "1 HOUR/S", "1 DAY/S", "1 WEEK/S", "1 MONTH/S", "1 YEAR/S"]
   property int simRateIndex: 0
   readonly property real simRate: simRates[simRateIndex]
   property real simMs: Date.now()
@@ -2433,7 +2431,7 @@ Item {
           const l = ((skyL % 360) + 360) % 360
           const eq = galToEq(l, skyB)
           // the sky: the field of view as an arc of its true angle; galactic
-          // longitude on a heading tape; latitude as the diamond (+-90, a dot every 30)
+          // longitude on a heading tape (growing leftward, as on the sky); latitude as the diamond (+-90, a dot every 30)
           want = dialWant("sky")
           want.mode = 3; want.g = skyVfov / 360
           want.range = { mode: 2, n: 0, tape: l }
@@ -2696,7 +2694,8 @@ Item {
     hudDial = Qt.vector4d(sh.mode, sh.mode === 3 ? run.arc : Math.max(0, run.needle[0]), sh.majors, sh.minor)
     hudDialMark = Qt.vector4d(sh.red[0], sh.red[1], sh.dash, sh.long)
     hudDialAux = Qt.vector4d(sh.hair[0], sh.hair[1], run.pulse[0], run.pulse[1])
-    hudRange = Qt.vector4d(sh.range.mode, sh.range.n, sh.range.tape, run.fade)
+    // the sky's tape follows the camera every frame (the 5 Hz refresh alone would step it under a drag)
+    hudRange = Qt.vector4d(sh.range.mode, sh.range.n, sh.key === "sky" ? ((skyL % 360) + 360) % 360 : sh.range.tape, run.fade)
     hudGap = Qt.vector4d(sh.gap.mode, sh.gap.mode === 1 ? run.gap : sh.gap.v, sh.gap.flag, sh.gap.pitch)
     dialFade = run.fade
     if (dialKey !== sh.key) dialKey = sh.key

@@ -881,8 +881,11 @@ vec3 hud(vec2 p, float t, vec3 cA, vec3 cB) {
             } else {
                 // a heading tape: the sweep shows the heading +-135 degrees, a
                 // tick every 10 (every 30 when they would crowd), long every 30,
-                // zero in the redline colour; the heading is under the fixed mark at the top
-                float kk = (range.z + (g - 0.5) * 270.0) / 10.0;
+                // zero in the redline colour; the heading is under the fixed mark at the top.
+                // Seen from inside, galactic longitude grows to the left (the sky view's
+                // right vector points down the longitudes), so the tape does too: its
+                // zero tick lies on the side the Galactic Centre's beacon points to
+                float kk = (range.z - (g - 0.5) * 270.0) / 10.0;
                 float i = floor(kk + 0.5);
                 float long3 = step(mod(i, 3.0), 0.5);
                 float zero = step(mod(i, 36.0), 0.5);
@@ -891,7 +894,7 @@ vec3 hud(vec2 p, float t, vec3 cA, vec3 cB) {
                          * span(r, D_RANGE, mix(D_RANGE + 0.004, D_RANGE_TICK, long3), px) * onSweep;
                 fm += 0.5 * tk * (1.0 - zero);
                 fex += REDLINE * tk * zero;
-                fh += hline(abs(g - 0.5) * arc, HW(0.0010), px) * span(r, D_RANGE_TICK + 0.0015, D_BUG_BASE, px);
+                fh += 0.5 * hline(abs(g - 0.5) * arc, HW(0.0010), px) * span(r, D_RANGE_TICK + 0.0015, D_BUG_BASE, px);   // a fixed mark: dim
             }
             m += fm * range.w;
             hm += fh * range.w;

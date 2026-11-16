@@ -148,7 +148,7 @@ same colour how far. Only the flight zone changes with the view:
 | Flight | throttle, 0 to 100% (the star layers have no physical unit, so never a speed) | none | none |
 | Solar system | the time rate on seven detents, `LIVE` to a year a second | AU, 0.001 to 100: the Sun, Earth, the Moon, the chase target, from the pinned body | the Moon, beside Earth or the Moon |
 | Milky Way | speed as a multiple of light, 10^5 to 10^13 (long ticks at a million, a billion, a trillion) | light years, 1 to 10^7: the Sun, the centre, the target (or Andromeda), the nearest place | height over the disk plane: a dot a decade (10, 100, 1000 ly), hollow beyond a kiloparsec |
-| Sky | the field of view as an arc of its true angle | galactic longitude on a tape, the heading under the mark at the top, zero in magenta | galactic latitude, a dot every 30 degrees |
+| Sky | the field of view as an arc of its true angle | galactic longitude on a tape (growing leftward, as on the sky), the heading under the mark at the top, zero in magenta | galactic latitude, a dot every 30 degrees |
 | Falling into Sgr A* | the radius in Schwarzschild radii on one signed-log scale from the start to the end, a hairline at the photon orbit, magenta redlines at the two horizons | none | none |
 
 Two views borrow the day ring: while the system view time-lapses it is a
