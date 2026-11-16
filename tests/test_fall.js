@@ -3,8 +3,8 @@
 const fs = require("fs"), path = require("path")
 const kerrSrc = fs.readFileSync(path.join(path.dirname(process.argv[2]), "kerr.js"), "utf8").replace(".pragma library", "")
 const src = fs.readFileSync(process.argv[2], "utf8").replace(".pragma library", "").replace(/^\.import .*$/m, "")
-const Fall = new Function(kerrSrc + "\nconst Kerr = { horizons, polarPhotonOrbit, axisEnergyFromRest, axisSpeed, axisFall, tableR, tableTau };\n" + src
-  + "\nreturn { GM_C3, RS_C, TAU_MAX_INSIDE, S_PHOTON, S_HORIZON, S_OTHER, E_MATH, R_END_MATH, T_INNER, T_SLOW, S_SLOW, S_LIGHT, T_FADE, S_CAPTION, CAPTIONS, light, caption, timeline, tauAtR, rAt, speedAt, tau, rate, sAtTau, phase, begin, step };")()
+const Fall = new Function(kerrSrc + "\nconst Kerr = { horizons, polarPhotonOrbit, axisEnergyFromRest, axisSpeed, axisFall, tableR, tableTau, ksMetric, axisInfaller, cameraRay, carterKAxis, radialClass };\n" + src
+  + "\nreturn { GM_C3, RS_C, TAU_MAX_INSIDE, S_PHOTON, S_HORIZON, S_OTHER, E_MATH, R_END_MATH, T_INNER, T_SLOW, S_SLOW, S_LIGHT, T_FADE, S_CAPTION, CAPTIONS, light, caption, timeline, tauAtR, rAt, speedAt, tau, rate, sAtTau, phase, begin, step,\n  RS_KM, S_SHOVE, S_BACK, TILT_BACK, TILT_NEAR, EXP_ADAPT, EXP_MIN, EXP_MAX, ray, shadowEdge, rimTilt, viewE, look, boost, exposure, next };")()
 let fails = 0
 function check(name, ok, info) { console.log((ok ? "ok   " : "FAIL ") + name + (info !== undefined ? "  " + info : "")); if (!ok) fails++ }
 
@@ -389,7 +389,9 @@ run(Fall.begin(6, A), 165, (o, s) => {
 })
 check("realistic: the fade begins at r-, the light closed and the camera at rest", Math.abs(fadeAt - tk.sEnd) < 0.01 && lightAtFade === 1 && rateAtFade === 0, fadeAt.toFixed(2) + " s")
 check("realistic: 18.4 s from the outer horizon to the fade (it was 12.7 s)", Math.abs(fadeAt - Fall.S_HORIZON - 18.4) < 0.02, (fadeAt - Fall.S_HORIZON).toFixed(2))
-check("realistic captions: event horizon at the crossing for 4 s, then the inner horizon to the end", said.join("|") === "|event-horizon||inner-horizon" && Math.abs(saidAt[1] - 24) < 0.01 && Math.abs(saidAt[2] - 28) < 0.01 && Math.abs(saidAt[3] - tk.sInner) < 0.01, saidAt.map(v => v.toFixed(1)).join(" "))
+check("realistic captions: looking back during the glance, the event horizon at the crossing for 4 s, between the horizons, then the inner horizon to the end",
+      said.join("|") === "|sky-behind||event-horizon||between||inner-horizon" && Math.abs(saidAt[1] - 11) < 0.01 && Math.abs(saidAt[2] - 17) < 0.01 && Math.abs(saidAt[3] - 24) < 0.01
+      && Math.abs(saidAt[4] - 28) < 0.01 && Math.abs(saidAt[5] - 29) < 0.01 && Math.abs(saidAt[6] - (tk.sInner - 1)) < 0.01 && Math.abs(saidAt[7] - tk.sInner) < 0.01 && saidAt[6] - saidAt[5] >= 4, saidAt.map(v => v.toFixed(1)).join(" "))
 // a story caption is fully up 3 s after it is set (0.4 s pause, 2.6 s fade)
 check("realistic: the inner horizon's caption stands 4.5 s before the fade (and through the black)", Math.abs(fadeAt - (tk.sInner + 3) - 4.5) < 0.02 && tk.sInner - 28 > 3, (fadeAt - tk.sInner - 3).toFixed(2))
 let fadeM = -1, leftM = -1; said = []; saidAt = []; lastSaid = null
@@ -398,12 +400,12 @@ run(Fall.begin(6, A, true), 165, (o, s) => {
   if (o.caption !== lastSaid) { said.push(o.caption); saidAt.push(s); lastSaid = o.caption }
 })
 check("math: the fade begins with 2.2 s of proper time left, as before", leftM < Fall.T_FADE && leftM > Fall.T_FADE - 1 && Math.abs(fadeM - tm.sFade) < 0.01, leftM.toFixed(2) + " s left at " + fadeM.toFixed(2))
-check("math captions: event horizon, inner horizon, the ring, the other universe", said.join("|") === "|event-horizon||inner-horizon-math||ring|other-universe", said.join("|"))
+check("math captions: looking back, event horizon, inner horizon, the ring, the other universe (no room for between the horizons)", said.join("|") === "|sky-behind||event-horizon||inner-horizon-math||ring|other-universe", said.join("|"))
 const span = k => saidAt[said.indexOf(k) + 1] - saidAt[said.indexOf(k)]
 check("math captions: each stands at least 4 s, with 2 s between unrelated ones; the ring's is up before the disk", span("event-horizon") >= 3.99 && span("inner-horizon-math") >= 4 && span("ring") >= 5.5 && tm.sRing - tm.sInnerEnd >= 2 && tm.sRing + 3 < tm.sReal && tm.sOther > tm.sReal && tm.sEnd - tm.sOther > 10, [span("event-horizon"), span("inner-horizon-math"), span("ring"), tm.sEnd - tm.sOther].map(v => v.toFixed(1)).join(" "))
 let fade0 = -1, left0 = -1; said = []; lastSaid = null
 run(Fall.begin(6, 0), 165, (o, s) => { if (o.fade && fade0 < 0) { fade0 = s; left0 = o.left } if (o.caption !== lastSaid) { said.push(o.caption); lastSaid = o.caption } })
-check("a = 0: no inner horizon, no slowdown: the fade 2.2 s before the singularity, the one caption", !tl.slow && left0 < Fall.T_FADE && left0 > Fall.T_FADE - 0.02 && said.join("|") === "|event-horizon|", left0.toFixed(3))
+check("a = 0: no inner horizon, no slowdown: the fade 2.2 s before the singularity, the one caption", !tl.slow && left0 < Fall.T_FADE && left0 > Fall.T_FADE - 0.02 && said.join("|") === "|sky-behind||event-horizon|", left0.toFixed(3))
 // the inverse on the whole realistic timeline, above the horizon too (the
 // ending's closed form is for its own stretch only)
 let invAll = 0
@@ -419,6 +421,59 @@ const keys = Object.keys(Fall.CAPTIONS), nWords = t => t.split(/\s+/).length
 check("captions: a title and a body each, at most 25 words", keys.every(k => Fall.CAPTIONS[k].title && Fall.CAPTIONS[k].body && nWords(Fall.CAPTIONS[k].body) <= 25), keys.map(k => nWords(Fall.CAPTIONS[k].body)).join(" "))
 check("captions: the K hint closes the realistic inner horizon's, on its own line, and is nowhere else", /\nK: follow the mathematics through the ring$/.test(Fall.CAPTIONS["inner-horizon"].body) && keys.every(k => k === "inner-horizon" || !/\bK\b/.test(Fall.CAPTIONS[k].body)))
 check("captions: the outer horizon's says nothing marks it", Fall.CAPTIONS["event-horizon"].title === "Event horizon" && /othing marks it/.test(Fall.CAPTIONS["event-horizon"].body))
+
+// 9. the view: the shadow's rim, the frame's energy, the script, the exposure, the landmark ahead
+{
+  const D = 180 / Math.PI
+  const real = Fall.timeline(6.05, A), mth = Fall.timeline(6.05, A, true)
+  // the shadow as the falling observer sees it: a disc about straight down
+  const e6 = Fall.shadowEdge(real, 6.05, real.E), eH = Fall.shadowEdge(real, real.rPlus, real.E), eI = Fall.shadowEdge(real, real.rMinus + 0.01, real.E)
+  check("from rest at 6 Rs the shadow is 22 degrees in radius (the hovering observer's)", Math.abs(e6 * D - 21.8) < 0.5, (e6 * D).toFixed(1))
+  check("it is 40 degrees at the outer horizon: never half the sky for someone falling in", Math.abs(eH * D - 40.3) < 0.5 && [5, 3, 2, 1.2, 0.8, 0.6, 0.5, 0.4].every(r => Fall.shadowEdge(real, r, real.E) * D < 41), (eH * D).toFixed(1))
+  check("and smaller again at the inner horizon", eI < eH && eI * D > 25, (eI * D).toFixed(1))
+  check("the plunge at 0.75 c sees a smaller shadow (aberration): 7.5 degrees at 6 Rs, 25 at the horizon", Math.abs(Fall.shadowEdge(mth, 6, mth.E) * D - 7.5) < 0.5 && Math.abs(Fall.shadowEdge(mth, mth.rPlus, mth.E) * D - 25.2) < 0.5)
+  check("no closed-form edge below r- or on the far sheet", Fall.shadowEdge(mth, 0.2, mth.E) === 0 && Fall.shadowEdge(mth, -2, mth.E) === 0)
+  // the shift: blue toward the fall, exactly 1/E sideways (k_t is the look's own energy there), red behind
+  const side = Fall.ray(real, 2, real.E, Math.PI / 2), back = Fall.ray(real, 2, real.E, 170 / D), ahead = Fall.ray(real, 2, real.E, 40 / D)
+  check("at 2 Rs: the sky is blue ahead (g = 2), 1/E sideways, red behind (0.68)", ahead.g > 1.9 && ahead.xs > 0 && Math.abs(side.g - 1 / real.E) < 1e-9 && Math.abs(back.g - 0.68) < 0.01, [ahead.g, side.g, back.g].map(v => v.toFixed(3)).join(" "))
+  check("straight down from inside is light that would have to come out: dark", Fall.ray(real, 0.5, real.E, 0.05).g === 0 && Fall.ray(real, 0.5, real.E, 0.05).xs < 0)
+  check("the rim's tilt holds the edge on screen: 4 degrees inside it, between 15 and 40", Math.abs(Fall.rimTilt(real, real.rPlus, real.E) * D - 36.3) < 0.5 && Math.abs(Fall.rimTilt(mth, mth.rPlus, mth.E) * D - 21.2) < 0.5 && Math.abs(Fall.rimTilt(mth, 6, mth.E) * D - 15) < 1e-6)
+  // the frame's energy
+  check("realistic: the view's frame is the fall's own throughout", [0, 1, 10, 30].every(s => Fall.viewE(real, s) === real.E))
+  check("math: the frame comes on from rest (0.913) to 1.5 over 3 s, smoothly", Math.abs(Fall.viewE(mth, 0) - real.E) < 1e-12 && Fall.viewE(mth, 3) === 1.5 && Fall.viewE(mth, 40) === 1.5
+        && Fall.viewE(mth, 1.5) > 1.15 && Fall.viewE(mth, 1.5) < 1.25 && (Fall.viewE(mth, 0.01) - Fall.viewE(mth, 0)) < 1e-4)
+  check("... and the frame is one the observer can have at every radius on the way (E^2 >= 1 - f)", (() => { for (let s = 0; s <= 3; s += 0.05) { const r = Fall.rAt(mth, Fall.tau(mth, s)), E = Fall.viewE(mth, s); if (E * E < 1 - r / (r * r + A * A) - 1e-12) return false } return true })())
+  // the script
+  for (const [name, tl] of [["realistic", real], ["math", mth]]) {
+    const at = s => { const r = Fall.rAt(tl, Fall.tau(tl, s)), E = Fall.viewE(tl, s); return Object.assign(Fall.look(tl, s, r, E), { r: r, E: E }) }
+    check(name + ": down at the hole at first, the hole lowered by 8 s", at(0).tilt === 0 && at(3).tilt === 0 && Math.abs(at(8).tilt - Fall.TILT_NEAR) < 1e-9 && at(10).yaw === 0)
+    check(name + ": the glance back is up between " + Fall.S_BACK[1] + " and " + Fall.S_BACK[2] + " s, 145 degrees from straight down, at " + at(Fall.S_BACK[1]).r.toFixed(1) + " to " + at(Fall.S_BACK[2]).r.toFixed(1) + " Rs",
+          [13.5, 14.7, 16].every(s => Math.abs(at(s).tilt * D - 145) < 1e-6) && at(Fall.S_BACK[1]).r < 4 && at(Fall.S_BACK[2]).r > 2)
+    const rimAt = at(Fall.S_HORIZON), edge = Fall.shadowEdge(tl, rimAt.r, rimAt.E)
+    check(name + ": at the horizon the rim is on screen, in its lower part (the view is 53 degrees high)", rimAt.tilt < edge && edge - rimAt.tilt < 10 / D && at(21).tilt < Fall.shadowEdge(tl, at(21).r, at(21).E), (rimAt.tilt * D).toFixed(1) + " against the edge at " + (edge * D).toFixed(1))
+    let worst = 0, worstYaw = 0, maxYaw = 0
+    for (let s = 0; s < tl.sEnd; s += 1 / 60) { const a = at(s), b = at(s + 1 / 60); worst = Math.max(worst, Math.abs(b.tilt - a.tilt) * 60); worstYaw = Math.max(worstYaw, Math.abs(b.yaw - a.yaw) * 60); maxYaw = Math.max(maxYaw, Math.abs(a.yaw)) }
+    check(name + ": the view never turns faster than 100 degrees a second, the pan 45", worst * D < 100 && worstYaw * D < 45, (worst * D).toFixed(0) + " and " + (worstYaw * D).toFixed(0) + " deg/s")
+    check(name + ": the look around inside pans 50 degrees one way and 35 the other, and ends centred", Math.abs(maxYaw * D - 50) < 0.5 && at(tl.look[tl.look.length - 1].s).yaw === 0 && tl.look.every((k, i) => i === 0 || k.s > tl.look[i - 1].s))
+  }
+  const endR = Fall.look(real, real.sEnd - Fall.S_LIGHT, 0.4, real.E), lateR = Fall.look(real, real.sEnd, real.rMinus, real.E)
+  check("realistic: level by the time the light closes in, and held (the front comes down the screen)", Math.abs(endR.tilt * D - 90) < 1e-9 && Math.abs(lateR.tilt * D - 90) < 1e-9)
+  check("math: down through the ring (12 degrees), then back at it from the far sheet", Math.abs(Fall.look(mth, mth.sRing + 1, 0.1, 1.5).tilt * D - 12) < 1e-9 && Math.abs(Fall.look(mth, mth.sOther + 2, -0.3, 1.5).tilt * D - 12) < 1e-9
+        && Math.abs(Fall.look(mth, 55, -4, 1.5).tilt * D - 180) < 1e-9 && Fall.look(mth, 50, -1.5, 1.5).tilt > 0.5)
+  // the exposure
+  check("the exposure is 1 at the start of both falls", Math.abs(Fall.exposure(real, 6.05, real.E0, 0) - 1) < 1e-12 && Math.abs(Fall.exposure(mth, 6.05, Fall.viewE(mth, 0), 0) - 1) < 1e-12)
+  check("it closes for the boosted view at the horizon (realistic 0.05, math 0.03)", Math.abs(Fall.exposure(real, real.rPlus, real.E, 36 / D) - 0.055) < 0.01 && Math.abs(Fall.exposure(mth, mth.rPlus, 1.5, 21 / D) - 0.033) < 0.01,
+        Fall.exposure(real, real.rPlus, real.E, 36 / D).toFixed(3) + " " + Fall.exposure(mth, mth.rPlus, 1.5, 21 / D).toFixed(3))
+  check("it opens for the dim sky behind, within its range", Fall.exposure(real, 3, real.E, 145 / D) > 1.5 && Fall.exposure(mth, 2.5, 1.5, 145 / D) === Fall.EXP_MAX && Fall.exposure(mth, 0.16, 1.5, 12 / D) >= Fall.EXP_MIN)
+  check("a view of nothing but shadow keeps a finite exposure", isFinite(Fall.exposure(real, 0.6, real.E, 0, 0.5)) && Fall.boost(real, 0.6, real.E, 0, 0.5) === 1)
+  // the landmark ahead
+  const n0 = Fall.next(real, 0), n1 = Fall.next(real, real.tauHorizon + 1), nEnd = Fall.next(real, real.tauEnd)
+  check("ahead, realistic: the outer horizon (15.8 min away at the start), then the inner one", n0.what === "outer-horizon" && Math.abs(n0.left - real.tauHorizon) < 1e-9 && n1.what === "inner-horizon" && Math.abs(n1.left - (real.tauInner - real.tauHorizon - 1)) < 1e-9 && nEnd.what === "end" && nEnd.left === 0)
+  check("ahead, math: then the disk, then the end of the far sheet", Fall.next(mth, mth.tauInner + 0.1).what === "disk" && Fall.next(mth, mth.tauReal + 1).what === "end" && Math.abs(Fall.next(mth, mth.tauReal + 1).left - (mth.tauEnd - mth.tauReal - 1)) < 1e-9)
+  check("step() hands all of it on", (o => o.E === real.E && o.tilt === 0 && o.yaw === 0 && o.next.what === "outer-horizon")(Fall.step(Fall.begin(6.05, A), 1 / 60)))
+  check("the Schwarzschild radius is 12.3 million km", Math.abs(Fall.RS_KM / 1e6 - 12.26) < 0.02, (Fall.RS_KM / 1e6).toFixed(2))
+  check("a = 0 has a script too (the inside's keys end at the fade)", (t => t.look.length === 11 && t.look[10].s === t.sFade && Fall.look(t, 30, 0.8, t.E).tilt > 0)(Fall.timeline(6, 0)))
+}
 
 console.log(fails ? fails + " FAILED" : "all passed")
 process.exit(fails ? 1 : 0)
