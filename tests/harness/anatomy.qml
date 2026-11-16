@@ -19,6 +19,7 @@ Window {
     { name: "hole with K", go: () => ipc.mathMode(true), until: r => since > 8 },
     { name: "text names", go: () => { ipc.mathMode(false); ipc.text("names") }, until: r => since > 10 },
     { name: "text off", go: () => ipc.text("off"), until: r => since > 10 },
+    { name: "clock", go: () => {}, until: r => r.presence === 0 && since > 60, max: 200 },
     { name: "betelgeuse", go: () => { ipc.text("full"); ipc.fly("Betelgeuse") }, until: r => r.subject === "betelgeuse" && r.parked && r.still && /Betelgeuse/.test(bg.storyTitle), max: 240 },
     { name: "earth", go: () => { ipc.text("full"); ipc.focus(3) }, until: r => r.drawn === "earth" && r.mix >= 1 && r.still && /Earth/.test(bg.storyTitle), max: 160 },
     { name: "saturn", go: () => ipc.focus(6), until: r => r.drawn === "saturn" && r.mix >= 1 && since > 12, max: 120 },

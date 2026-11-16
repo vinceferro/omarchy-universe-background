@@ -7,9 +7,9 @@
 # views; anatomy_check.js then asks what the node suite (tests/test_anatomy.js)
 # cannot: that the tick ran without a JavaScript error with the layer on, that
 # every view draws its own subject, that a journey fades the lines and the
-# arrival brings them back, the text levels, K, the walk through the story
+# arrival brings them back, the idle clock fades them too, the text levels, K, the walk through the story
 # band, and that the lines and labels keep to the room the screen's plan
-# leaves. About two minutes. Needs qmlscene6 (qt6-declarative) and node.
+# leaves. About three minutes. Needs qmlscene6 (qt6-declarative) and node.
 set -e
 H=$(dirname "$(readlink -f "$0")"); WT=${WT:-$(dirname "$(dirname "$H")")}
 keep=""

@@ -37,6 +37,10 @@ check("the bright side has its figure once the camera rests", hole.rep.rows.some
 // the levels: the drawing stays at every level (the labels' gates are the text's own)
 const off = last("text off")
 check("at names and at off the lines are still drawn", last("text names").rep.drawn === "sgrA" && off.rep.drawn === "sgrA" && off.rep.rows.length > 0 && off.text.shown === "off")
+// the idle clock: left alone, the lines fade with the rest of the text and nothing more is worked out; the next touch brings them back
+const gone = of("clock").filter(r => r.rep.presence === 0)
+check("left alone the lines fade on the idle clock, and no pass runs while they are away", gone.length > 4 && gone.every(r => !r.text.showing.includes("anatomy") && r.rep.passes === gone[0].rep.passes) && of("clock")[0].rep.presence === 1, gone.length + " rows faded, after " + (of("clock").findIndex(r => r.rep.presence === 0) / 4).toFixed(1) + " s")
+check("the next touch brings them back", of("betelgeuse").slice(0, 8).some(r => r.rep.presence === 1))
 // a subject none of whose lines suits any zoom the view reaches (a single star from 0.2 pc) still answers
 const star = last("betelgeuse")
 check("a star too far for its lines: nothing drawn, its name and headline said", star.rep.subject === "betelgeuse" && star.rep.drawn === "" && star.story === "ANATOMY  ·  Betelgeuse" && /red supergiant/.test(star.body), star.story)

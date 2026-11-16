@@ -1101,9 +1101,10 @@ tracer running behind), and prints how much of the picture is white. `time=N`
 on `hole_layer.py` times the layer's draw.
 
 `tests/harness/anatomy.sh` runs the anatomy layer the same headless way
-(about two minutes): the views one after another with the layer on, checked
+(about three minutes): the views one after another with the layer on, checked
 by `anatomy_check.js` for JavaScript errors, the subject of each view, the
-fade on a journey, the text levels, `K`, the walk through the story band, a
+fade on a journey and on the idle clock, the text levels, `K`, the walk
+through the story band, a
 star too far for its lines (named all the same) and the room the lines and
 labels keep. It also prints what a pass costs.
 
