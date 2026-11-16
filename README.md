@@ -5,7 +5,8 @@ The everyday view is a calm night sky on true black (OLED pixels stay off):
 sharp stars, a soft layer of gas tinted by the theme accent, and the solar system in the lower left with the
 planets where they really are today. The occasional shooting star or satellite
 crosses the sky. Everything is procedural GLSL driven by a time uniform at your
-display's native refresh rate, at native resolution, with no video decoding and
+display's native refresh rate, at native resolution (or a share of it the GPU
+can carry, see [Adaptive quality](#adaptive-quality)), with no video decoding and
 no loop seam.
 
 From that view you can go further: into the solar system (live JPL orbits, a
@@ -409,6 +410,9 @@ Everything is reachable through the shell's IPC, `omarchy-shell background <func
 | `film <true/false>` | film mode for recording: the HUD, key hints, place labels, markers and mode captions fade out, the scene stays (not remembered) |
 | `caption <title> <body>` | a quiet lower-third caption that fades in, replacing the last one; `caption "" ""` fades it out |
 | `status` | prints `<view> <fall phase or -> <radius in Rs, signed> <real/math>`, e.g. `galaxy outer-horizon 0.52 real`, for scripts; the phases are `falling`, `outer-horizon`, `inner-horizon`, `ring`, `other-universe`, `out`, `in` |
+| `quality <level>` | render quality: `auto` (default), `full`, `high`, `balanced`, `low`, or a render scale from 0.25 to 1; remembered across restarts (see [Adaptive quality](#adaptive-quality)) |
+| `qualityInfo` | prints what each screen runs at, e.g. `eDP-1 120 Hz: auto (apple): scale 0.50, 1728x1117, idle 30 fps` |
+| `perf <true/false>` | frame meter: every 5 s each screen logs its frame rate and the average and longest interval between frames to the shell's log (not remembered) |
 | `refresh`, `set <path>`, `setInstant <path>`, `transition <from> <to>`, `themeTransition ...` | the stock background plugin's functions, unchanged |
 
 ## Real data and accuracy
@@ -493,6 +497,69 @@ The soft sky layer re-renders about ten times a second at half resolution;
 the Milky Way volume renders at a third of the screen size and only when the
 camera moves. The HUD gauges read CPU, memory and (through `nvidia-smi`) GPU
 load every two seconds while the HUD is visible.
+
+### Adaptive quality
+
+The numbers above are the machine the scene was tuned on. Elsewhere
+`lib/quality.js` picks, per screen, how many pixels the full pass shades and
+how often the idle sky redraws:
+
+| GPU (DRM driver) | Render scale | Idle sky |
+|---|---|---|
+| NVIDIA (`nvidia`) | 1: every device pixel, straight to the screen | 60 fps |
+| Apple (`asahi`) | one texel per logical pixel (1 / monitor scale), then down to 300 MP/s | 30 fps |
+| AMD (`amdgpu`, `radeon`) | the same, 300 MP/s | 30 fps |
+| Intel (`i915`, `xe`) | the same, 120 MP/s | 30 fps |
+| anything else (`nouveau` too) | the same, 200 MP/s | 30 fps |
+
+MP/s is render width x height x refresh rate; over the budget, the scale
+drops in steps of 0.05, never below 0.35; a scale that would land above 0.9
+stays at 1, since a texture in between is not worth a tenth of the pixels.
+The budgets are estimates from the
+3080 Ti, to be corrected with `perf true`. A MacBook Pro 16 (3456x2234 at
+120 Hz, Hyprland scale 2) lands on scale 0.5: 1728x1117, a quarter of the
+pixels, which is the size the shaders already measure stars and HUD lines in.
+
+Below scale 1 the full pass renders into a texture and is stretched smoothly
+over the screen; the nebula and the Milky Way volume (the half- and
+third-size layers) shrink with it, the black hole's tracer keeps its size,
+and the clock, readouts, labels and markers (QML text on top) stay at device
+resolution. The full pass is recreated whenever it changes between direct
+and textured. Below one texel per logical pixel the shaders' `resolution`
+shrinks too, so stars grow instead of flickering. The idle cap only holds
+while nothing eases: moving the pointer or leaving a view gets 60 fps until
+it settles, and exploring always runs at the display's rate.
+
+`perf true` times the interval between presented frames, not the GPU's work
+on one: under the idle cap it reads about 33 ms however light the frame is,
+so headroom only shows while exploring, as a rate below the display's. The
+interval is taken when the shell's main thread hears of the frame, so a busy
+moment there can lengthen a peak.
+
+`quality <level>` overrides the choice and is remembered in
+`~/.local/state/universe-background/quality` (`quality auto` removes it):
+
+| Level | Render scale | Idle sky |
+|---|---|---|
+| `full` | 1 | 60 fps |
+| `high` | 0.75 | 60 fps |
+| `balanced` | 0.5 | 30 fps |
+| `low` | 0.35 | 30 fps |
+| a number, 0.25-1 | that | by GPU, as in auto |
+
+To compare on a new machine (`perf` logs through the shell, e.g.
+`qs log -f -p /usr/share/omarchy/shell | grep "universe perf"`):
+
+1. `omarchy-shell background qualityInfo`: the GPU class, scale and refresh
+   rate it found.
+2. `omarchy-shell background perf true`, then `quality full` (how it ran
+   before) for 20 s idle and 20 s in the Milky Way view; note fps, avg, peak.
+3. `quality auto` and the same again. Idle should read about 30 fps with a
+   peak near 33 ms; exploring, the display's rate. The sky must still drift
+   after each change of level (the full pass is recreated).
+4. Still short while exploring: `quality low` or a number (`quality 0.4`).
+   Too soft and fast enough: `quality high` or `quality 0.75`.
+5. `perf false`.
 
 ## Tools and rebuilding assets
 
@@ -581,7 +648,9 @@ table (`lib/dwarfs.js`) with `node tests/test_dwarfs.js lib/dwarfs.js`; the
 Local Group's geometry, hand-off and photometry (`lib/localgroup.js`, and the
 dwarf texture against the table) with `node tests/test_localgroup.js
 lib/localgroup.js`; the label layer's timer (`lib/labels.js`) with `node
-tests/test_labels.js lib/labels.js`.
+tests/test_labels.js lib/labels.js`; the render scale, GPU probe, idle
+pacing and frame meter (`lib/quality.js`) with `node tests/test_quality.js
+lib/quality.js`.
 
 ## Notes
 
@@ -589,6 +658,7 @@ tests/test_labels.js lib/labels.js`.
   name); renaming it causes name-mismatch linkage bugs on some drivers.
 - The GPU gauge in the HUD uses `nvidia-smi`; on other GPUs it stays at zero.
 - A hidden HUD is remembered in `~/.local/state/universe-background/hud-hidden`.
+- A chosen quality level is remembered in `~/.local/state/universe-background/quality`.
 
 ## License
 

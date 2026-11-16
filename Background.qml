@@ -17,6 +17,7 @@ import "lib/localgroup.js" as LG
 import "lib/dwarfs.js" as Dw
 import "lib/labels.js" as Lb
 import "lib/drag.js" as Dr
+import "lib/quality.js" as Q
 
 Item {
   id: root
@@ -55,8 +56,12 @@ Item {
   // frame (165 Hz here), so camera motion never steps in an uneven 2-3-2-3
   // cadence. The idle wallpaper moves slowly and keeps the cheaper 60 Hz
   // timer, which also stands in as a watchdog if the compositor stops asking
-  // for frames.
+  // for frames. On a GPU that needs the rest (idleFps below 60, see the
+  // quality section) the settled idle sky skips every second firing; while
+  // anything eases (idleBusy: the pointer's parallax, a view fading out) it
+  // has all of them, so no transition steps.
   property real lastFrameAt: 0
+  property bool idleBusy: true
 
   // ---- JARVIS navigation ----
   // While exploring, the HUD's readout column becomes navigation telemetry for
@@ -109,14 +114,21 @@ Item {
     interval: 16
     running: root.animate
     repeat: true
-    onTriggered: if (root.explore === "universe" || Date.now() - root.lastFrameAt > 120) root.tick()
+    onTriggered: {
+      const now = Date.now()
+      if (root.explore !== "universe") { if (now - root.lastFrameAt > 120) root.tick() }
+      else if (Q.idleDue(now - root.lastTick, root.idleFps, root.idleBusy || root.viewTarget.x !== root.view.x || root.viewTarget.y !== root.view.y)) root.tick()
+    }
   }
 
   // The soft nebula layer drifts slowly, so it re-renders ~10 times a second.
+  // Under an idle cap the tick itself moves it on (every third 32 ms tick):
+  // a timer on its own phase would present extra frames between the capped ones.
   property real nebulaTime: 0
+  property real lastNebulaAt: 0
   Timer {
     interval: root.navigating ? 16 : 100
-    running: root.animate
+    running: root.animate && (root.navigating || root.idleFps >= Q.IDLE_FULL)
     repeat: true
     onTriggered: root.nebulaTime = root.shaderTime
   }
@@ -169,6 +181,66 @@ Item {
     running: true
     command: ["test", "-e", root.hudHiddenFlag]
     onExited: function(code) { root.hudOn = code !== 0 }
+  }
+
+  // Adaptive quality (lib/quality.js): how many pixels the full pass shades
+  // and how often the idle sky redraws, chosen per screen from its scale,
+  // refresh rate and the GPU behind it. On NVIDIA at scale 1 (where this was
+  // tuned) nothing changes: every device pixel, straight to the screen. On a
+  // HiDPI panel with a smaller GPU the full pass renders at the logical size
+  // into a texture that is stretched smoothly over the screen, and the
+  // settled idle sky redraws at 30 fps; the QML text and markers on top stay
+  // at device resolution. `quality`: "auto", "full", "high", "balanced",
+  // "low", or a render scale as a number (0.25-1); IPC `quality <level>`
+  // sets it and remembers it in a file like the HUD's ("auto" removes it).
+  property string quality: "auto"
+  readonly property string qualityFile: stateHome + "/universe-background/quality"
+  property var gpuProbe: null                     // DRM drivers by card and connector; null until read
+  function setQuality(level) {
+    quality = Q.parseLevel(level)
+    qualityFileProc.command = quality === "auto" ? ["rm", "-f", qualityFile]
+      : ["bash", "-c", "mkdir -p \"$(dirname \"$1\")\" && printf '%s\\n' \"$2\" > \"$1\"", "_", qualityFile, quality]
+    qualityFileProc.running = true
+  }
+  function refreshOf(name) {
+    const m = Hyprland.monitors.values.find(m => m.name === name)
+    const o = m ? m.lastIpcObject : null
+    return o && o.refreshRate > 0 ? o.refreshRate : 60
+  }
+  // the answer for one screen (a ShellScreen). Until the GPU is known it is
+  // "full", so the reference machine never starts through a texture
+  function qualityOf(screen) {
+    const m = Hyprland.monitors.values.find(m => m.name === screen.name)
+    return Q.choose({ level: gpuProbe === null ? "full" : quality, gpu: Q.screenGpu(gpuProbe, screen.name),
+                      width: screen.width, height: screen.height,
+                      dpr: m && m.scale > 0 ? m.scale : screen.devicePixelRatio, hz: refreshOf(screen.name) })
+  }
+  // one clock for every screen: the slowest idle rate any of them asks for
+  readonly property int idleFps: Math.min(Q.IDLE_FULL, ...Quickshell.screens.map(s => qualityOf(s).idleFps))
+  function qualityInfo() {
+    return Quickshell.screens.map(s => s.name + " " + Math.round(refreshOf(s.name)) + " Hz: " + Q.describe(qualityOf(s))).join("; ")
+  }
+  // Frame meter (IPC `perf true`): every 5 s each screen logs its presented
+  // frames (rate, average and longest interval between them, as this thread
+  // hears of them; not the GPU's time per frame) with console.warn
+  property bool perf: false
+
+  Process { id: qualityFileProc }
+  Process {
+    id: qualityFileCheck
+    running: true
+    command: ["cat", root.qualityFile]
+    stdout: StdioCollector {
+      onStreamFinished: if (String(text || "").trim() !== "") root.quality = Q.parseLevel(text)
+    }
+  }
+  Process {
+    id: gpuProbeProc
+    running: true
+    command: ["sh", "-c", "cd /sys/class/drm 2>/dev/null && for c in card*; do n=${c%%-*}; d=$(basename \"$(readlink \"$n/device/driver\")\"); [ \"$c\" = \"$n\" ] && echo \"* $d\" || echo \"${c#\"$n\"-} $d\"; done"]
+    stdout: StdioCollector {
+      onStreamFinished: root.gpuProbe = Q.parseProbe(text)
+    }
   }
 
 
@@ -1298,6 +1370,7 @@ Item {
     const dt = Math.min(0.1, frameDt !== undefined ? frameDt : (now - lastTick) / 1000)
     lastTick = now
     shaderTime = ((now - shaderEpoch) / 1000) % 600
+    if (idleFps < Q.IDLE_FULL && !navigating && now - lastNebulaAt >= 90) { nebulaTime = shaderTime; lastNebulaAt = now }
 
     const thrust = navigating ? key("w") - key("s") : 0
     mix.speed.g = navigating ? 0.25 + thrust * 0.9 : 0
@@ -2000,6 +2073,12 @@ Item {
 
     mix.exposure.g = emptyWorkspace && explore === "universe" ? 1.9 : 1
     exposure = mix.exposure.step(dt)
+
+    // anything still easing keeps the idle clock at its full rate (see idleFps)
+    idleBusy = bootLevel < 1 || sys > 0 || galaxyMix > 0 || skyMix > 0 || navMix > 0 || galMix > 0 || fallFade > 0 || sysCam.flying()
+      || mix.viewX.moving() || mix.viewY.moving() || mix.hover.moving() || mix.exposure.moving()
+      || mix.speed.moving() || mix.strafeX.moving() || mix.strafeY.moving()
+    gauges = Qt.vector3d(cpu, gpu, mem)
   }
 
   // Live system stats for the HUD gauges, read every 2 s while it animates.
@@ -2009,6 +2088,9 @@ Item {
   Behavior on cpu { NumberAnimation { duration: 900; easing.type: Easing.OutCubic } }
   Behavior on gpu { NumberAnimation { duration: 900; easing.type: Easing.OutCubic } }
   Behavior on mem { NumberAnimation { duration: 900; easing.type: Easing.OutCubic } }
+  // the gauges as of the last tick: under an idle cap the shader reads these,
+  // or the 0.9 s easing above would redraw it at the display's rate
+  property vector3d gauges: Qt.vector3d(0, 0, 0)
   property var stats: ({ cpu: 0, cpuTemp: 0, gpu: 0, gpuWatts: 0, gpuTemp: 0, memUsed: 0, memTotal: 0 })
   property var lastCpu: null
 
@@ -2315,6 +2397,23 @@ Item {
       return root.explore + " " + (root.fallPhase || "-") + " " + root.fallR.toFixed(2) + " " + (math ? "math" : "real")
     }
 
+    // render quality: auto, full, high, balanced, low, or a render scale
+    // (0.25-1); remembered across restarts
+    function quality(level: string): void {
+      root.setQuality(level)
+    }
+
+    // per screen: "<name> <Hz>: <level> (<gpu>): scale, render size, idle rate"
+    function qualityInfo(): string {
+      return root.qualityInfo()
+    }
+
+    // frame-time meter: logs each screen's frame rate, average and peak
+    // frame time every 5 s (console.warn, so the shell's log)
+    function perf(on: bool): void {
+      root.perf = on
+    }
+
     function themeTransition(fromPath: string, path: string, finalPath: string, colorsB64: string, shellB64: string): void {
       root.transitionBackgroundWithTheme(fromPath, path, finalPath, colorsB64, shellB64)
     }
@@ -2375,6 +2474,23 @@ Item {
 
       property bool maskReady: false
 
+      // this screen's render scale and idle rate (lib/quality.js)
+      readonly property var q: root.qualityOf(modelData)
+      readonly property var perfMeter: Q.perfCreate()
+      Connections {
+        target: base.Window.window
+        enabled: root.perf && root.liveBackground
+        function onFrameSwapped() { Q.perfFrame(panel.perfMeter, Date.now()) }
+      }
+      Timer {
+        interval: 5000
+        repeat: true
+        running: root.perf && root.liveBackground
+        onRunningChanged: { panel.perfMeter.last = -1; Q.perfTake(panel.perfMeter) }
+        onTriggered: console.warn(Q.perfLine(panel.modelData.name, Q.perfTake(panel.perfMeter),
+          root.explore === "universe" ? "idle" : root.explore + (root.fallPhase ? " " + root.fallPhase : ""), panel.q))
+      }
+
       function maybeStartReveal() {
         if (!root.incomingBackground || root.revealProgress !== 0 || maskReady) return
         if (incomingFrame.status !== Image.Ready) return
@@ -2413,21 +2529,30 @@ Item {
       // when showing a static background and freshly recreated when the live
       // one returns. A long-lived ShaderEffect that has been hidden (either
       // via `visible` or `opacity`) stops receiving uniform updates for good
-      // on this stack; a freshly created instance always animates.
+      // on this stack; a freshly created instance always animates. Turning
+      // the full pass's layer on takes it out of the scene in the same way,
+      // so a change of `layered` (the GPU probe answering, IPC `quality`)
+      // recreates it too: an instance keeps the layer it was created with.
       Loader {
         anchors.fill: parent
         active: root.liveBackground
+        readonly property bool layered: panel.q.layered
+        onLayeredChanged: if (active) { active = false; active = Qt.binding(() => root.liveBackground) }
         sourceComponent: Component {
           Item {
             // Soft layer (nebula, galaxies) at half size into a float texture:
             // a quarter of the pixels for the costliest noise, no banding.
             // It stays visible (hidden effects stop updating, see above) and
-            // the opaque full-size pass below covers it.
+            // the opaque full-size pass below covers it. Under a render scale
+            // the soft layers follow it (softSize), instead of the monitor's.
+            readonly property real softTexels: panel.q.layered ? panel.q.texels : 0
+            function softSize(item) { return Qt.size(Math.ceil(item.width * softTexels), Math.ceil(item.height * softTexels)) }
             ShaderEffect {
               id: nebulaPass
               width: Math.ceil(panel.width / 2)
               height: Math.ceil(panel.height / 2)
               layer.enabled: true
+              layer.textureSize: parent.softSize(nebulaPass)
               layer.format: ShaderEffectSource.RGBA16F
               layer.smooth: true
               fragmentShader: Qt.resolvedUrl("nebula.qsb")
@@ -2445,6 +2570,7 @@ Item {
               width: root.galaxyMix > 0 ? Math.ceil(panel.width / 3) : 4
               height: root.galaxyMix > 0 ? Math.ceil(panel.height / 3) : 4
               layer.enabled: true
+              layer.textureSize: parent.softSize(galaxyPass)
               layer.format: ShaderEffectSource.RGBA16F
               layer.smooth: true
               fragmentShader: Qt.resolvedUrl("galaxy.qsb")
@@ -2564,21 +2690,30 @@ Item {
             Image { id: earthNightTex; source: "textures/earth-night.jpg"; visible: false; mipmap: true; smooth: true }
             Image { id: moonMapTex; source: "textures/moon.jpg"; visible: false; mipmap: true; smooth: true }
 
+            // The full pass. At render scale 1 it draws straight to the
+            // screen; below, into a texture of that size, stretched smoothly
+            // (lib/quality.js). `resolution` stays the logical size while the
+            // texture has a texel per logical pixel and shrinks with it below
+            // that: the stars and HUD lines are sized in `resolution` pixels,
+            // so none gets thinner than a texel and flickers.
             ShaderEffect {
               anchors.fill: parent
               blending: false
+              layer.enabled: panel.q.layered
+              layer.textureSize: Qt.size(Math.ceil(panel.width * panel.q.texels - 1e-6), Math.ceil(panel.height * panel.q.texels - 1e-6))
+              layer.smooth: true
               fragmentShader: Qt.resolvedUrl("universe.qsb")
               property var nebulaTex: nebulaPass
               property real time: root.shaderTime
-              property vector2d resolution: Qt.vector2d(panel.width, panel.height)
+              property vector2d resolution: Qt.vector2d(panel.width * panel.q.res, panel.height * panel.q.res)
               property color accent: Color.accent
               property real hudLevel: root.hudLevel
               property vector2d view: root.view
               property vector2d hudCenter: root.hudCenter
               property real flight: root.flight
-              property real cpu: root.cpu
-              property real gpu: root.gpu
-              property real mem: root.mem
+              property real cpu: root.idleFps < Q.IDLE_FULL ? root.gauges.x : root.cpu
+              property real gpu: root.idleFps < Q.IDLE_FULL ? root.gauges.y : root.gpu
+              property real mem: root.idleFps < Q.IDLE_FULL ? root.gauges.z : root.mem
               property real secs: (root.now.getSeconds() + root.now.getMilliseconds() / 1000) / 60
               property vector2d pan: root.pan
               property real exposure: root.exposure
