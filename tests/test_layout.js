@@ -97,7 +97,10 @@ for (const [name, lay] of SCREENS.concat(MORE)) {
 // who the story caption touches (rule 2), with the caption about 0.14 H tall
 const storyB = L.storyRect(BOX, 0.14 * 2160), storyL = L.storyRect(LAP, 0.14 * 1117)
 check("box: the story caption touches the ring's lower left, so the cockpit yields", L.intersects(storyB, bx.ring))
-check("laptop: it touches the readouts under the ring", L.intersects(storyL, lx.stats))
+check("laptop: it touches the readouts under the ring when they run long", L.intersects(storyL, lx.stats))
+const lx9 = L.hudExtent(LAP, 9 * 16), bx6 = L.hudExtent(BOX, 6 * 40)
+check("laptop: nine readout rows end above it (y 785): the cockpit stays; the column at its tallest does not", !L.intersects(storyL, lx9.stats) && !L.intersects(storyL, lx9.ring) && R(lx9.stats.y + lx9.stats.h) <= 785 + 1 && L.intersects(storyL, lx.stats), R(lx9.stats.y + lx9.stats.h))
+check("box: six readout rows sweep a band centred on the ring's", near(bx6.stats.y + bx6.stats.h / 2, bx.ring.y + bx.ring.h / 2, 1e-6) && near(bx6.stats.h, 2 * L.DRIFT_Y * 2160 + 240, 1e-6))
 check("laptop: a full rail (410 px) reaches it; a tour's four key rows do not", L.intersects(storyL, L.railRect(LAP, 410)) && !L.intersects(storyL, L.railRect(LAP, 4 * (LAP.tok.label * 1.4 + LAP.tok.row))))
 check("box: neither rail touches it", !L.intersects(storyB, L.railRect(BOX, 800)))
 
@@ -148,6 +151,8 @@ for (let i = 0; i < 4000; i++) {
 }
 check("4000 bodies anywhere: the marker is in the safe rect and never in the rail or the caption", mkOk)
 check("off: exactly when the body is outside the safe rect", offOk)
+const mPad = L.clampMarker(5000, 5000, LAP.safe, keepL, 8)
+check("with a pad the edge dot sits that far inside the corner", near(mPad.x, LAP.safe.x1 - 8, 1e-9) && near(mPad.y, LAP.safe.y1 - 8, 1e-9) && mPad.off && !L.clampMarker(LAP.safe.x1 - 2, 300, LAP.safe, keepL, 8).off)
 const mIn = L.clampMarker(900, 300, LAP.safe, keepL)
 check("a body in the open is its own marker", mIn.x === 900 && mIn.y === 300 && !mIn.off)
 const mTop = L.clampMarker(900, 5, LAP.safe, keepL)

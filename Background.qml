@@ -325,10 +325,24 @@ Item {
   }
   // the first screen's plan: the camera and the label pass work in its aspect
   readonly property var lay0: Quickshell.screens.length > 0 ? layOf(Quickshell.screens[0]) : Lay.plan(2370, 1000, null, 0)
-  // for scripts and checks: every screen's zones in logical pixels, as JSON
+  // for scripts and checks, as JSON: the level, what is showing right now,
+  // and every screen's zones in logical pixels
   function textReport() {
     const px = b => ({ x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.w), h: Math.round(b.h) })
-    return JSON.stringify(Quickshell.screens.map(s => {
+    const up = v => v > 0.01
+    const exploring = explore !== "universe"
+    const showing = []
+    if (up(hudLevel)) showing.push("cockpit")
+    if (up(hudLevel * presLabel) && exploring && navBeacons.some(b => !!b)) showing.push("beacons")
+    if (up(gateNames * presLabel) && exploring && explore !== "flight") showing.push("names")
+    if (cardShown && up(galaxyMix * gateNames * presCard)) showing.push("card")
+    if (cardShown && up(galaxyMix * gateGuide * presCard)) showing.push("blurb")
+    if (railRows.length > 0 && up((touring ? 1 : gateGuide) * presHints)) showing.push(touring ? "tour keys" : "hints")
+    if (captionUp) showing.push("caption")
+    if (captionWords > 0 && up(gateGuide * presCaption)) showing.push("caption detail")
+    if (up(sysHover * gateNames)) showing.push("hover hint")
+    if (captionTitle !== "" || captionBody !== "") showing.push("story caption")
+    return JSON.stringify({ level: textLevel, hold: textHold, film: film, shown: textShown, showing: showing, screens: Quickshell.screens.map(s => {
       const l = layOf(s), e = Lay.hudExtent(l), h = Lay.hudAt(l, [hudDrift.x, hudDrift.y])
       return { screen: s.name, size: [s.width, s.height],
                safe: { x0: Math.round(l.safe.x0), y0: Math.round(l.safe.y0), x1: Math.round(l.safe.x1), y1: Math.round(l.safe.y1) },
@@ -337,7 +351,7 @@ Item {
                story: { x: Math.round(l.story.x), y: Math.round(l.story.y), w: Math.round(l.story.w) },
                hud: { arrangement: h.arr, scale: Math.round(h.s * 1000) / 1000, centre: [Math.round(h.cx), Math.round(h.cy)], radius: Math.round(h.R),
                       ring: px(e.ring), stats: px(e.stats) } }
-    }))
+    }) })
   }
 
   // Pointer parallax: the pointer over the desktop shifts each layer by its
@@ -403,6 +417,7 @@ Item {
   onEmptyWorkspaceChanged: if (!emptyWorkspace) explore = "universe"
   onExploreChanged: {
     keysDown = ({})
+    touchText()   // a view entered from a script or a binding brings its text up like a key does
     Hyprland.refreshMonitors()   // the bar may have come or gone: the safe rect follows
     if (explore !== "galaxy") { gxRateIndex = 0; fallReset() }
     if (explore !== "system") {
@@ -527,7 +542,7 @@ Item {
   property int galSlowIndex: 0
   readonly property var galSlows: [1, 2, 5, 10, 20, 50, 100, 200]
   readonly property real galSlow: galSlows[galSlowIndex]
-  onGalacticChanged: setLimits()
+  onGalacticChanged: { setLimits(); touchText() }
   onGalBackChanged: setLimits()
   // a galactic-view pose as the eye's direction from the Sun, in the Sun's
   // velocity frame (yaw around the velocity's vertical, pitch above the plane)
@@ -1102,7 +1117,7 @@ Item {
     }
   }
   property real chaseMix: 0          // 0 overview .. 1 chase, for the overlays' opacity
-  onChasingChanged: { mix.chase.g = chasing ? 1 : 0; setLimits() }
+  onChasingChanged: { mix.chase.g = chasing ? 1 : 0; setLimits(); touchText() }
   function chaseGoals() {
     sysCam.yaw.g = Cam.unwrap(sysCam.ref.az + (chaseLocked ? 0 : 0.35), sysCam.yaw.x)
     sysCam.pitch.g = chaseLocked ? 0 : 0.18
@@ -1162,9 +1177,20 @@ Item {
     else { sysCam.lim.ell = [Math.log(1 / 150), Math.log(1 / 1.3)]; sysCam.lim.pitch = [Math.asin(follow > 0 ? 0.04 : 0.12), Math.asin(0.98)] }
   }
 
+  // A tour's own keys (IPC `tourKeys "SPACE=next; B=back; ESC=leave"`, ""
+  // ends it): while set, the rail shows these rows instead of the mode's
+  // hints, at any level, and no place card: the tour's caption is the card.
+  property var tourKeys: []
+  function setTourKeys(spec) {
+    tourKeys = String(spec || "").split(";").map(r => r.split("=")).filter(r => r.length >= 2 && r[0].trim() !== "")
+      .map(r => [r[0].trim().toUpperCase(), r.slice(1).join("=").trim()])
+    touchText()
+  }
+  readonly property bool touring: tourKeys.length > 0
   // key hints in the rail, per mode
+  readonly property var railRows: touring ? tourKeys : controlHints
   readonly property var textHint: ["T", "text: names / full / off (now " + textShown + ")"]
-  readonly property int hintWords: Tx.words(controlHints.map(r => r[0] + " " + r[1]).join(" "))
+  readonly property int hintWords: Tx.words(railRows.map(r => r[0] + " " + r[1]).join(" "))
   readonly property var controlHints: explore === "flight" ? [
       ["W / S", "thrust forward / back"],
       ["A / D", "strafe left / right"],
@@ -1257,7 +1283,7 @@ Item {
   // and the blurb. The rail shows it; its words set how long it stays.
   readonly property var cardPlace: gxSel >= 0 ? place(gxSel) : null
   readonly property var cardView: gxView >= 0 ? gxViews[gxView] : null   // a named viewpoint
-  readonly property bool cardShown: gxSel !== -2 || !!cardView
+  readonly property bool cardShown: (gxSel !== -2 || !!cardView) && !touring
   readonly property string cardTitle: cardPlace ? cardPlace.name.toUpperCase() : cardView ? cardView.name.toUpperCase() : "THE SUN  ·  YOU ARE HERE"
   readonly property string cardSub: cardPlace ? cardPlace.label.toUpperCase() : cardView ? cardView.label
     : "26,600 LY FROM THE GALACTIC CENTRE  ·  ONE ORBIT EVERY ~203 MILLION YEARS AT 249 KM/S"
@@ -1297,6 +1323,7 @@ Item {
   property int follow: 0 // -1 free camera, 0 sun, 1..6 planets, 7 the Moon
   readonly property string followName: follow === 7 ? "Moon" : follow > 0 ? planetInfo[follow - 1].name : follow === 0 ? "Sun" : ""
   onFollowChanged: {
+    touchText()
     if (follow < 0 && chasing) leaveChase()
     setLimits()
   }
@@ -2136,7 +2163,7 @@ Item {
           ml[kind] = { show: false, side: 1 }
           if (!markerWanted(kind, L0)) continue
           const pr = markerProj(kind, L0.W, L0.H)
-          const at = Lay.clampMarker(pr.x, pr.y, L0.safe, zones.keep)
+          const at = Lay.clampMarker(pr.x, pr.y, L0.safe, zones.keep, tk.gap)
           items.push({ id: "m-" + kind, x: at.x, y: at.y, r: tk.gap + 6, w: Lay.textW(markerLabel(kind).length, tk.label, tk.track.normal), h: tk.label * 1.5, pin: false })
           put.push(ml[kind])
         }
@@ -2642,10 +2669,15 @@ Item {
       root.perf = on
     }
 
-    // every screen's text zones as JSON, in logical pixels: the safe rect,
-    // rail, caption slot, story band and the HUD's plan and swept extent
+    // the text level, what is showing, and every screen's zones (safe rect,
+    // rail, caption slot, story band, the HUD's plan and reach) as JSON
     function textReport(): string {
       return root.textReport()
+    }
+
+    // a tour's keys in the rail: "KEY=what it does; KEY=..."; "" ends it
+    function tourKeys(rows: string): void {
+      root.setTourKeys(rows)
     }
 
     // draw the zones over the scene, to check them by eye
@@ -2722,7 +2754,20 @@ Item {
       readonly property var hud: Lay.hudAt(lay, [root.hudDrift.x, root.hudDrift.y])
       // the first screen tells the label pass how tall its zones stand
       readonly property bool first: Quickshell.screens.length > 0 && Quickshell.screens[0].name === modelData.name
+      property real statsH: 0   // the readouts' height (set from inside the live layer)
+      Binding { target: root; property: "statsNow"; value: panel.statsH; when: panel.first }
       Binding { target: root; property: "railNow"; value: rail.visible ? rail.height : 0; when: panel.first }
+      // A story caption (film, a tour, IPC `caption`) wins its band: while it
+      // shows, a zone its rect touches steps aside, the whole cockpit
+      // together (never rings without their text), over the HUD's whole
+      // drift so it does not flicker; a rail of a few rows stays clear of it.
+      readonly property bool storyUp: filmCaption.opacity > 0.01
+      readonly property var storyBox: Lay.storyRect(lay, filmCaption.height)
+      readonly property var hudReach: Lay.hudExtent(lay, statsH)
+      property real cockpitStep: storyUp && (Lay.intersects(storyBox, hudReach.ring) || Lay.intersects(storyBox, hudReach.stats)) ? 0 : 1
+      Behavior on cockpitStep { NumberAnimation { duration: Tx.FADE_OUT_S * 1000; easing.type: Easing.InOutSine } }
+      property real railStep: storyUp && Lay.intersects(storyBox, Lay.railRect(lay, rail.height)) ? 0 : 1
+      Behavior on railStep { NumberAnimation { duration: Tx.FADE_OUT_S * 1000; easing.type: Easing.InOutSine } }
       Binding { target: root; property: "storyNow"; value: filmCaption.opacity > 0.01 ? filmCaption.height : 0; when: panel.first }
       // where a marker may not sit: this screen's rail and caption as they stand
       readonly property var keepRects: [Lay.railRect(lay, rail.visible ? rail.height : 0), Lay.captionRect(lay, root.captionUp ? lay.caption.maxH : 0)]
@@ -2957,7 +3002,7 @@ Item {
               property real time: root.shaderTime
               property vector2d resolution: Qt.vector2d(panel.width * panel.q.res, panel.height * panel.q.res)
               property color accent: Color.accent
-              property real hudLevel: root.hudLevel
+              property real hudLevel: root.hudLevel * panel.cockpitStep
               property vector2d view: root.view
               property vector2d hudCenter: Qt.vector2d((panel.hud.cx - panel.lay.W / 2) / panel.lay.H, panel.hud.cy / panel.lay.H - 0.5)
               property real hudScale: panel.lay.hud.s
@@ -3042,7 +3087,7 @@ Item {
             // with the HUD centre and sized with its scale.
             Item {
               id: readout
-              readonly property real hudOpacity: Math.min(0.75, root.hudLevel * 1.8)
+              readonly property real hudOpacity: Math.min(0.75, root.hudLevel * 1.8) * panel.cockpitStep
               readonly property real unit: panel.height
               readonly property real s: panel.lay.hud.s
               readonly property real cx: panel.hud.cx
@@ -3121,7 +3166,7 @@ Item {
                 id: statsBox
                 readonly property var at: panel.hud.stats
                 readonly property var rect: ({ x: x, y: y, w: width, h: height })   // as it stands now
-                Binding { target: root; property: "statsNow"; value: statsBox.visible ? statsBox.height : 0; when: panel.first }
+                Binding { target: panel; property: "statsH"; value: statsBox.visible ? statsBox.height : 0 }
                 visible: root.hudLevel > 0
                 opacity: readout.hudOpacity * readout.bootIn
                 x: at.x
@@ -3288,7 +3333,7 @@ Item {
         readonly property string kind: modelData
         readonly property color tint: kind === "moon" ? Color.accent : kind === "earth" ? "#6ab7ff" : "#ffd27a"
         readonly property var proj: root.markerProj(kind, panel.width, panel.height)
-        readonly property var at: Lay.clampMarker(proj.x, proj.y, panel.lay.safe, panel.keepRects)
+        readonly property var at: Lay.clampMarker(proj.x, proj.y, panel.lay.safe, panel.keepRects, panel.tok.gap)
         readonly property bool offscreen: at.off
         readonly property real cx: at.x
         readonly property real cy: at.y
@@ -3521,7 +3566,7 @@ Item {
 
         // caption, in the caption slot, in the HUD's voice
         Column {
-          opacity: 1 - toast.opacity
+          opacity: toast.slot
           x: panel.lay.caption.x
           width: panel.lay.caption.w
           y: panel.lay.caption.bottom - height
@@ -3572,7 +3617,7 @@ Item {
       // ---- Sky mode caption ----
       Column {
         visible: root.liveBackground && root.skyMix > 0.01
-        opacity: root.skyMix * (1 - toast.opacity)
+        opacity: root.skyMix * toast.slot
         x: panel.lay.caption.x
         width: panel.lay.caption.w
         y: panel.lay.caption.bottom - height
@@ -3653,7 +3698,7 @@ Item {
 
         // caption, in the caption slot
         Column {
-          opacity: 1 - toast.opacity
+          opacity: toast.slot
           x: panel.lay.caption.x
           width: panel.lay.caption.w
           y: panel.lay.caption.bottom - height
@@ -3714,6 +3759,7 @@ Item {
       Column {
         id: rail
         visible: root.liveBackground
+        opacity: panel.railStep
         x: panel.lay.rail.x
         width: panel.lay.rail.w
         y: panel.lay.rail.bottom - height
@@ -3776,10 +3822,10 @@ Item {
           width: parent.width
           spacing: Math.max(1, panel.tok.row - 2)
           readonly property real keyW: Math.round(panel.tok.label * 13.5)
-          visible: opacity > 0 && root.controlHints.length > 0
-          opacity: Math.min(0.75, root.hudBrightness * 1.8) * 0.9 * root.textMix("guide", "hints")
+          visible: opacity > 0 && root.railRows.length > 0
+          opacity: Math.min(0.75, root.hudBrightness * 1.8) * 0.9 * root.textMix(root.touring ? "always" : "guide", "hints")
           Repeater {
-            model: root.controlHints
+            model: root.railRows
             Row {
               required property var modelData
               Text {
@@ -3808,8 +3854,12 @@ Item {
       // so a key that turns the text off still answers; never in a film.
       Text {
         id: toast
+        // one occupant: the caption leaves over the first half of `up`, the
+        // toast comes over the second, and back the same way
+        property real up: 0
+        readonly property real slot: Math.max(0, 1 - 2 * up)   // what the caption has of it
         visible: root.liveBackground && opacity > 0
-        opacity: 0
+        opacity: Math.max(0, 2 * up - 1) * 0.85
         x: panel.lay.caption.x
         width: panel.lay.caption.w
         y: panel.lay.caption.bottom - height
@@ -3823,13 +3873,13 @@ Item {
         Connections {
           target: root
           function onToastSerialChanged() { if (!root.film) toastShow.restart() }
-          function onFilmChanged() { if (root.film) { toastShow.stop(); toast.opacity = 0 } }
+          function onFilmChanged() { if (root.film) { toastShow.stop(); toast.up = 0 } }
         }
         SequentialAnimation {
           id: toastShow
-          NumberAnimation { target: toast; property: "opacity"; to: 0.85; duration: Tx.FADE_IN_S * 1000; easing.type: Easing.InOutSine }
+          NumberAnimation { target: toast; property: "up"; to: 1; duration: Tx.FADE_IN_S * 2000; easing.type: Easing.InOutSine }
           PauseAnimation { duration: Tx.TOAST_S * 1000 }
-          NumberAnimation { target: toast; property: "opacity"; to: 0; duration: Tx.FADE_OUT_S * 1000; easing.type: Easing.InOutSine }
+          NumberAnimation { target: toast; property: "up"; to: 0; duration: Tx.FADE_OUT_S * 1000; easing.type: Easing.InOutSine }
         }
       }
 
