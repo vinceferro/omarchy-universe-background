@@ -3015,18 +3015,23 @@ Item {
                     text: beacon.b && beacon.b.behind ? "△" : "▲"
                     rotation: (beacon.b ? beacon.b.ang : 0) * 180 / Math.PI + 90
                     color: beacon.b ? beacon.b.color : "white"
-                    font.pixelSize: Math.round(readout.unit * 0.009)
+                    font.pixelSize: panel.tok.label
                   }
                   Text {
-                    // left half: label outside the ring; right half: inside, clear of the readout column
-                    readonly property bool onLeft: true
-                    x: onLeft ? -width - readout.unit * 0.01 : readout.unit * 0.01
-                    y: -height / 2 + (beacon.b ? beacon.b.shift : 0) * height * 1.3
+                    // the name and distance stand radially outside the ring, every
+                    // point of them (lib/layout.js beaconLabel). Where they would
+                    // leave the safe rect or touch the readouts the words hide and
+                    // the triangle stays: the readout rows carry the same names
+                    readonly property var at: Lay.beaconLabel(beacon.b ? beacon.b.ang : 0, width, height, readout.cx, readout.cy,
+                                                              beacon.ringR + panel.tok.gap, panel.lay.safe, statsBox.rect, beacon.b ? beacon.b.shift : 0)
+                    visible: at.show
+                    x: at.x - beacon.x
+                    y: at.y - beacon.y
                     text: beacon.b ? beacon.b.name + (beacon.b.dist ? "  " + beacon.b.dist : "") : ""
                     color: beacon.b ? beacon.b.color : "white"
                     font.family: Style.resolvedFontFamily
-                    font.pixelSize: Math.round(readout.unit * 0.0072)
-                    font.letterSpacing: 1.5
+                    font.pixelSize: panel.tok.micro
+                    font.letterSpacing: panel.tok.micro * panel.tok.track.normal
                   }
                 }
               }
@@ -3037,6 +3042,7 @@ Item {
               Item {
                 id: statsBox
                 readonly property var at: panel.hud.stats
+                readonly property var rect: ({ x: x, y: y, w: width, h: height })   // as it stands now
                 visible: root.hudLevel > 0
                 opacity: readout.hudOpacity * readout.bootIn
                 x: at.x
