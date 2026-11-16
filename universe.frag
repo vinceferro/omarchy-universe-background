@@ -27,6 +27,20 @@ layout(std140, binding = 0) uniform buf {
     vec2 pan;        // sideways travel in navigation mode
     float exposure;  // 1 behind windows, brighter on an empty workspace
     float boot;      // HUD draw-in at startup, 0..1
+    // The HUD's instrument (see hud() below; Background.qml fills these from
+    // lib/dial.js). A position on a scale is g, 0..1 along the gauges' sweep.
+    float hudSway;   // the whole frame's slow rocking, radians clockwise
+    vec4 timeRing;   // mode (0 day, 1 year, 2 drain), caret or what is left 0..1, daylight from, to (day fractions; from < 0: none)
+    vec2 hudTemp;    // CPU, GPU temperature, 30..100 C as 0..1 (< 0: not known)
+    vec4 dial;       // mode (0 dormant, 1 needle, 2 detents, 3 centred arc), needle g (mode 3: the arc's width in turns), major intervals, minor ticks (0 none, 1 log 2x 5x, 2 halves)
+    vec4 dialMark;   // redline g, redline g, the rim is dashed from g (each < 0: none), long major ticks: period + first / 16 (0: none)
+    vec4 dialAux;    // hairline mark g, hairline mark g (< 0: none), the two redlines' pulse 0..1
+    vec4 range;      // mode (0 hidden, 1 decades, 2 heading tape), decades, the tape's heading (degrees), the flight zone's fade 0..1
+    vec4 bug0;       // range bugs: rgb, g (+2 hollow, +4 small; < 0 hidden)
+    vec4 bug1;
+    vec4 bug2;
+    vec4 bug3;
+    vec4 gapWin;     // mode (0 none, 1 diamond, 2 the Moon), value -1..1 or lit fraction, hollow (1) or waxing (1) / waning (-1), the scale's dot pitch
     vec4 orbit0;     // per planet: semi-major axis, eccentricity, argument of
     vec4 orbit1;     //   perihelion (radians), unused
     vec4 orbit2;
@@ -151,6 +165,9 @@ vec3 themed(vec3 c, float hueOffset) {
 float ssin(float x) {
     return sin(mod(x, 6.2831853));
 }
+
+// interleaved gradient noise: well spread over neighbouring pixels, for dither
+float ign(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
 
 // hashes without sine (Dave Hoskins): no visible lattice patterns
 float hash12(vec2 p) {
@@ -661,24 +678,6 @@ float ring(float r, float R, float w, float px) {
     return 1.0 - smoothstep(w, w + 1.5 * px, abs(r - R));
 }
 
-// `count` arc segments around the circle, each covering `duty` of its slot
-float arcs(float a, float rot, float count, float duty, float R, float px) {
-    float s = fract((a + rot) / TAU * count);
-    float e = 1.5 * px * count / (TAU * R);
-    return smoothstep(0.0, e, s) * (1.0 - smoothstep(duty - e, duty, s));
-}
-
-// radial tick marks starting at R; every sixth one is longer
-float ticks(float r, float a, float rot, float count, float R, float len, float wid, float px) {
-    float k = (a + rot) / TAU * count;
-    float s = fract(k) - 0.5;
-    float L = mod(floor(k), 6.0) < 0.5 ? len * 1.9 : len;
-    float d = abs(s) * TAU * r / count;
-    float across = 1.0 - smoothstep(wid, wid + 1.5 * px, d);
-    float along = smoothstep(R - px, R, r) * (1.0 - smoothstep(R + L, R + L + px, r));
-    return across * along;
-}
-
 // ring of round dots
 float dots(float r, float a, float rot, float count, float R, float size, float px) {
     float s = fract((a + rot) / TAU * count) - 0.5;
@@ -696,15 +695,78 @@ float gauge(float ang01, float frac, float R, float px) {
     return max(track * 0.18, fill);
 }
 
-// Arc-reactor style HUD whose rings are live gauges: CPU (heavy ring), GPU
-// (highlight ring), memory (dots) and the seconds of the minute (inner ring).
-// The centre drifts slowly (set in Background.qml) and the rest is dim and
-// moving, so no line sits on the same OLED pixels for long.
+// The HUD: one radial instrument. Its rings are ordered by meaning, from the
+// centre out, and that order never changes:
+//   TIME     the seconds ring; the day ring (24 hours, noon at the top: the
+//            dim arc is daylight at home, the bright caret is now), which is
+//            a year ring while the system view time-lapses and a drain of
+//            proper time during a fall
+//   MACHINE  CPU (heavy arc), GPU (highlight arc) with a temperature caret
+//            on each arc's outer edge, memory (dots)
+//   FLIGHT   the range scale (how far the named things are: one bug per
+//            beacon, in its colour) and the primary dial (the one quantity
+//            this view controls: a needle), re-bound per view; the gap at 6
+//            o'clock holds one signed quantity as a diamond, or the Moon
+//   WORLD    the beacons on the rim (QML)
+// Every gauge runs along the same 270-degree sweep (g: 0 at 7:30, clockwise
+// to 1 at 4:30). A scale with no honest value is a hairline track and
+// nothing else. The centre drifts slowly (Background.qml), the whole frame
+// rocks by hudSway, static parts are dim hairlines and the bright parts are
+// the ones that move with data or time, so no line sits on the same OLED
+// pixels for long.
 // The rings are laid out in the HUD's own units (q: one screen height at
 // scale 1), so every radius shrinks with hudScale on a narrow screen. Line
 // widths do not: HW gives a half-width in screen units, never under 0.6 of a
-// texel, in q units; px is a texel in q units.
+// texel, in q units; px is a texel in q units. Small discs drop detail: a
+// minor tick when its neighbours would be under 4 px apart, the temperature
+// carets and all but the six-hour ticks under scale 0.65.
+// The radii are lib/layout.js DIAL's (tests/test_layout.js compares them).
 #define HW(w) (max(w, 0.6 / resolution.y) * k)
+const float D_SECONDS = 0.085;
+const float D_DAY0 = 0.100;
+const float D_DAY1 = 0.112;
+const float D_CPU = 0.136;
+const float D_GPU = 0.154;
+const float D_MEM = 0.172;
+const float D_RANGE = 0.190;
+const float D_RANGE_TICK = 0.197;
+const float D_BUG_TIP = 0.192;
+const float D_BUG_BASE = 0.203;
+const float D_NEEDLE0 = 0.206;
+const float D_TICK0 = 0.212;
+const float D_TICK_MINOR = 0.217;
+const float D_TICK_MAJOR = 0.222;
+const float D_TICK_LONG = 0.228;
+const float D_RIM = 0.232;
+const float D_GAP0 = 0.125;
+const float D_GAP1 = 0.200;
+const float D_GAP_W = 0.024;
+const vec3 REDLINE = vec3(1.0, 0.17, 0.84);
+const vec3 MOONLIGHT = vec3(0.81, 0.84, 0.90);
+
+// a line `d` away (q units) and `wid` half wide
+float hline(float d, float wid, float px) { return 1.0 - smoothstep(wid, wid + 1.5 * px, d); }
+// between two radii
+float span(float r, float r0, float r1, float px) { return smoothstep(r0 - px, r0, r) * (1.0 - smoothstep(r1, r1 + px, r)); }
+
+// a range bug: a triangle pointing inward at the scale, base on D_BUG_BASE.
+// code: g, +2 hollow (off the scale: an outline pinned at the end, dim),
+// +4 small (close behind another one); arc: q per unit g at this radius
+float bug(float g, float r, float arc, float code, float px) {
+    if (code < 0.0) return 0.0;
+    float small = step(4.0, code);
+    code -= 4.0 * small;
+    float hollow = step(2.0, code);
+    code -= 2.0 * hollow;
+    float sz = mix(1.0, 0.6, small);
+    float h = (D_BUG_BASE - D_BUG_TIP) * sz;
+    float u = (D_BUG_BASE - r) / h;                 // 0 on the base, 1 at the tip
+    float inside = min(0.0042 * sz * (1.0 - u) - abs(g - code) * arc, u * h);
+    float fill = smoothstep(0.0, 1.5 * px, inside);
+    float line = fill * (1.0 - smoothstep(1.2 * px, 2.7 * px, inside));
+    return mix(fill, 0.4 * line, hollow);
+}
+
 vec3 hud(vec2 p, float t, vec3 cA, vec3 cB) {
     float k = 1.0 / max(hudScale, 0.01);
     float px = k / resolution.y;
@@ -719,27 +781,191 @@ vec3 hud(vec2 p, float t, vec3 cA, vec3 cB) {
     float edge = boot >= 1.0 ? 0.0
                : exp(-abs(ang01 - boot) * 80.0) * (1.0 - smoothstep(0.05, 0.22, r)) * smoothstep(0.02, 0.05, r);
 
-    float m = 0.0;  // accent colour
-    float hm = 0.0; // highlight colour
+    float m = 0.0;       // accent colour
+    float hm = 0.0;      // highlight colour
+    vec3 ex = vec3(0.0); // a colour of its own (bugs, redlines, the Moon)
 
-    // seconds: a short arc gliding once round the inner ring each minute
-    float lag = fract(secs - ang01);
-    m += ring(r, 0.085, HW(0.0012), px) * max(0.15, exp(-lag * 18.0) * smoothstep(0.0, 0.004, 1.0 - lag));
+    // the rocking frame: this pixel's angle on the unswayed instrument, and
+    // its place on the sweep (g: 0..1 on it, beyond either end in the gap)
+    float angS = fract(ang01 - hudSway / TAU);
+    float gs = fract(angS - 0.625) / 0.75;
+    float g = gs > 1.16667 ? gs - 1.33333 : gs;
+    float arc = 0.75 * TAU * r;
+    float eg = 1.5 * px / arc;
+    float onSweep = smoothstep(-eg, 0.0, g) * (1.0 - smoothstep(1.0, 1.0 + eg, g));
+    bool tiny = hudScale < 0.65;
+    // the same pixel in the frame's own axes (x right, y down the 6 o'clock radius)
+    float cs = cos(hudSway), sn = sin(hudSway);
+    vec2 v = vec2(q.x * cs + q.y * sn, -q.x * sn + q.y * cs);
 
-    // rotating tick ring (decoration)
-    m += 0.6 * ticks(r, a, -W * 4.0 * t, 72.0, 0.110, 0.007, HW(0.0007), px);
+    if (gs > 1.0 && r > 0.118 && r < 0.2045 && abs(v.x) < 0.018) {
+        // ---- the gap window: one signed quantity on a dotted scale, or the Moon ----
+        float yc = 0.5 * (D_GAP0 + D_GAP1), hh = 0.5 * (D_GAP1 - D_GAP0);
+        float gm = 0.0, ghm = 0.0;
+        vec3 gex = vec3(0.0);
+        if (gapWin.x > 1.5) {
+            // the Moon as it is lit now, upright: the lit limb on the right while it waxes
+            vec2 c = vec2(-yc * sn, yc * cs);
+            vec2 u = (q - c) / (0.5 * D_GAP_W);
+            float rr = length(u);
+            float e = 1.5 * px / (0.5 * D_GAP_W);
+            float disc = 1.0 - smoothstep(1.0 - e, 1.0, rr);
+            float term = (1.0 - 2.0 * gapWin.y) * sqrt(max(0.0, 1.0 - u.y * u.y));
+            float lit = smoothstep(-e, e, u.x * gapWin.z - term);
+            gex = MOONLIGHT * disc * (0.9 * lit + 0.12 * (1.0 - lit));
+        } else if (gapWin.x > 0.5) {
+            float s = (yc - v.y) / hh;                      // +1 at the top (toward the centre)
+            float i = floor(s / gapWin.w + 0.5);
+            if (abs(i * gapWin.w) <= 1.0)
+                gm = (abs(i) < 0.5 ? 0.5 : 0.3) * hline(length(vec2(v.x, (s - i * gapWin.w) * hh)), HW(0.0010), px);
+            float dm = abs(v.x) + abs(v.y - (yc - clamp(gapWin.y, -1.0, 1.0) * hh));
+            float fill = hline(dm, 0.0055, px);
+            float line = fill * smoothstep(0.0055 - 2.7 * px, 0.0055 - 1.2 * px, dm);
+            ghm = mix(fill, 0.4 * line, step(0.5, gapWin.z));
+        }
+        m += gm * range.w;
+        hm += ghm * range.w;
+        ex += gex * range.w;
+    } else if (r < 0.094) {
+        // ---- TIME: a short arc gliding once round the inner ring each minute ----
+        float lag = fract(secs - ang01);
+        m += ring(r, D_SECONDS, HW(0.0012), px) * max(0.15, exp(-lag * 18.0) * smoothstep(0.0, 0.004, 1.0 - lag));
+    } else if (r < 0.120) {
+        // ---- TIME: the day ring (a year ring, a drain) ----
+        if (timeRing.x < 1.5) {
+            bool day = timeRing.x < 0.5;
+            float f = day ? fract(angS + 0.5) : angS;       // the day's fraction here: noon at the top
+            float n = day ? 24.0 : 12.0;
+            float kk = f * n;
+            float i = floor(kk + 0.5);
+            float long6 = step(mod(i, day ? 6.0 : 3.0), 0.5);
+            float shown = tiny && day ? long6 : 1.0;
+            m += 0.3 * shown * hline(abs(kk - i) / n * TAU * r, HW(0.0006), px) * span(r, D_DAY0, D_DAY0 + mix(0.004, 0.0075, long6), px);
+            if (day && timeRing.z >= 0.0) {
+                float e = 1.5 * px / (TAU * r);
+                m += 0.3 * smoothstep(timeRing.z - e, timeRing.z, f) * (1.0 - smoothstep(timeRing.w - e, timeRing.w, f))
+                         * span(r, D_DAY1 - 0.0035, D_DAY1, px);
+            }
+            hm += hline(abs(fract(f - timeRing.y + 0.5) - 0.5) * TAU * r, HW(0.0011), px) * span(r, D_DAY0 - 0.003, D_DAY1 + 0.003, px);
+        } else {
+            // what is left of the fall's proper time: full at the start, emptying clockwise from the top
+            float e = 1.5 * px / (TAU * r);
+            float left = smoothstep(1.0 - timeRing.y - e, 1.0 - timeRing.y, angS) * step(0.0005, timeRing.y);
+            m += ring(r, 0.5 * (D_DAY0 + D_DAY1), HW(0.0020), px) * max(0.18, 0.8 * left);
+            hm += left * hline(abs(angS - (1.0 - timeRing.y)) * TAU * r, HW(0.0011), px) * span(r, D_DAY0 - 0.003, D_DAY1 + 0.003, px);
+        }
+    } else if (r < 0.164) {
+        // ---- MACHINE: CPU on the heavy arc, GPU outside it in the highlight colour ----
+        m += ring(r, D_CPU, HW(0.0028), px) * gauge(angS, cpu, D_CPU, px);
+        hm += ring(r, D_GPU, HW(0.0018), px) * gauge(angS, gpu, D_GPU, px);
+        if (!tiny) {
+            // temperature: a notch on the arc's outer edge, and a dim mark at 90 C
+            if (hudTemp.x >= 0.0) {
+                m += hline(abs(g - hudTemp.x) * arc, HW(0.0009), px) * span(r, D_CPU + 0.0038, D_CPU + 0.0098, px);
+                m += 0.3 * hline(abs(g - 0.85714) * arc, HW(0.0005), px) * span(r, D_CPU + 0.0038, D_CPU + 0.0068, px);
+            }
+            if (hudTemp.y >= 0.0) {
+                hm += hline(abs(g - hudTemp.y) * arc, HW(0.0009), px) * span(r, D_GPU + 0.0028, D_GPU + 0.0088, px);
+                hm += 0.3 * hline(abs(g - 0.85714) * arc, HW(0.0005), px) * span(r, D_GPU + 0.0028, D_GPU + 0.0058, px);
+            }
+        }
+    } else if (r < 0.182) {
+        // ---- MACHINE: memory, the dots light up along the same span ----
+        m += 0.9 * dots(r, a, hudSway, 120.0, D_MEM, HW(0.0013), px) * gauge(angS, mem, D_MEM, px);
+    } else if (r < 0.2045) {
+        // ---- FLIGHT: the range scale and its bugs ----
+        if (range.x > 0.5) {
+            float fm = 0.3 * ring(r, D_RANGE, HW(0.0006), px) * onSweep;
+            float fh = 0.0;
+            vec3 fex = vec3(0.0);
+            if (range.x < 1.5) {
+                // decades
+                float kk = g * range.y;
+                float i = floor(kk + 0.5);
+                if (i > -0.5 && i < range.y + 0.5)
+                    fm += 0.5 * hline(abs(kk - i) / range.y * arc, HW(0.0006), px) * span(r, D_RANGE, D_RANGE_TICK, px);
+                fex += bug0.rgb * bug(g, r, arc, bug0.a, px) + bug1.rgb * bug(g, r, arc, bug1.a, px)
+                     + bug2.rgb * bug(g, r, arc, bug2.a, px) + bug3.rgb * bug(g, r, arc, bug3.a, px);
+            } else {
+                // a heading tape: the sweep shows the heading +-135 degrees, a
+                // tick every 10 (every 30 when they would crowd), long every 30,
+                // zero in the redline colour; the heading is under the fixed mark at the top.
+                // Seen from inside, galactic longitude grows to the left (the sky view's
+                // right vector points down the longitudes), so the tape does too: its
+                // zero tick lies on the side the Galactic Centre's beacon points to
+                float kk = (range.z - (g - 0.5) * 270.0) / 10.0;
+                float i = floor(kk + 0.5);
+                float long3 = step(mod(i, 3.0), 0.5);
+                float zero = step(mod(i, 36.0), 0.5);
+                float room = step(4.0 * px, arc * 10.0 / 270.0);
+                float tk = max(long3, room) * hline(abs(kk - i) * 10.0 / 270.0 * arc, HW(0.0006), px)
+                         * span(r, D_RANGE, mix(D_RANGE + 0.004, D_RANGE_TICK, long3), px) * onSweep;
+                fm += 0.5 * tk * (1.0 - zero);
+                fex += REDLINE * tk * zero;
+                fh += 0.5 * hline(abs(g - 0.5) * arc, HW(0.0010), px) * span(r, D_RANGE_TICK + 0.0015, D_BUG_BASE, px);   // a fixed mark: dim
+            }
+            m += fm * range.w;
+            hm += fh * range.w;
+            ex += fex * range.w;
+        }
+    } else if (r < 0.238) {
+        // ---- FLIGHT: the primary dial ----
+        float rim = ring(r, D_RIM, HW(0.0007), px) * onSweep;
+        if (dial.x < 0.5) {
+            // dormant: a track, no ticks, no needle
+            m += 0.25 * rim;
+        } else if (dial.x < 2.5) {
+            float fm = 0.0, fh = 0.0;
+            // beyond the dashed-from mark the rim is dashed: the scale goes on, the physics does not
+            if (dialMark.z >= 0.0 && g > dialMark.z) rim *= step(0.5, fract(g * 135.0));
+            fm += 0.5 * rim;
+            float n = dial.z;
+            if (n > 0.5) {
+                float kk = g * n;
+                float i = floor(kk + 0.5);
+                if (i > -0.5 && i < n + 0.5) {
+                    float per = floor(dialMark.w);
+                    float lng = per > 0.5 ? step(mod(i - floor(fract(dialMark.w) * 16.0 + 0.5), per), 0.5) : 0.0;
+                    fm += 0.5 * hline(abs(kk - i) / n * arc, HW(0.0007), px) * span(r, D_TICK0, mix(D_TICK_MAJOR, D_TICK_LONG, lng), px);
+                }
+                if (dial.w > 0.5 && g > 0.0 && g < 1.0) {
+                    float s1 = dial.w < 1.5 ? 0.30103 : 0.5;
+                    if (s1 / n * 0.75 * TAU * D_TICK0 > 4.0 * px) {
+                        float f = fract(kk);
+                        fm += 0.3 * hline(min(abs(f - s1), abs(f - (1.0 - s1))) / n * arc, HW(0.0005), px) * span(r, D_TICK0, D_TICK_MINOR, px);
+                    }
+                }
+            }
+            // marks: hairlines (a place on the scale), redlines (a threshold that is physically real)
+            if (dialAux.x >= 0.0) fm += 0.5 * hline(abs(g - dialAux.x) * arc, HW(0.0006), px) * span(r, D_TICK0, D_TICK_LONG, px);
+            if (dialAux.y >= 0.0) fm += 0.5 * hline(abs(g - dialAux.y) * arc, HW(0.0006), px) * span(r, D_TICK0, D_TICK_LONG, px);
+            vec3 red = vec3(0.0);
+            if (dialMark.x >= 0.0) red += REDLINE * (0.7 + 1.3 * dialAux.z) * hline(abs(g - dialMark.x) * arc, HW(0.0011), px) * span(r, D_TICK0 - 0.004, D_RIM + 0.003, px);
+            if (dialMark.y >= 0.0) red += REDLINE * (0.7 + 1.3 * dialAux.w) * hline(abs(g - dialMark.y) * arc, HW(0.0011), px) * span(r, D_TICK0 - 0.004, D_RIM + 0.003, px);
+            // the needle: tapered, a soft head on the rim; parked on its stop pin (g = 0) it dims
+            float gn = clamp(dial.y, 0.0, 1.0);
+            float dn = abs(g - gn) * arc;
+            float u = clamp((r - D_NEEDLE0) / (D_RIM - D_NEEDLE0), 0.0, 1.0);
+            float body = hline(dn, mix(HW(0.0020), HW(0.0007), u), px) * span(r, D_NEEDLE0, D_RIM, px);
+            vec2 hd = vec2(dn, r - D_RIM);
+            fh += (body + 0.6 * exp(-dot(hd, hd) / (2.0 * 0.0022 * 0.0022))) * mix(0.4, 1.0, smoothstep(0.0, 0.012, dial.y));
+            fm += 0.5 * hline(length(vec2((g + 0.014) * arc, r - (D_NEEDLE0 + 0.003))), HW(0.0013), px);
+            m += fm * range.w;
+            hm += fh * range.w;
+            ex += red * range.w;
+        } else {
+            // the field of view as an arc of its true angle, centred on the top
+            float off = abs(fract(angS + 0.5) - 0.5);
+            float halfT = 0.5 * dial.y;
+            float e = 1.5 * px / (TAU * r);
+            float fh = ring(r, D_TICK_MAJOR, HW(0.0016), px) * (1.0 - smoothstep(halfT - e, halfT, off))
+                     + hline(abs(off - halfT) * TAU * r, HW(0.0009), px) * span(r, D_TICK0, D_RIM, px);
+            m += 0.25 * rim * range.w;
+            hm += fh * range.w;
+        }
+    }
 
-    // CPU on the heavy ring, GPU just outside it in the highlight colour
-    m += ring(r, 0.150, HW(0.0028), px) * gauge(ang01, cpu, 0.150, px);
-    hm += ring(r, 0.172, HW(0.0018), px) * gauge(ang01, gpu, 0.172, px);
-
-    // memory: the dots light up along the same 270-degree span
-    m += 0.9 * dots(r, a, 0.0, 120.0, 0.198, HW(0.0013), px) * gauge(ang01, mem, 0.198, px);
-
-    // outer 270-degree bracket, slowly turning
-    m += 0.5 * ring(r, 0.232, HW(0.0007), px) * arcs(a, W * 3.0 * t, 1.0, 0.75, 0.232, px);
-
-    return ((cA * m + cB * hm) * reveal + cA * edge * 0.6) * hudLevel;
+    return ((cA * m + cB * hm + ex) * reveal + cA * edge * 0.6) * hudLevel;
 }
 
 
@@ -1052,6 +1278,17 @@ int holeKind(vec4 t) { return t.a < 0.0 ? 1 : t.b < 0.0 ? 2 : t.a == 0.0 ? 3 : 0
 // block. Which kind: the nearest texel's, unless the caller knows its side
 // of the shadow's edge from the closed form (side 1: the dark, 0: the sky,
 // -1: unknown); then that side's texels are read wherever the four hold any.
+// Where the edge is unknown (below the inner horizon and on the far sheet the
+// march alone decides) rays that pass close to the ring end up on either
+// sheet, or lost, from one texel to the next: single texels of our sky inside
+// the disc that shows the other universe, single dark ones in the glow around
+// it. A texel whose kind none of the other three shares is such a stray and
+// is left out (the heaviest of the others is read instead), so it cannot
+// show as a speck. A real region's edge always has two texels of the four.
+// The same there for a sky texel whose ray took another road past the ring
+// and gathered a fraction of the gas light its neighbours did: where three
+// of the four agree (within 30%) and the fourth has under 0.6 of theirs, it
+// is left out too: it showed as a dark speck in the glow around the disc.
 // Bend vectors are blended as directions where they differ by more than
 // BEND_BLEND: the encoding folds at alpha = 180 degrees (a ray turned 184
 // degrees is written as 176 on the other side), so two neighbours like
@@ -1077,6 +1314,23 @@ vec4 holeRead(vec2 uv, vec3 rd, vec3 n1, vec3 n2, int side) {
         if (k1 != 1 && w1 > best) { best = w1; k = k1; }
         if (k2 != 1 && w2 > best) { best = w2; k = k2; }
         if (k3 != 1 && w3 > best) { best = w3; k = k3; }
+    } else if (side == -1 && (k0 == k ? 1 : 0) + (k1 == k ? 1 : 0) + (k2 == k ? 1 : 0) + (k3 == k ? 1 : 0) == 1) {
+        int stray = k;
+        float best = -1.0;
+        if (k0 != stray && w0 > best) { best = w0; k = k0; }
+        if (k1 != stray && w1 > best) { best = w1; k = k1; }
+        if (k2 != stray && w2 > best) { best = w2; k = k2; }
+        if (k3 != stray && w3 > best) { best = w3; k = k3; }
+    }
+    if (side == -1 && k == 0 && k0 == 0 && k1 == 0 && k2 == 0 && k3 == 0) {
+        float lo = min(min(t0.b, t1.b), min(t2.b, t3.b)), hi = max(max(t0.b, t1.b), max(t2.b, t3.b));
+        // the least of the other three: the sum less the lowest and the highest, less the middle two's larger
+        float mid2 = t0.b + t1.b + t2.b + t3.b - lo - hi;
+        float lo2 = mid2 - max(max(min(t0.b, t1.b), min(t2.b, t3.b)), min(max(t0.b, t1.b), max(t2.b, t3.b)));
+        lo2 = clamp(lo2, lo, hi);
+        if (hi > 0.02 && lo2 > 0.7 * hi && lo < 0.6 * lo2) {
+            if (t0.b == lo) k0 = -1; else if (t1.b == lo) k1 = -1; else if (t2.b == lo) k2 = -1; else k3 = -1;
+        }
     }
     // the texels of that kind: their weights, the heaviest one, their spread
     w0 = k0 == k ? w0 : -1.0; w1 = k1 == k ? w1 : -1.0; w2 = k2 == k ? w2 : -1.0; w3 = k3 == k ? w3 : -1.0;
@@ -1316,13 +1570,17 @@ void main() {
             // (in the scripted view: from the top of the screen to the
             // bottom, over about 3 s), until nothing else is left: at 1 the
             // screen is one colour. Then it fades to black (below).
+            // The brightening is for what the front has not reached: under
+            // the front the picture is veiled by the square of what is left
+            // of it and gets no lift, so the sky squeezed into arcs between
+            // the horizons does not show through the light as bands.
             float c = gxFallClose;
             float mu = dot(rd, normalize(gxCam / RS_KPC));     // 1: back up the axis; -1: straight down
             const float W = 0.7;                          // the front's width, in cos(angle)
             float lit = smoothstep(0.0, 1.0, (mu - mix(1.0, -1.0 - W, c)) / W);
-            gc *= mix(vec3(1.0), vec3(1.0, 1.25, 1.9), c) * (1.0 + 1.5 * c);
+            gc *= mix(mix(vec3(1.0), vec3(1.0, 1.25, 1.9), c) * (1.0 + 1.5 * c), vec3(1.0), lit);
             vec3 front = mix(vec3(0.16, 0.30, 0.85), vec3(0.80, 0.88, 1.0), lit * lit) * (0.35 + 0.65 * c * c);
-            gc = mix(gc, front, lit);
+            gc = mix(gc, front, 1.0 - (1.0 - lit) * (1.0 - lit));
         }
         if (gxRealSky > 0.0) {
             // the real sky from here: galactic longitude from the Centre
@@ -1353,9 +1611,14 @@ void main() {
     if (hudLevel > 0.0)
         col += hud(p, t, accent.rgb, themed(vec3(0.95, 0.15, 0.62), 0.38));
 
-    // static dither against banding in the faint gas, never on black
+    // Dither against banding in every wide smooth gradient (the faint gas,
+    // the fall's closing light, the fades to and from black): triangular
+    // noise of one 8-bit step either way, from interleaved gradient noise
+    // (Jimenez 2014) on the target's own texels, so the rounding to the
+    // display's steps turns into grain too fine to see instead of contours.
+    // Static, and never on black: a dark pixel stays off.
     float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
-    col += (hash12(uv * resolution) - 0.5) / 255.0 * smoothstep(0.004, 0.02, lum);
+    col += (ign(gl_FragCoord.xy) + ign(gl_FragCoord.xy + vec2(47.0, 17.0)) - 1.0) / 255.0 * smoothstep(0.004, 0.02, lum);
 
     fragColor = vec4(max(col, 0.0), 1.0) * qt_Opacity;
 }

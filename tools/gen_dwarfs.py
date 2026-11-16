@@ -106,7 +106,8 @@ for r in rows:
     if r["SubG"].strip() == "M31":
         dist = M31_KPC if name in ELL3D else dist * M31_KPC / m31_cat
     pos = galactocentric(l, b, dist)
-    d = {"name": name, "alt": r["OName"].strip().split(",")[0], "type": r["MType"].strip(),
+    d = {"name": name, "alt": r["OName"].strip().split(",")[0].replace("Casseopia", "Cassiopeia"),   # the catalogue's spelling
+         "type": r["MType"].strip(),
          "group": r["SubG"].strip(), "ra": round(ra, 5), "dec": round(dec, 5), "l": round(l, 4), "b": round(b, 4),
          "dpc": round(dist * 1000), "dpcCat": round(dcat * 1000), "pos": [round(c, 4) for c in pos],
          "rh": num(r["R2"], int), "rhArcmin": num(r["R1"]), "mv": num(r["VMag"]),

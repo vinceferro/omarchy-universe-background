@@ -89,34 +89,123 @@ scene. `T` cycles it while exploring (`Shift+T` goes back):
 |---|---|
 | `off` | the scene, nothing else |
 | `names` | what you are looking at: place and planet names, markers, the chosen place's name and facts, a caption's title |
-| `full` | names, plus the guide (the place's blurb, caption detail, the key hints) and the cockpit (the HUD's rings, clock, readouts and beacons) |
+| `full` | names, plus the guide (the place's blurb, caption detail, the key hints) and the cockpit (the HUD: its rings, clock, words and beacons, see [The HUD](#the-hud)) |
 
 `H` (and Super+Alt+J, which also works in the universe view) switches the
 cockpit: between `full` and the last level below it. The level is remembered
-across restarts. Changing it names the new level for a moment where the
-caption goes.
+across restarts. Changing it names the new level in the story band.
+
+Three rules hold for every word on the screen, each written once
+(`lib/text.js`, `scrim.frag`):
+
+- **Reading time.** How long a text needs is its own word count: 1.5 s to
+  find it and 0.3 s a word at a calm pace, never under 3 s, at most 40 s
+  (`read`). Nothing is timed by hand.
+- **One story band.** A sentence is said in one place, the lower third,
+  whoever says it: the fall's events, the way home, the level's name after a
+  change, a tour's or a film's caption (IPC `caption`). One caption at a
+  time: it comes up in 0.8 s, stands for at least its reading time and goes;
+  what is said meanwhile waits its turn (a speaker's newer caption takes its
+  older waiting one's place). A script's caption stays until the script says
+  something else, every other one leaves once read. It shows at every level,
+  `off` included; in film mode only the script speaks.
+- **Legibility.** Every text has a soft black backing behind it, feathered
+  to nothing at its edge, exactly as strong as the picture under it is
+  bright: the screen's own picture (the full pass, without the words) is
+  kept at 96 texels across and the backing reads the brightness under the
+  block from it. Over a dark sky it
+  is not there at all; over the fall's closing light, the glowing gas or a
+  bright photograph it keeps the words readable. It is black, so it only
+  ever lowers what the OLED shows, and it has the text's opacity: it comes
+  and goes with the words.
 
 Text comes up with any interaction (a key, the pointer, the wheel, a flight)
-and fades once it has had time to be read: 8 s, plus a second for every 3.5
-words, 40 s at most. So a name goes after 8 s, a place's card after about
+and fades once it has had time to be read: a 5 s glance at the scene plus
+its reading time. So a name goes after 8 s, a place's card after about
 25, the key list after about 30, and a view left parked puts no standing text
 on the OLED; any key brings it back (for a screenshot outside film mode,
 press one first). A fall into the black hole holds its own text up until it
-ends. The one standing exception is the cockpit's rings, clock and readouts,
-which stay while the level is `full`: they are dim and drift.
+ends. The one standing exception is the cockpit's rings, clock and date,
+which stay while the level is `full`: they are dim and drift. Every other
+word on the HUD comes and goes like the rest.
 
 Where text goes is computed from the screen (`lib/layout.js`). Nothing leaves
 the safe rect: the screen less the bar (Hyprland's reserved bands), a camera
 notch (the platform's `display-cutouts.json`, across the whole width, bar or
 no bar) and a margin. Inside it the chosen place's card stands on the key
-hints in one column at the bottom left, the mode caption stands at the bottom
-centre, and the HUD is sized and placed by the aspect: right of centre with
-its readouts beside it on a wide screen, smaller and in the top right corner
-with the readouts under it on a narrow one. Scene names go to the right of
+hints in one column at the bottom left, the mode caption (one for every
+view: a title and a line or two of detail) stands at the bottom
+centre, and the HUD is one disc, sized and placed by the aspect: right of
+centre on a wide screen (as far right as a beacon's name beside its rim
+allows), smaller and in the top right corner on a narrow one. It owns a
+radius, never a rect, so nothing reflows at any aspect and the scene keeps
+the rest of the screen. Scene names go to the right of
 their thing, else to the left, else their words hide (the dot stays): clear
-of the bar and notch, the card, the caption, the HUD and each other. The
+of the bar and notch, the card, the caption, the HUD and each other (by
+their measured widths in the shell font, not an estimate). The
 chosen or hovered thing always shows its name, and the HUD dims while that
 thing is inside its ring.
+
+### The HUD
+
+One radial instrument: no column of readouts beside it, so the universe keeps
+the stage. Its rings are ordered by meaning from the centre out, and that
+order is the same in every view:
+
+| Zone | What | Reads |
+|---|---|---|
+| time | the hub | the clock and the date; one readout line under them (the needle's exact figure) while you are doing something |
+| time | seconds ring | a short arc gliding round once a minute |
+| time | day ring | 24 hours, noon at the top: the dim thick arc is daylight at home (`homeLat`, `homeLon`), the bright caret is now |
+| machine | CPU arc, GPU arc | load along a 270-degree sweep, with a notch on each arc's outer edge for its temperature (30 to 100 C along the same sweep, a dim mark at 90) |
+| machine | memory dots | used of total |
+| flight | range scale | how far the named things are, on a log scale: one triangle (a bug) per beacon, in the beacon's colour. Off the scale it is hollow, pinned at that end |
+| flight | primary dial | the one quantity the view controls, as a needle; it rests dim on a stop pin at 7:30 when there is nothing to show |
+| flight | gap window (6 o'clock) | one signed quantity as a diamond on a dotted scale, or the Moon as it is lit now |
+| world | beacons on the rim | which way the named things lie, on or off screen (hollow: behind you) |
+
+The beacon and the bug are a pair: the beacon says which way, the bug of the
+same colour how far. Only the flight zone changes with the view:
+
+| View | Dial | Range scale | Gap window |
+|---|---|---|---|
+| Universe | a bare track | none | the Moon |
+| Flight | throttle, 0 to 100% (the star layers have no physical unit, so never a speed) | none | none |
+| Solar system | the time rate on seven detents, `LIVE` to a year a second | AU, 0.001 to 100: the Sun, Earth, the Moon, the chase target, from the pinned body | the Moon, beside Earth or the Moon |
+| Milky Way | speed as a multiple of light, 10^5 to 10^13 (long ticks at a million, a billion, a trillion) | light years, 1 to 10^7: the Sun, the centre, the target (or Andromeda), the nearest place | height over the disk plane: a dot a decade (10, 100, 1000 ly), hollow beyond a kiloparsec |
+| Sky | the field of view as an arc of its true angle | galactic longitude on a tape (growing leftward, as on the sky), the heading under the mark at the top, zero in magenta | galactic latitude, a dot every 30 degrees |
+| Falling into Sgr A* | the radius in Schwarzschild radii on one signed-log scale from the start to the end, a hairline at the photon orbit, magenta redlines at the two horizons | none | none |
+
+Two views borrow the day ring: while the system view time-lapses it is a
+year ring (twelve month ticks, the caret at the simulated day of the year),
+and during a fall it drains with the time left on our own clock while the hub counts
+that time down (the wall clock is in the bar). In mathematics mode the dial's
+rim is dashed beyond the inner horizon and r = 0 has a mark: the scale goes
+on, the physics does not.
+
+A scale with no honest value is a bare track: a parked view has no needle, a
+free camera has no distances, a machine without `nvidia-smi` has no GPU
+figure. The fall has no speed scale, because the speed `lib/fall.js` knows
+is dr/dtau, which nobody measures locally (it passes c inside the horizon).
+
+At rest the only words are the clock and the date. The rest (the readout
+line, `CPU` / `GPU` / `MEM` and the unit words in the gap, the labels of the
+dial's long ticks just outside the rim on a wide screen, the beacons' names)
+come up with any interaction, when the pointer rests inside the disc, or
+for a few seconds at an event (another place is now the nearest, the disk
+plane crossed, a horizon crossed, a flight arrived; the machine labels alone
+when the CPU stays over 85%, the GPU passes 80 C or memory 90%), then fade.
+The facts that describe a body (distances, light time, orbit, day) are on
+the pinned body's card at the bottom left.
+
+For the OLED: everything is at the cockpit's low brightness, the disc drifts
+and leans toward the pointer, the whole frame rocks 4 degrees either way on
+a 13-minute sine (scale and pointer turn together, so readings do not
+change), static parts are hairlines, and the bright parts are the ones that
+move with data or time. A small disc drops detail rather than crowd it:
+minor ticks that would sit under 4 px apart, watts and gigabytes, the
+landmark labels; under scale 0.65 the temperature notches and all but the
+six-hour ticks.
 
 ### Universe (the default)
 
@@ -187,13 +276,13 @@ Bodies are at their real sizes and distances.
 | `V` / `Esc` | back to the system view (the overview's angle is restored) |
 
 **Galactic motion** (`G`): the solar system drawn in the Galaxy's rest frame.
-The Sun travels at 249 km/s toward Cygnus and each planet leaves the trail of
+The Sun travels at 247 km/s toward Cygnus and each planet leaves the trail of
 where it has really been: stretched helices around the Sun's straight path,
 with the orbital plane tilted 61 degrees to the direction of travel.
 
 | Key | Action |
 |---|---|
-| `-` `=` | slow the Sun down (1/2 ... 1/200) so the coils show; the HUD says by how much |
+| `-` `=` | slow the Sun down (1/2 ... 1/200) so the coils show; the caption says by how much |
 | `I` | show / hide the 2-year trails |
 | `V` | look back from just ahead of the Sun along its path (again: the side view) |
 | drag / arrows | swing / tilt the camera |
@@ -238,9 +327,9 @@ angular size, north up. Near the Sun the model blends into the real sky.
 |---|---|
 | `Tab` / `Shift+Tab` | next / previous place |
 | click | fly to the place under the pointer |
-| `0` | back to the Sun |
+| `0` | home: the Sun in the middle of its Galaxy, the view this one opens on (the same flight every return takes, see [The way home](#the-way-home)) |
 | `B` | the black hole at the centre; `B` again goes down to 6 Schwarzschild radii on its spin axis, and parked there `B` (or one more scroll in) lets go and falls in |
-| `K` | mathematics mode on / off: the fall follows the extended Kerr solution through the ring into the other universe (not physics; takes effect at the next fall) |
+| `K` | mathematics mode on / off: the fall follows Kerr's equations on through the ring into the other universe (beyond tested physics; takes effect at the next fall) |
 | `V` | the Milky Way from Andromeda (scroll in to cross the gap along that line) |
 | `T` / `Shift+T` | text level: off, names, full (see [Text](#text)) |
 | drag / arrows | orbit the camera (falling into the hole: look around) |
@@ -250,22 +339,54 @@ angular size, north up. Near the Sun the model blends into the real sky.
 | `N` | back to now |
 | `Esc` | back to the universe |
 
-The time-lapse turns the disk around Sagittarius A* at the Sun's angular
+The time-lapse turns the disk around the Galactic Centre at the Sun's angular
 speed, one lap in about 203 million years, with the Sun bobbing through the
-plane. It is simplified: the whole disk turns as one, whereas real disks
-shear, and the HUD says so.
+plane. It is simplified: the whole disk turns together, whereas real disks
+shear, and the caption says so.
+
+#### The way home
+
+Home is one pose: the Sun in the middle of the screen with its Galaxy around
+it, marked SUN · YOU ARE HERE, its card in the rail. The view opens on it,
+and every return lands on it by the same flight (`gxHome` in
+`Background.qml`, scripted by `lib/camera.js`): `0`, a click on the Sun,
+`fly sun`, Esc during a fall and the end of both falls.
+
+Travel in this view is one law (`lib/camera.js` `Voyage`): the focus glides
+to the chosen place on a critically damped spring and the camera's distance
+is drawn to the larger of what was asked for and twice the trip still to
+go, so a long trip rises above the disk, keeps where it is going in frame
+and comes down as it arrives. Every trip starts from rest, none has a jerk,
+a new destination on the way carries the velocity on, and a place that
+itself moves (the time-lapse) is followed without lag.
+
+From a view that can be flown out of, the way home is that flight, flown
+slower than a hop (95% of it in 5 s). From inside the hole there is no road
+out, so the screen goes black first (one second of it, at a fall's end and
+after Esc alike), the view opens over the Galactic Centre, 1.2 kpc out and
+low over the disk, and once the picture is half back the same flight leaves
+from there: out along the disk to the Sun's place, the camera pulling back
+from 1.2 to 34 kpc and rising, the Centre on screen from the first frame to
+the last and the Sun's place in frame within two seconds. Seven seconds
+later it has landed: the Sun's marker and card come up, and after a fall the
+story band says "Back home: the Sun, one star in the Orion Arm, 26,600
+light-years from the black hole we just left". After a realistic fall the
+key hints then open with the invitation to the other ending (`K`, then `B`).
+The whole timeline is checked in `tests/test_camera.js` (continuity, what is
+in frame, the same at 60 and 165 Hz) and run for real by the headless fall.
 
 ### Sagittarius A*
 
 `B` in the Milky Way view (scrolling in goes down to 6 Schwarzschild radii).
 Every pixel's light ray is traced backward through the curved spacetime of a
-spinning (Kerr) black hole of 4.3 million solar masses, in Kerr-Schild
+spinning (Kerr) black hole of about 4 million solar masses (4.15 million in
+every figure the fall computes: GRAVITY 2019), in Kerr-Schild
 coordinates (`hole.frag`; the same march in JS with its tests in
 `lib/kerr.js`): the shadow, the photon ring, the stars and the Galaxy's glow
 lensed around it, the twist that frame dragging gives the lensed sky, and the
 flattening of the shadow's one side at high spin, all from the tracing,
-nothing painted. The spin is a/M = 0.94, the Event Horizon Telescope's 2022
-best-bet model for Sgr A* (a magnetically arrested flow seen 30 degrees from
+nothing painted. The spin is a/M = 0.94, one of the models the Event Horizon
+Telescope's 2022 papers favour for Sgr A* (a magnetically arrested flow seen 30 degrees from
 its axis; Daly et al. 2024 find about 0.9 another way, Fragione & Loeb 2020
 argue for under 0.1 from the S stars' orbits): it is not measured, one number
 in `Background.qml` (`holeSpin`) changes it, and 0 gives the Schwarzschild
@@ -294,8 +415,9 @@ axis (the descent steers to the pole on the camera's side); parked there,
 carries the camera below the horizon: there is no flying through; if the
 camera was dragged off the pole it glides there first). The camera is then
 in free fall down the axis from rest at 6 Rs (`lib/fall.js`): the way down
-to the polar photon orbit (1.25 Rs) is shown 45 times faster than real, the
-last stretch to the outer horizon in 4 s, and the inside at the true rate,
+to the outer horizon, 16 minutes on our own clock, is shown in 24 s (about
+40 times faster on average; the hub shows the rate live), and the inside at
+the true rate,
 14.9 s of proper time between the two horizons (28.7 s to the singularity
 for a non-spinning hole, which `holeSpin = 0` still gives). The ray tracer
 takes the falling observer's frame: aberration keeps the shadow ahead and
@@ -304,8 +426,9 @@ across at 6 Rs, 80 at the outer horizon and 60 again at the inner one: for
 someone falling in it never fills half the sky. The sky beside it is
 squeezed toward its rim and shifted blue (4.5 times the frequency at the
 rim when crossing), unchanged in frequency exactly sideways, and red and
-dim straight behind (0.55 at the horizon). Nothing marks the outer horizon
-but the HUD and the caption.
+dim straight behind (0.55 at the horizon). The outer horizon is crossed as
+smoothly as open space (a hole this large is gentle at its edge): the HUD
+and the story band are what say so.
 
 **Where the camera looks.** Nothing steers on the way down, but a fixed view
 shows little of this, so the view is scripted (`look()` in `lib/fall.js`),
@@ -338,42 +461,57 @@ before the realistic ending's own light.
 The fall ends at the inner (Cauchy) horizon, because the physics does: the
 Kerr solution continues through it, but a real hole's inner horizon is
 unstable (Penrose 1968; Poisson & Israel 1990, "mass inflation"; Ori 1991):
-light falling in after us arrives there blueshifted without bound, and what
-the solution says beyond it describes nothing observed. The ending is told
+light falling in after us arrives there blueshifted without bound: it is the
+edge of what the equations can predict. The ending is told
 rather than cut. The observer would reach the inner horizon at full speed,
 and a camera doing that simply stops: so the last 2.5 s of proper time are
-shown over 6 s, the fall slowing into r- (the HUD says "shown slower"; it is
+shown over 6 s, the fall slowing into r- (the HUD says "slowed to watch"; it is
 a way of showing it, not time dilation). Over the last 5 of those seconds
 the light closes in: the glow below turns blue, what is still seen brightens,
 and a blue-white front spreads from the pole we fell from, where the light
 falling in after us comes from, over the whole sky (a labelled cartoon of
-the unbounded blueshift, in `universe.frag`). Only then the screen fades to
-black, holds two seconds, and the camera is back beside the Sun: 18.4 s from
-the outer horizon to the fade. Esc gives up the same way; nothing leaves the
-camera inside the hole.
+the unbounded blueshift, in `universe.frag`; the front veils what is under
+it instead of brightening it, so the sky squeezed into arcs does not show
+through as bands). Only then the screen fades to
+black, holds a second, and the way home begins (below): 18.4 s from
+the outer horizon to the fade. Esc ends the fall by the same road (the one
+function, `gxHome`); nothing leaves the camera inside the hole, and while it
+falls the keys that steer or change the view do nothing.
 
-The fall says where it is in the story band, the lower-third caption film
-and tours use, so it shows at every text level, `off` included: "Event
-horizon: nothing marks it" for 4 s at the crossing, and "Inner horizon: here
-the known physics ends. Beyond, the equations no longer describe what we
-would see", with the line "K: follow the mathematics through the ring", from
-4 s of proper time before r- through the black. In mathematics mode the
-captions are the event horizon, the inner horizon (no K line), "Through the
-ring" before the disk and "The other universe" beyond it. A caption that is
-not the fall's (a tour's, IPC `caption`) keeps the band, and in film mode the
-fall says nothing: the script has the words. The timing and the words live
-in `lib/fall.js` (`tau`, `light`, `caption`, `CAPTIONS`).
+**Why two falls.** It is one fall with two endings. The realistic one stops
+at the inner horizon because that is the last place the equations can be
+trusted: in a real hole the light falling in piles up there without limit.
+Mathematics mode (`K`) follows the idealised Kerr solution past it, through
+the ring into the space beyond, which takes a push no fall from rest can
+have. Both say the same things on the way down to the inner horizon.
 
-Two more captions follow the view: "Looking back: the sky we are leaving,
-redder and dimmer the faster we fall away from it" during the glance (11 to
-17 s), and in the realistic fall "Between the horizons" from 29 s until a
-second before the inner horizon's.
+The fall says where it is in the story band, at every text level, `off`
+included. `lib/fall.js` only names the events and when they happen
+(`story`, `CAPTIONS`): the glance back at 11 s ("Looking back: the sky we
+came from, reddening and dimming as we pick up speed"), the event horizon at
+the crossing ("Crossed, as smoothly as open space. From here every path
+leads inward, even light's"), the inner horizon 6 s before its light begins
+to close in ("Light that fell in after us piles up here, blue and blinding.
+This is the edge of what physics can predict"); in mathematics mode the
+inner horizon as an invitation ("Here we leave tested physics and follow
+Kerr's equations onward, as pure mathematics"), "Through the ring" 5.5 s
+before the disk and "The other universe" beyond it. The band gives each its
+reading time (6 to 11 s) and keeps them in order; none is cut, and
+`tests/test_fall.js` plays both falls through the band to check that every
+caption is fully up for its reading time and that the inner horizon's is up
+almost 5 s before the light begins. In film mode the fall says nothing: the
+script has the words. There is no "Between the horizons" caption any more:
+the inside is shown at the true rate, and neither fall has room for one
+(9 s between the horizons in the plunge).
 
-The HUD names the phase, counts the proper time left, and has a row for the
-landmark ahead (the outer horizon, the inner horizon, in mathematics mode
-the disk and the end of the far sheet): how far below it is in kilometres
-(a Schwarzschild radius is 12.3 million km) and how long until it on our
-own clock. `status` reports phase and radius; the maths has its own checks
+The HUD's hub counts the time left on our own clock, its dial shows the
+radius against the horizons, and the caption's detail line says where we are
+and names the landmark ahead (the event horizon, the inner horizon, in
+mathematics mode the middle of the ring and the journey's end): how far
+below it is in kilometres and how long until it on our own clock. The card
+defines the unit once (one radius = 12.3 million km) and takes its figures
+from the running fall (`lib/fall.js`): how much faster the approach is
+shown, the seconds between the horizons, the plunge's speed. `status` reports phase and radius; the maths has its own checks
 in `tests/test_fall.js` and `tests/test_kerr.js`, and the whole fall is run
 headless by `tests/harness/fall.sh`.
 
@@ -385,16 +523,23 @@ touched; r passes through 0 to r < 0) into the negative-r sheet, an
 asymptotically flat universe where the hole's gravity repels. The view there
 is traced like everything else, in the r < 0 sheet: our own sky through the
 throat inside the ring, and around it the other universe's sky, which the
-solution says nothing about and which is therefore plainly invented (sparse,
-cold violet-white and amber stars, no Milky Way). The camera is pushed away
+solution gives a space of its own but no stars, so they are plainly invented
+(sparse, cold violet-white and amber, no Milky Way). Looking through the
+ring's open middle from our side, those stars are what shows in the dark
+disc. Rays that pass close to the ring end on either sheet from one texel
+of the tracer's layer to the next; a lone texel that disagrees with its
+three neighbours, in kind or in gas light, is left out when the layer is
+read (`universe.frag` `holeRead`), so the passage has no specks. The camera is pushed away
 (the repulsion is gentle: 444 s of proper time to -10 Rs, shown in 20 s), and
-then the usual fade returns to the Sun. One honesty the maths forces: an
+then the usual fade and the way home. One honesty the maths forces: an
 observer from rest at 6 Rs can never get there. The potential peaks at
 r = -a with 1 + M/a > E^2, so a from-rest fall turns back inside the inner
 horizon at r = a^2/r0 = 0.037 Rs and is thrown out into a new positive-r
 universe instead; reaching r < 0 needs E >= sqrt(1 + M/a) = 1.44, and the
-mode starts with E = 1.5, an impossible shove of 0.75 c down the axis. The
-HUD, the card and `status` all say so. The trajectory has that energy from
+mode starts with E = 1.5, an impossible shove down the axis (0.75 c at
+infinity; 0.79 c to someone hovering at the start, which is the figure the
+card gives). The
+caption, the card and `status` all say so. The trajectory has that energy from
 the first frame; the frame the picture is drawn in comes on over the first
 3 s (`viewE`: from rest to E = 1.5), the shove shown as an acceleration
 rather than as one frame in which the shadow shrinks to a third and the sky
@@ -507,11 +652,12 @@ Everything is reachable through the shell's IPC, `omarchy-shell background <func
 | `toggleHud` | the cockpit key: between `full` and the last level below it |
 | `textHold <level>` | a level for now (a film, a tour), shown instead of the saved one and never saved; `textHold ""` lets go of it, and so does any `T` or `H` |
 | `hud <0..1>` | cockpit brightness until the shell restarts (default 0.38) |
-| `film <true/false>` | film mode for recording: the level `off` for as long as it is on, reached over 1.5 s, so only the caption shows; the saved level is untouched (film itself is not remembered) |
-| `caption <title> <body>` | a quiet lower-third caption that fades in, replacing the last one; `caption "" ""` fades it out. It shows at every level; outside film mode the cockpit, the key column or the mode caption steps aside while it touches them |
+| `film <true/false>` | film mode for recording: the level `off` for as long as it is on, reached over 1.5 s, so only the story band shows, and only the script speaks in it; the saved level is untouched (film itself is not remembered) |
+| `caption <title> <body>` | a script's caption in the story band (see [Text](#text)): it comes up in 0.8 s once the caption before it has had its reading time (1.5 s + 0.3 s a word) and stays until the next `caption`; `caption "" ""` ends it. It shows at every level; outside film mode the cockpit, the key column or the mode caption steps aside while it touches them |
 | `tourKeys <rows>` | a tour's own keys in the bottom-left column, in place of the view's hints and the place card: `"SPACE=next; B=back; ESC=leave"`; `tourKeys ""` ends it. They show at `names` and `full`, not at `off` or in film mode |
-| `textReport` | prints, as JSON: the level, a hold, what is showing right now, and every screen's zones in logical pixels (safe rect, rail, caption slot, story band, the HUD's centre, scale, arrangement and reach) |
-| `textDebug <true/false>` | outlines those zones over the scene, with a circle that must lie on the HUD's outer bracket |
+| `textReport` | prints, as JSON: the level, a hold, what is showing right now, and every screen's zones in logical pixels (safe rect, rail, caption slot, story band, the HUD's centre, scale, radius and reach) |
+| `textDebug <true/false>` | outlines those zones over the scene, with a circle that must lie on the HUD's rim |
+| `hudDemo <view>` | the HUD's instrument with fixed, invented values, to look at every element without flying there: `universe`, `flight`, `system`, `year`, `galaxy`, `outside`, `sky`, `fall`, `math`; `hudDemo off` returns to the live values. The hub's date line says `DEMO` while it is on |
 | `status` | prints `<view> <fall phase or -> <radius in Rs, signed> <real/math>`, e.g. `galaxy outer-horizon 0.52 real`, for scripts; the phases are `falling`, `outer-horizon`, `inner-horizon`, `ring`, `other-universe`, `out`, `in` |
 | `quality <level>` | render quality: `auto` (default), `full`, `high`, `balanced`, `low`, or a render scale from 0.25 to 1; remembered across restarts (see [Adaptive quality](#adaptive-quality)) |
 | `qualityInfo` | prints what each screen runs at, and the hole tracer's layer, e.g. `DP-1 165 Hz: auto (nvidia): scale 1.00, 5120x2160 direct, idle 60 fps \| hole 2560x1080 32F, 33/21 Hz, est. 9.1 ms a draw` |
@@ -530,8 +676,8 @@ What is real:
   current Greenwich sidereal angle with the axial tilt, and a marker at the
   author's home. **Moon**: the LRO map, placed by a low-precision geocentric
   ephemeris, 27% of Earth's radius at about 60 Earth radii once at true scale.
-- **The Sun's motion**: 249 km/s toward Cygnus (Reid & Brunthaler 2020,
-  Schoenrich et al. 2010), with the orbital planes' tilts and nodes from JPL.
+- **The Sun's motion**: 247 km/s toward Cygnus (30.32 km/s/kpc at 8.15 kpc: Reid & Brunthaler 2020,
+  Schoenrich et al. 2010; one lap in 203 million years), with the orbital planes' tilts and nodes from JPL.
 - **Milky Way**: arm geometry from Reid et al. 2019, bar and bulge from Wegg
   et al. 2013/2015 and Bland-Hawthorn & Gerhard 2016, dust from Drimmel &
   Spergel 2001, measured scale heights, R0 = 8.15 kpc. Place positions from a
@@ -557,10 +703,10 @@ What is real:
   everyday view, the full sky near the Sun in the Milky Way view and in Sky
   mode, and 1:1 pixels in the seven named views.
 - **Sagittarius A***: exact Kerr light bending (Kerr-Schild coordinates,
-  spin a/M = 0.94 from the EHT 2022 best-bet model: horizons at 0.67 and
+  spin a/M = 0.94, one of the EHT 2022 papers' favoured models (the real spin is unmeasured): horizons at 0.67 and
   0.33 Rs, prograde photon orbit 0.71 Rs, ISCO 1.01 Rs), gas on Kerr circular
   orbits with Doppler, gravitational and frame-dragging shifts, the axis fall
-  from the geodesic equation, mass 4.3 million Suns, 26,600 ly away.
+  from the geodesic equation, mass 4.15 million Suns (GRAVITY 2019; "about 4 million" on screen), 26,600 ly away.
 
 What is simplified or invented:
 
@@ -603,7 +749,18 @@ Measured on an RTX 3080 Ti driving 5120x2160 at 165 Hz:
 The soft sky layer re-renders about ten times a second at half resolution;
 the Milky Way volume renders at a third of the screen size and only when the
 camera moves. The HUD gauges read CPU, memory and (through `nvidia-smi`) GPU
-load every two seconds while the cockpit is visible.
+load every two seconds while the cockpit is visible. The HUD itself is one
+branch per ring in `universe.frag` (a pixel evaluates one zone), about 8% of
+a 5120x2160 screen: an estimated 0.05 ms a frame there, to be measured with
+`perf true` against the cockpit off.
+
+The text's backing costs one more draw of the full pass a frame, at 96 x 40
+texels (the picture the backings read; 0.03% of the screen's pixels), and
+one small quad for every block of text on screen. The output is dithered
+with triangular noise of one 8-bit step on the target's own texels (two
+hashes a pixel), so the wide smooth gradients (the faint gas, the fall's
+closing light, the fades to and from black) round to the display's steps as
+grain too fine to see instead of as bands; black stays off.
 
 ### Adaptive quality
 
@@ -627,11 +784,19 @@ The budgets are estimates from the
 120 Hz, Hyprland scale 2) lands on scale 0.5: 1728x1117, a quarter of the
 pixels, which is the size the shaders already measure stars and HUD lines in.
 
+A screen nobody sits at is a still (`still` in the same answer): an output
+named `REMOTE-*` or `HEADLESS-*`, as wayvnc's virtual outputs are. It draws
+the idle sky for 2.5 s (textures load), keeps that one frame as a picture
+and stops: no shader, no HUD (a held clock would be a wrong clock), no
+words, so a remote desktop session has nothing to send for the background.
+A new wallpaper, theme or size takes a new frame. `qualityInfo` says
+"still: one frame, held" for such a screen.
+
 Below scale 1 the full pass renders into a texture and is stretched smoothly
 over the screen; the nebula and the Milky Way volume (the half- and
 third-size layers) shrink with it, the black hole's tracer keeps its own
 size (below),
-and the clock, readouts, labels and markers (QML text on top) stay at device
+and the clock, the HUD's words, labels and markers (QML text on top) stay at device
 resolution. The full pass is recreated whenever it changes between direct
 and textured. Below one texel per logical pixel the shaders' `resolution`
 shrinks too, so stars grow instead of flickering. The idle cap only holds
@@ -787,7 +952,7 @@ changed and restart the shell:
 omarchy restart shell
 ```
 
-Same command for `galaxy`, `hole` and `nebula`. If your edits don't appear,
+Same command for `galaxy`, `hole`, `nebula` and `scrim` (the text's backing). If your edits don't appear,
 clear Qt's shader cache: `rm -rf ~/.cache/quickshell`.
 
 Other knobs are plain properties at the top of `Background.qml`: the home
@@ -798,8 +963,9 @@ The camera's feel lives in `lib/camera.js`: `W_INPUT` (how quickly wheel,
 keys and flings settle), `W_MODE` (fades, the field-of-view morph, the
 true-scale blend), `FLING_TAU` (how far a released drag coasts) and the
 flight's `rho` (how high a long hop rises). Its numeric checks run with
-`node tests/test_camera.js lib/camera.js`; the fall's trajectory, timeline,
-ending and captions (`lib/fall.js`) with `node tests/test_fall.js lib/fall.js`; the pointer
+`node tests/test_camera.js lib/camera.js` (the Milky Way view's travel and
+the way home too); the fall's trajectory, timeline,
+ending and story, played through the story band (`lib/fall.js`, with `lib/text.js` beside it) with `node tests/test_fall.js lib/fall.js`; the pointer
 gesture (`lib/drag.js`: click or drag, the release velocity, the sky's
 angular grab) with `node tests/test_drag.js lib/drag.js lib/camera.js`; the Kerr hole's
 numbers, metric, frames, march, shadow edge, gas orbits and axis fall
@@ -808,11 +974,16 @@ lib/kerr.js`; the dwarf galaxy
 table (`lib/dwarfs.js`) with `node tests/test_dwarfs.js lib/dwarfs.js`; the
 Local Group's geometry, hand-off and photometry (`lib/localgroup.js`, and the
 dwarf texture against the table) with `node tests/test_localgroup.js
-lib/localgroup.js`; the text level, its groups, the idle clock and the hold
-by words (`lib/text.js`) with `node tests/test_text.js lib/text.js`; the
-zones, the HUD plan, beacon labels, markers and the label pass
-(`lib/layout.js`, on a 5120x2160 and a notched 1728x1117 screen among others)
-with `node tests/test_layout.js lib/layout.js`; the render scale, GPU probe,
+lib/localgroup.js`; the text level, its groups, the reading-time rule, the
+idle clock and the story band (`lib/text.js`) with `node tests/test_text.js lib/text.js`; the
+zones, the HUD's disc, the words in its gap and hub, beacon labels, markers
+and the label pass (`lib/layout.js`, on a 5120x2160 and a notched 1728x1117
+screen among others; with the shader given, its ring radii against
+`DIAL`) with `node tests/test_layout.js lib/layout.js universe.frag`; the
+HUD instrument's scales, bugs, needle spring, events and figures
+(`lib/dial.js`) with `node tests/test_dial.js lib/dial.js`; sunrise, sunset
+and the Moon's lit side (`lib/sun.js`) with `node tests/test_sun.js
+lib/sun.js`; the render scale, GPU probe, still screens,
 idle pacing and frame meter (`lib/quality.js`) with `node
 tests/test_quality.js lib/quality.js`.
 
@@ -834,26 +1005,41 @@ format, and optionally another camera for the layer (`tPos=`, `tFwd=`: a
 tracer running behind), and prints how much of the picture is white. `time=N`
 on `hole_layer.py` times the layer's draw.
 
-`tests/harness/fall.sh [--math] [--gpu <driver>]` runs a whole fall headless:
+`tests/harness/fall.sh [--math] [--esc <s>] [--gpu <driver>]` runs a whole fall headless
+(`--esc 30`: Esc thirty screen seconds in, and the way home from there):
 `Background.qml`'s own logic under `qmlscene6` on the offscreen platform,
-against stub Quickshell modules, with no shader drawn (about 90 s; it needs
+against stub Quickshell modules, with no shader drawn (about two minutes; it needs
 qt6-declarative and node). `fall_check.js` then checks what no node suite
 can: that the tick ran without a JavaScript error on every frame, that the
 camera rides the trajectory and that the camera handed to the hole's tracer
 moves all the way down with it (it once stayed where the fall began while
 the HUD counted down), the layer's size for the GPU, the scripted view, the
-exposure, the captions and the landmark ahead.
+exposure, the landmark ahead, that every caption stood in the story band for
+its reading time, and the way home: the black, the view over the Centre, one
+flight to the Sun with no jump in it, the Sun's card and "Back home" at the
+landing.
 
-The text's timing is in `lib/text.js` (`HOLD_S`, `WORDS_PER_S`, `HOLD_MAX_S`,
-the fades) and its geometry in `lib/layout.js`: the margins, the HUD's drift
-budget and where the readouts go (`WIDE`), and `tokens()`, every type size as
-a fraction of the screen height with a floor (nothing under 10 px).
+The text's timing is in `lib/text.js` (the reading rule: `READ_BASE_S`,
+`READ_WORD_S`, `READ_MIN_S`, `HOLD_MAX_S`; a zone's glance `GLANCE_S`; the
+story band's `STORY_IN_S` and `STORY_OUT_S`;
+the fades, and the HUD's own: `DIAL_WORDS`, `EVENT_S`, `DWELL_S`), its
+backing in `scrim.frag` (`LUM_LO`, `LUM_HI`; `strength` and `feather` on
+`Scrim` in `Background.qml`), the way home in `lib/camera.js` (`HOME_S`, `HOME_DARK_S`,
+`HOME_OPEN`, `W_TRAVEL`) and `gxHomePose` / `gxCentrePose`, and its
+geometry in `lib/layout.js`: the margins, the HUD's drift budget, where the
+disc goes (`WIDE`, `PAD_WIDE`, `AX_MAX`), its ring radii (`DIAL`, which
+`universe.frag` repeats as `D_*` constants) and `tokens()`, every type size
+as a fraction of the screen height with a floor (nothing under 10 px). The
+instrument's scales are in the nav producer in `Background.qml` (search
+`dialWant`), their maths in `lib/dial.js`.
 
 ## Notes
 
 - The fragment shaders read `qt_TexCoord0` (the default vertex shader's output
   name); renaming it causes name-mismatch linkage bugs on some drivers.
-- The GPU gauge in the HUD uses `nvidia-smi`; on other GPUs it stays at zero.
+- The GPU gauge in the HUD uses `nvidia-smi`; on other GPUs it is a bare
+  track with no figure and no temperature notch. The CPU's temperature notch
+  needs a `coretemp` hwmon.
 - The text level is remembered as one word in
   `~/.local/state/universe-background/text-level`. Until that file exists the
   older `hud-hidden` flag beside it decides the level at startup (present:

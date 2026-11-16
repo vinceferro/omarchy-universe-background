@@ -1,7 +1,7 @@
 // checks for quality.js, the adaptive render scale and idle pacing (run with node; strips the QML pragma)
 const fs = require("fs")
 const src = fs.readFileSync(process.argv[2], "utf8").replace(".pragma library", "")
-const Q = new Function(src + "\nreturn { SCALE_MIN, AUTO_MIN, IDLE_FULL, IDLE_SLOW, LEVELS, BUDGET, gpuClass, parseProbe, screenGpu, parseLevel, autoScale, choose, idleDue, perfCreate, perfFrame, perfTake, perfLine, describe, HOLE_NS, HOLE_FULL_MS, HOLE_DUTY_MOVE, HOLE_DUTY_IDLE, HOLE_HZ, HOLE_HZ_MIN, HOLE_OVER, holeRate, holeChoose, holeDue, holeDescribe };")()
+const Q = new Function(src + "\nreturn { SCALE_MIN, AUTO_MIN, IDLE_FULL, IDLE_SLOW, LEVELS, BUDGET, gpuClass, parseProbe, screenGpu, parseLevel, autoScale, choose, idleDue, perfCreate, perfFrame, perfTake, perfLine, describe, isStill, STILL_WARM_MS, HOLE_NS, HOLE_FULL_MS, HOLE_DUTY_MOVE, HOLE_DUTY_IDLE, HOLE_HZ, HOLE_HZ_MIN, HOLE_OVER, holeRate, holeChoose, holeDue, holeDescribe };")()
 let fails = 0
 function check(name, ok, info) { console.log((ok ? "ok   " : "FAIL ") + name + (info !== undefined ? "  " + info : "")); if (!ok) fails++ }
 const show = c => Q.describe(c)
@@ -150,6 +150,19 @@ check("direct is said", /5120x2160 direct, idle 60 fps$/.test(show(box)), show(b
   check("at the screen's rate: every frame", Math.abs(traced(144, 144) - 144) < 0.5)
   check("the first trace is due at once", Q.holeDue(-1, 20, 165))
   check("the line says size, format, rates and cost", /^hole 2560x1080 32F, 33\/21 Hz, est\. 9\.1 ms a draw$/.test(Q.holeDescribe(hb)), Q.holeDescribe(hb))
+}
+
+// a remote desktop's virtual output: one frame, held
+{
+  const base = { level: "auto", gpu: "nvidia", width: 5120, height: 2160, dpr: 1, hz: 165 }
+  check("still: wayvnc's virtual outputs (REMOTE-*, HEADLESS-*), by name", ["REMOTE-1", "HEADLESS-1", "HEADLESS-12", "remote-2"].every(Q.isStill))
+  check("still: no real connector, and no name at all", ["DP-1", "HDMI-A-1", "eDP-1", "DP-REMOTE-1", "", undefined, null].every(n => !Q.isStill(n)))
+  check("choose says still for such a screen, whatever its level or GPU", ["auto", "full", "low", "0.5"].every(l => ["nvidia", "intel", "unknown"].every(g => Q.choose(Object.assign({}, base, { level: l, gpu: g, name: "HEADLESS-1" })).still)))
+  check("and not for a real one, or one with no name (the reference machine is untouched)", !Q.choose(Object.assign({}, base, { name: "DP-1" })).still && !Q.choose(base).still
+        && Q.describe(Q.choose(Object.assign({}, base, { name: "DP-1" }))) === Q.describe(Q.choose(base)))
+  check("a still screen is the same picture a live one would draw: only held", (() => { const a = Q.choose(Object.assign({}, base, { name: "REMOTE-1" })), b = Q.choose(base); return a.scale === b.scale && a.texW === b.texW && a.layered === b.layered })())
+  check("the line says so", /still: one frame, held$/.test(Q.describe(Q.choose(Object.assign({}, base, { name: "REMOTE-1" })))), Q.describe(Q.choose(Object.assign({}, base, { name: "REMOTE-1" }))))
+  check("it draws a couple of seconds first (textures load), then holds", Q.STILL_WARM_MS >= 1000 && Q.STILL_WARM_MS <= 5000)
 }
 
 if (fails) { console.log(fails + " failed"); process.exit(1) }
