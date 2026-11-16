@@ -272,15 +272,16 @@ Item {
   // words are drawn with (the label pass keeps names apart by them)
   FontMetrics { id: fmLabel; font.family: Style.resolvedFontFamily; font.pixelSize: root.lay0.tok.label; font.letterSpacing: root.lay0.tok.label * root.lay0.tok.track.normal }
   FontMetrics { id: fmMicro; font.family: Style.resolvedFontFamily; font.pixelSize: root.lay0.tok.micro; font.letterSpacing: root.lay0.tok.micro * root.lay0.tok.track.normal }
-  readonly property var textWidths: ({ key: "", w: {} })
-  // the width of `text` as a label (px: tok.label) or as small words (tok.micro) on the first screen, with the label pass's margin
+  readonly property var textWidths: ({ key: "", w: {}, n: 0 })
+  // the width of `text` as a label (px: tok.label) or as small words (tok.micro) on the first screen, with the label pass's margin.
+  // Remembered per text; a beacon's words carry a distance that counts as it flies, so the memory starts over at 500 texts
   function textW(text, px) {
     const small = px !== lay0.tok.label, fm = small ? fmMicro : fmLabel
     const key = fm.font.family + "|" + lay0.tok.label + "|" + lay0.tok.micro
-    if (textWidths.key !== key) { textWidths.key = key; textWidths.w = {} }
+    if (textWidths.key !== key || textWidths.n >= 500) { textWidths.key = key; textWidths.w = {}; textWidths.n = 0 }
     const k = (small ? "m" : "l") + text
     let w = textWidths.w[k]
-    if (w === undefined) { w = fm.advanceWidth(text) + 6; textWidths.w[k] = w }
+    if (w === undefined) { w = fm.advanceWidth(text) + 6; textWidths.w[k] = w; textWidths.n++ }
     return w
   }
   readonly property string galHeadingText: "247 KM/S  ·  TOWARD CYGNUS"
