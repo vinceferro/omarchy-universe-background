@@ -1,6 +1,7 @@
 // the fall harness's driver: opens the galaxy view, flies to the hole, lets
 // go, and logs one JSON row every quarter second until the camera is back
-// home and the way home's caption has been read (fall.sh reads the rows)
+// home and the way home's caption has been read (fall.sh reads the rows).
+// --esc <s>: Esc (back()) once the fall's screen clock has reached s
 import QtQuick
 Window {
   id: win; width: 400; height: 300; visible: true
@@ -9,6 +10,8 @@ Window {
   property var hole: null
   property int step: 0
   property bool math: Qt.application.arguments.indexOf("--math") >= 0
+  property real esc: { const a = Qt.application.arguments.find(x => x.indexOf("--esc=") === 0); return a ? Number(a.slice(6)) : -1 }
+  property bool escaped: false
   property real t0: 0
   property int landed: -1
   // the hole's tracer: the one item with a camSheet and a flowTime
@@ -44,6 +47,7 @@ Window {
       if (s === 2) { win.ipc.milkyway(); win.ipc.mathMode(win.math) }
       else if (s === 8) win.ipc.hole()
       else if (s === 12) win.ipc.hole()
+      if (win.esc >= 0 && !win.escaped && bg.fallState && bg.fallState.s >= win.esc) { win.escaped = true; bg.back() }
       if (s >= 8) win.log()
       if (s > 60 && win.ipc.status().indexOf("galaxy - ") === 0 && bg.fallWhere !== "") { if (win.landed < 0) win.landed = s; if (s - win.landed > 44) { console.log("DONE"); Qt.quit() } }
       if (s > 640) { console.log("TIMEOUT"); Qt.quit() }

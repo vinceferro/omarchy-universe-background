@@ -1,7 +1,7 @@
 // numeric checks for camera.js (run with node; strips the QML pragma)
 const fs = require("fs")
 const src = fs.readFileSync(process.argv[2], "utf8").replace(".pragma library", "")
-const Cam = new Function(src + "\nreturn { Spring, VSpring, Camera, planPath, pathAt, hermite, add, sub, mul, dot, len, cross, norm, Voyage, homeBegin, homeStep, W_TRAVEL, W_INPUT, HOME_S, HOME_OPEN };")()
+const Cam = new Function(src + "\nreturn { Spring, VSpring, Camera, planPath, pathAt, hermite, add, sub, mul, dot, len, cross, norm, Voyage, homeBegin, homeStep, W_TRAVEL, W_INPUT, HOME_S, HOME_OPEN, HOME_DARK_S };")()
 let fails = 0
 function check(name, ok, info) { console.log((ok ? "ok   " : "FAIL ") + name + (info !== undefined ? "  " + info : "")); if (!ok) fails++ }
 
@@ -151,10 +151,10 @@ check("fling coasts a little and settles", moved > 0 && cam3.settled(), moved.to
   // the poses Background.qml uses: over the centre, then home
   const OPEN = { dist: 1.2, pitch: 0.45 }, HOME = { dist: 34, pitch: 1.0, yaw: 0.35 }
   // the whole return as the tick runs it: the black (a spring, 2.9 rad/s), the script, the travel, the orbit's pitch
-  function fly(hz, blind, hold) {
+  function fly(hz, blind) {
     const dt = 1 / hz, V = new Cam.Voyage([0, 0, 1e-9], 2.5e-9)   // deep in the hole
     const black = new Cam.Spring(0, 2.9), pitch = new Cam.Spring(0.2, Cam.W_INPUT)
-    const H = Cam.homeBegin(blind, hold), rows = [], events = []
+    const H = Cam.homeBegin(blind), rows = [], events = []
     let goal = CENTRE, distGoal = 2.5e-9, key = "hole", t = 0
     for (let i = 0; i < hz * 40 && H.phase !== ""; i++) {
       const ev = Cam.homeStep(H, dt, black.x, V.arrived())
@@ -176,14 +176,14 @@ check("fling coasts a little and settles", moved > 0 && cam3.settled(), moved.to
     }
     return { rows: rows, events: events, H: H }
   }
-  const r = fly(165, true, 2)
+  const r = fly(165, true)
   const placeAt = r.events[0].t, arriveAt = r.events[r.events.length - 1].t
   const departAt = r.events[1].t
   const flight = r.rows.filter(q => q.t > placeAt + 1e-9)
   check("the view opens over the centre and holds there until the picture is half back, then the flight departs", flight.filter(q => q.t <= departAt).every(q => Cam.len(q.F) < 1e-9 && Math.abs(q.dist - OPEN.dist) < 1e-9)
         && Math.abs(r.rows.find(q => q.t > departAt).black - Cam.HOME_OPEN) < 0.03 && departAt - placeAt > 0.3 && departAt - placeAt < 1, (departAt - placeAt).toFixed(2) + " s")
   check("the return from inside the hole: black, placed over the centre, the flight departs, it arrives; each once", r.events.map(e => e.ev).join(",") === "place,depart,arrive" && r.H.phase === "", r.events.map(e => e.ev + " " + e.t.toFixed(2)).join(", "))
-  check("the camera is placed only once the screen is black, after 2 s of black", r.rows.filter(q => q.t <= placeAt).slice(-1)[0].black >= 0.98 && placeAt > 3 && placeAt < 4.5, placeAt.toFixed(2))
+  check("the camera is placed only once the screen is black, after HOME_DARK_S of black", r.rows.filter(q => q.t <= placeAt).slice(-1)[0].black >= 0.98 && placeAt > 2 + Cam.HOME_DARK_S && placeAt < 2.5 + Cam.HOME_DARK_S, placeAt.toFixed(2))
   check("the view opens over the Galactic Centre, 1.2 kpc out, at rest", Cam.len(flight[0].F) < 1e-3 && Math.abs(flight[0].dist - OPEN.dist) < 0.01)
   const step = flight.map((q, i) => i === 0 ? 0 : Cam.len(Cam.sub(q.F, flight[i - 1].F)))
   const prog = flight.map(q => q.F[1] / SUN[1])
@@ -202,10 +202,8 @@ check("fling coasts a little and settles", moved > 0 && cam3.settled(), moved.to
   const last = flight[flight.length - 1]
   check("it lands with the Sun in the middle of the screen and the Centre beside it", Math.hypot(last.sun.x, last.sun.y) < 0.031 && inFrame(last.centre) && Math.hypot(last.centre.x, last.centre.y) > 0.1)
   check("a journey, not a cut: 6 to 8 s from the centre to the landing", arriveAt - departAt > 6 && arriveAt - departAt < 8, (arriveAt - departAt).toFixed(2) + " s")
-  const r60 = fly(60, true, 2)
+  const r60 = fly(60, true)
   check("the same timeline at 60 Hz", Math.abs(r60.events[0].t - placeAt) < 0.05 && Math.abs(r60.events[2].t - arriveAt) < 0.1, r60.events.map(e => e.t.toFixed(2)).join(" "))
-  const quick = fly(165, true, 0.5)
-  check("Esc on the way down: the same script with half a second of black", quick.events.map(e => e.ev).join(",") === "place,depart,arrive" && placeAt - quick.events[0].t > 1.4 && placeAt - quick.events[0].t < 1.6)
   // from a view that can be flown out of: no black, the same flight
   {
     const H = Cam.homeBegin(false), V = new Cam.Voyage([-3, 2, 0.1], 0.5)

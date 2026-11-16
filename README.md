@@ -362,8 +362,8 @@ itself moves (the time-lapse) is followed without lag.
 
 From a view that can be flown out of, the way home is that flight, flown
 slower than a hop (95% of it in 5 s). From inside the hole there is no road
-out, so the screen goes black first (two seconds at a fall's end, half a
-second after Esc), the view opens over the Galactic Centre, 1.2 kpc out and
+out, so the screen goes black first (one second of it, at a fall's end and
+after Esc alike), the view opens over the Galactic Centre, 1.2 kpc out and
 low over the disk, and once the picture is half back the same flight leaves
 from there: out along the disk to the Sun's place, the camera pulling back
 from 1.2 to 34 kpc and rising, the Centre on screen from the first frame to
@@ -473,9 +473,10 @@ falling in after us comes from, over the whole sky (a labelled cartoon of
 the unbounded blueshift, in `universe.frag`; the front veils what is under
 it instead of brightening it, so the sky squeezed into arcs does not show
 through as bands). Only then the screen fades to
-black, holds two seconds, and the way home begins (below): 18.4 s from
-the outer horizon to the fade. Esc ends the fall by the same road; nothing
-leaves the camera inside the hole.
+black, holds a second, and the way home begins (below): 18.4 s from
+the outer horizon to the fade. Esc ends the fall by the same road (the one
+function, `gxHome`); nothing leaves the camera inside the hole, and while it
+falls the keys that steer or change the view do nothing.
 
 **Why two falls.** It is one fall with two endings. The realistic one stops
 at the inner horizon because that is the last place the equations can be
@@ -1004,7 +1005,8 @@ format, and optionally another camera for the layer (`tPos=`, `tFwd=`: a
 tracer running behind), and prints how much of the picture is white. `time=N`
 on `hole_layer.py` times the layer's draw.
 
-`tests/harness/fall.sh [--math] [--gpu <driver>]` runs a whole fall headless:
+`tests/harness/fall.sh [--math] [--esc <s>] [--gpu <driver>]` runs a whole fall headless
+(`--esc 30`: Esc thirty screen seconds in, and the way home from there):
 `Background.qml`'s own logic under `qmlscene6` on the offscreen platform,
 against stub Quickshell modules, with no shader drawn (about two minutes; it needs
 qt6-declarative and node). `fall_check.js` then checks what no node suite
@@ -1022,7 +1024,7 @@ The text's timing is in `lib/text.js` (the reading rule: `READ_BASE_S`,
 story band's `STORY_IN_S` and `STORY_OUT_S`;
 the fades, and the HUD's own: `DIAL_WORDS`, `EVENT_S`, `DWELL_S`), its
 backing in `scrim.frag` (`LUM_LO`, `LUM_HI`; `strength` and `feather` on
-`Scrim` in `Background.qml`), the way home in `lib/camera.js` (`HOME_S`,
+`Scrim` in `Background.qml`), the way home in `lib/camera.js` (`HOME_S`, `HOME_DARK_S`,
 `HOME_OPEN`, `W_TRAVEL`) and `gxHomePose` / `gxCentrePose`, and its
 geometry in `lib/layout.js`: the margins, the HUD's drift budget, where the
 disc goes (`WIDE`, `PAD_WIDE`, `AX_MAX`), its ring radii (`DIAL`, which

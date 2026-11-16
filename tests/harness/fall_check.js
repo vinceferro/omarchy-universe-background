@@ -2,6 +2,7 @@
 // whatever the QML engine complained about) and checks the fall end to end
 const fs = require("fs")
 const math = process.argv.includes("--math")
+const esc = process.argv.some(a => a.indexOf("--esc=") === 0)      // the fall was ended with Esc: only the story and the way home are checked
 const lines = fs.readFileSync(process.argv[2], "utf8").split("\n")
 let fails = 0
 function check(name, ok, info) { console.log((ok ? "ok   " : "FAIL ") + name + (info !== undefined ? "  " + info : "")); if (!ok) fails++ }
@@ -16,7 +17,7 @@ check("the run finished (back home, the last caption read)", lines.some(l => l.e
 const rows = lines.filter(l => l.indexOf("ROW {") >= 0).map(l => JSON.parse(l.slice(l.indexOf("ROW ") + 4)))
 const fall = rows.filter(r => r.falling && r.phase !== "out" && r.phase !== "in" && r.phase !== "")
 check("the fall was logged", fall.length >= 40, fall.length + " rows")
-if (fall.length >= 40) {
+if (fall.length >= 40 && !esc) {
   const phases = [...new Set(fall.map(r => r.phase))]
   const want = math ? ["falling", "outer-horizon", "inner-horizon", "ring", "other-universe"] : ["falling", "outer-horizon", "inner-horizon"]
   check("phases: " + want.join(", "), want.every(p => phases.includes(p)), phases.join(", "))
@@ -75,10 +76,14 @@ if (fall.length >= 40) {
 // 5. the story band: what the fall says, each caption up for its reading time
 //    (lib/text.js: 1.5 s + 0.3 s a word; the rows are a quarter second apart)
 {
-  const want = math ? ["Looking back", "Event horizon", "Inner horizon", "Through the ring", "The other universe", "Back home"] : ["Looking back", "Event horizon", "Inner horizon", "Back home"]
+  const whole = math ? ["Looking back", "Event horizon", "Inner horizon", "Through the ring", "The other universe", "Back home"] : ["Looking back", "Event horizon", "Inner horizon", "Back home"]
   const seen = []
   for (const r of rows) if (r.caption && seen[seen.length - 1] !== r.caption) seen.push(r.caption)
-  check("the story band says, in order: " + want.join(", "), seen.join("|") === want.join("|"), seen.join(" | "))
+  // after Esc: what was up is read out, nothing that was waiting comes up, then the way home's own
+  const outAt = rows.findIndex(r => r.home === "out")
+  const before = [...new Set(rows.slice(0, outAt + 1).map(r => r.caption).filter(c => c))]
+  const want = esc ? before.concat(["Back home"]) : whole
+  check(esc ? "after Esc nothing more of the fall's story comes up: " + want.join(", ") : "the story band says, in order: " + want.join(", "), seen.join("|") === want.join("|"), seen.join(" | "))
   // the rule itself, on the words as shown (lib/text.js words() and read())
   const need = t => { const r = rows.find(q => q.caption === t); return Math.max(3, 1.5 + 0.3 * ((r.caption + " " + r.capBody).match(/[A-Za-z0-9][^\s]*/g) || []).length) }
   const upFor = t => rows.filter(r => r.caption === t && r.capUp === 1).length * 0.25

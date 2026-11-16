@@ -1081,8 +1081,6 @@ Item {
     else if (gxSel === hole) { gxDistGoal = gxMinDist(); gxAimAtPole(); gxFallArmed = true }
     else gxFlyTo(hole)
   }
-  // Esc: end the fall now, by the same way home as its own end (half a second of black)
-  function fallAbort() { if (fallState && !gxReturn) { gxHome(true, 0.5); fallPhase = "out" } }
   // the fall is over: the shaders are back in the hovering frame
   function fallEnd() {
     fallState = null
@@ -1116,9 +1114,10 @@ Item {
   // Home is one pose: the Sun in the middle of the screen with its Galaxy
   // around it (gxHomePose), where the view opens (enterGalaxy) and where
   // every return lands: 0, a click on the Sun, IPC `fly sun`, Esc during a
-  // fall and the end of both falls all call gxHome. From a view that can be
-  // flown out of it is a flight; from inside the hole the screen goes black
-  // first, the view opens over the Galactic Centre (gxCentrePose) and, once
+  // fall and the end of both falls all call gxHome, which takes no argument:
+  // where the camera is decides how it goes. From a view that can be flown
+  // out of it is a flight; from inside the hole (a fall under way) the
+  // screen goes black first, the view opens over the Galactic Centre (gxCentrePose) and, once
   // the picture is half back, the same flight goes out along the disk to the
   // Sun, the Galaxy in frame all the way. On arrival the Sun's marker and its card come up, and after a
   // fall the story band says where we are.
@@ -1126,11 +1125,16 @@ Item {
   readonly property var gxHomePose: ({ dist: 34, yaw: 0.35, pitch: 1.0 })
   readonly property var gxCentrePose: ({ dist: 1.2, pitch: 0.45 })
   property var gxReturn: null           // the return under way (Cam.homeBegin), or null
-  function gxHome(blind, hold) {
+  function gxHome() {
     if (gxReturn && gxReturn.phase === "out") return
-    gxReturn = Cam.homeBegin(blind, hold)
-    gxReturn.fall = !!fallState          // what to say on arrival
+    const falling = !!fallState
+    gxReturn = Cam.homeBegin(falling)
+    gxReturn.fall = falling              // what to say on arrival
     gxReturn.math = fallMath
+    if (falling) {
+      say("fall", "", "")                // nothing more of the fall's story comes up on the way home
+      fallPhase = "out"
+    }
   }
   function gxPlace(focus, dist, yaw, pitch) {
     gxVoyage.place(focus, dist)
@@ -1180,7 +1184,7 @@ Item {
   }
   function gxFlyTo(i) {
     if (fallState) return   // below the horizon, or on the way: nothing steers
-    if (i === -1) { gxHome(false); return }
+    if (i === -1) { gxHome(); return }
     gxFallArmed = false
     gxView = -1
     touchText()
@@ -1684,7 +1688,7 @@ Item {
   // one level back (Esc, or a right-click on empty space): out of the
   // galactic or chase view, from the Milky Way to the solar system, else home
   function back() {
-    if (fallState) { fallAbort(); return }   // never leaves the camera inside the hole: the way home first
+    if (fallState) { gxHome(); return }   // never leaves the camera inside the hole: the way home first
     if (galactic) toggleGalactic()
     else if (chasing) leaveChase()
     else if (explore === "galaxy" && gxFromSystem) enterSystem()
@@ -2104,7 +2108,7 @@ Item {
         // closed; at the mathematics mode's end on the far sheet early
         // enough that the camera is still moving when the screen goes dark
         if (!gxReturn) {
-          if (o.fade) { gxHome(true, 2); fallPhase = "out" }
+          if (o.fade) gxHome()
           else if (fallPhase !== o.phase) fallPhase = o.phase
         }
         // the frame the view is drawn in (the mathematics mode's shove comes
@@ -4527,6 +4531,9 @@ Item {
               event.accepted = true
               return
             }
+            // a fall: nothing steers and no other view is a key away. Esc (the
+            // way home), T and H above, and the arrows look around
+            if (root.fallState) { event.accepted = true; return }
             const n = root.hotspots.length
             if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
               // from the Sun, free flight or a dwarf galaxy (past the hotspots): start at the first
