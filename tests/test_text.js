@@ -1,7 +1,7 @@
 // checks for text.js, the text level and its idle clock (run with node; strips the QML pragma)
 const fs = require("fs")
 const src = fs.readFileSync(process.argv[2], "utf8").replace(".pragma library", "")
-const Tx = new Function(src + "\nreturn { LEVELS, GROUPS, HOLD_S, WORDS_PER_S, HOLD_MAX_S, FADE_IN_S, FADE_OUT_S, LEVEL_S, TOAST_S, parseLevel, next, prev, apply, migrate, effective, shows, words, hold, create, touch, wanted, step, snap, ease, gate, presence, mix };")()
+const Tx = new Function(src + "\nreturn { LEVELS, GROUPS, HOLD_S, WORDS_PER_S, HOLD_MAX_S, FADE_IN_S, FADE_OUT_S, LEVEL_S, TOAST_S, DIAL_WORDS, EVENT_S, DWELL_S, DWELL_HOLD_S, UNITS_S, touchZone, dwell, parseLevel, next, prev, apply, migrate, effective, shows, words, hold, create, touch, wanted, step, snap, ease, gate, presence, mix };")()
 let fails = 0
 function check(name, ok, info) { console.log((ok ? "ok   " : "FAIL ") + name + (info !== undefined ? "  " + info : "")); if (!ok) fails++ }
 const run = (m, s, hz, level, zones) => { for (let i = 0; i < Math.round(s * hz); i++) Tx.step(m, 1 / hz, level, zones) }
@@ -112,6 +112,63 @@ for (let i = 0; i < 165 * 120; i++) { Tx.touch(f); Tx.step(f, 1 / 165, "full", {
 check("two minutes of falling: presence stays 1", low === 1)
 run(f, 31, 165, "full", { card: 75, hints: 30, label: 0 })
 check("and it fades once the fall is over", Tx.presence(f, "card") === 0)
+
+// 12. the cockpit's words: the dial zone, its own touches, the quiet zones
+const DZ = { label: 0, dial: Tx.DIAL_WORDS, sys: 0, units: 0 }, QUIET = ["sys", "units"]
+const dz = Tx.create(); Tx.snap(dz, "full"); Tx.touch(dz)
+run(dz, 1, 165, "full", DZ)
+check("a touch brings the dial zone up with the names", Tx.presence(dz, "dial") === 1 && Tx.presence(dz, "label") === 1)
+{
+  const q = Tx.create(); Tx.snap(q, "full"); Tx.touch(q); for (let i = 0; i < 165; i++) Tx.step(q, 1 / 165, "full", DZ, QUIET)
+  check("a quiet zone ignores the clock", Tx.presence(q, "dial") === 1 && Tx.presence(q, "sys") === 0 && Tx.presence(q, "units") === 0)
+  for (let i = 0; i < 165 * 11; i++) Tx.step(q, 1 / 165, "full", DZ, QUIET)
+  check("after 12 s idle at full: the dial zone is gone and the cockpit's gate is 1 (geometry and the clock stand)", Tx.presence(q, "dial") === 0 && Tx.gate(q, "cockpit") === 1 && Tx.mix(q, "cockpit", "standing") === 1 && !q.moving)
+  check("the dial zone holds about 11 s: 8 s and ten words", Math.abs(Tx.hold(Tx.DIAL_WORDS) - 10.86) < 0.01, Tx.hold(Tx.DIAL_WORDS).toFixed(2))
+  // an event: the dial zone alone, at least 4 s
+  Tx.touchZone(q, "dial")
+  let up = 0, others = 0
+  for (let i = 0; i < 165 * 8; i++) { Tx.step(q, 1 / 165, "full", DZ, QUIET); if (Tx.presence(q, "dial") === 1) up += 1 / 165; others = Math.max(others, Tx.presence(q, "label"), Tx.presence(q, "sys")) }
+  check("an event raises the dial zone for 4 s and nothing else", Math.abs(up - (Tx.EVENT_S - Tx.FADE_IN_S)) < 0.05 && others === 0 && Tx.presence(q, "dial") === 0, up.toFixed(2) + " s at full")
+  check("it never touched the idle clock", q.since > 12)
+  // a machine event: the machine labels only
+  Tx.touchZone(q, "sys")
+  for (let i = 0; i < 165; i++) Tx.step(q, 1 / 165, "full", DZ, QUIET)
+  check("a machine event raises sys alone (presSys is the larger of dial and sys)", Tx.presence(q, "sys") === 1 && Tx.presence(q, "dial") === 0 && Tx.presence(q, "units") === 0)
+  for (let i = 0; i < 165 * 5; i++) Tx.step(q, 1 / 165, "full", DZ, QUIET)
+  check("and it goes after its 4 s", Tx.presence(q, "sys") === 0)
+  // the longer of two touches wins; a shorter one does not cut it
+  Tx.touchZone(q, "units", Tx.UNITS_S); Tx.touchZone(q, "units", 1)
+  for (let i = 0; i < 165 * 2.5; i++) Tx.step(q, 1 / 165, "full", DZ, QUIET)
+  check("unit words after a view change: 3 s, and a shorter touch does not cut them", Tx.presence(q, "units") === 1 && Tx.UNITS_S === 3)
+  for (let i = 0; i < 165 * 2; i++) Tx.step(q, 1 / 165, "full", DZ, QUIET)
+  check("then gone", Tx.presence(q, "units") === 0)
+}
+{
+  // the pointer resting inside the disc
+  const p = Tx.create(); Tx.snap(p, "full")
+  const go = (s, inside) => { for (let i = 0; i < Math.round(s * 165); i++) { Tx.dwell(p, inside, 1 / 165); Tx.step(p, 1 / 165, "full", DZ, QUIET) } }
+  go(0.25, true)
+  check("the pointer crossing the disc (0.25 s) raises nothing", Tx.presence(p, "dial") === 0)
+  go(0.1, false); go(0.25, true)
+  check("nor do two short visits add up", Tx.presence(p, "dial") === 0)
+  go(0.4, true)
+  check("resting 0.3 s inside brings the dial zone up, and only it", Tx.presence(p, "dial") > 0 && Tx.presence(p, "label") === 0 && Tx.presence(p, "sys") === 0)
+  go(30, true)
+  check("it stays for as long as the pointer rests there", Tx.presence(p, "dial") === 1)
+  go(1.5, false)
+  check("and 2 s after it leaves", Tx.presence(p, "dial") === 1)
+  go(1.5, false)
+  check("then fades", Tx.presence(p, "dial") === 0)
+  check("the dwell's constants are named", Tx.DWELL_S === 0.3 && Tx.DWELL_HOLD_S === 2 && Tx.EVENT_S === 4)
+}
+{
+  // a fall touches the clock every tick: the dial's words stay for the fall; at names there is no cockpit at all
+  const a = Tx.create(); Tx.snap(a, "full"); let low = 1
+  for (let i = 0; i < 165 * 60; i++) { Tx.touch(a); Tx.step(a, 1 / 165, "full", DZ, QUIET); if (i > 165) low = Math.min(low, Tx.presence(a, "dial")) }
+  check("a minute of falling: the dial zone stays", low === 1)
+  const n = Tx.create(); Tx.snap(n, "names"); Tx.touch(n); Tx.touchZone(n, "dial"); for (let i = 0; i < 165; i++) Tx.step(n, 1 / 165, "names", DZ, QUIET)
+  check("at names (and off) the cockpit's gate is 0 whatever the zone says", Tx.mix(n, "cockpit", "dial") === 0 && Tx.presence(n, "dial") === 1)
+}
 
 if (fails) { console.log(fails + " failed"); process.exit(1) }
 console.log("all passed")
