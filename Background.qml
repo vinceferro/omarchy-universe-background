@@ -808,6 +808,13 @@ Item {
   // fading in ("in"). Esc gives up by the same fade; leaving the view, sleep
   // or a fullscreen window reset it all.
   //
+  // The realistic ending is told, not just cut (fall.js): the fall is shown
+  // slowing into the inner horizon over 6 s, the light falling in after us
+  // closes in from the pole we fell from (fallClose, universe.frag), and
+  // only then the fade. What it is goes to the story band (fallSay): the
+  // outer horizon, the inner horizon and, in mathematics mode, the ring and
+  // the other universe, at every text level like a film's caption.
+  //
   // The spin: a/M = 0.94, the EHT 2022 Sgr A* Paper V best-bet model (a MAD
   // flow at 30 degrees inclination; Daly et al. 2024 find ~0.9 from the
   // outflow method, Fragione & Loeb 2020 argue for < 0.1 from the S stars'
@@ -836,6 +843,9 @@ Item {
   property real gxFallE: 0              // the observer's energy per unit mass, for the shaders (0: not falling)
   property real gxCamSheet: 1           // -1 once through the disk: the shaders' r < 0 sheet
   property real fallFlash: 1            // > 1 in the last seconds before the inner horizon: the glow's blueshift (cartoon)
+  property real fallClose: 0            // 0..1 over the last 5 s before the inner horizon: its light closing in (cartoon)
+  property string fallCaption: ""       // the story caption the fall is at (a key of Fall.CAPTIONS)
+  property string fallSaid: ""          // the caption the fall put in the story band, while it is still the one there
   property real fallFade: 0             // 0..1 black
   property real fallHold: 0             // seconds spent black
   property real fallHoldFor: 2
@@ -903,6 +913,21 @@ Item {
     gxAim(Math.atan2(pole[0], pole[1]), Math.asin(pole[2]))
     gxView = -1
   }
+  // The fall's story caption, through the band film and tours use (so it
+  // shows at every text level). A caption that is not the fall's (a tour's,
+  // IPC `caption`) keeps the band, and film mode leaves the words to its
+  // script: the fall then says nothing.
+  function fallSay(key) {
+    if (key === fallCaption) return
+    fallCaption = key
+    const up = captionTitle + "\n" + captionBody
+    const ours = fallSaid !== "" && fallSaid === up
+    if (film || (up !== "\n" && !ours)) { fallSaid = ""; return }
+    const c = Fall.CAPTIONS[key]
+    if (!c && !ours) return
+    setCaption(c ? c.title : "", c ? c.body : "")
+    fallSaid = c ? c.title + "\n" + c.body : ""
+  }
   // at: where the fall starts (kpc), when not the camera's last position. The
   // fall is always down the axis: from the pole on that side, at that radius
   // (a jump when free flight crossed the horizon off the axis: the rare path)
@@ -929,6 +954,7 @@ Item {
     fallHold = 0
     gxCamSheet = 1
     fallFlash = 1
+    fallClose = 0
     gxFallE = F.tl.E
     gxSel = gxIndex("Sagittarius A")
     gxTarget = [0, 0, 0]
@@ -953,6 +979,8 @@ Item {
     gxFallE = 0
     gxCamSheet = 1
     fallFlash = 1
+    fallClose = 0
+    fallSay("")
     fallInside = false
     gxFlyTo(-1)
     const sp = sunPosAt(gxMyr)
@@ -1865,19 +1893,24 @@ Item {
         if ((r < F.tl.rPlus) !== fallInside) fallInside = r < F.tl.rPlus
         const sheet = r < 0 ? -1 : 1
         if (sheet !== gxCamSheet) gxCamSheet = sheet
-        // the inner horizon's flash (realistic mode, the last 2.5 s, through
-        // the fade): the glow below shifted blue by sqrt(2.5 s / time left),
+        // the inner horizon's flash (realistic mode, the last 2.5 s of proper
+        // time, which the ending shows over 6): the glow below shifted blue
+        // by sqrt(2.5 s / time left),
         // a cartoon of the unbounded blueshift there (Poisson & Israel 1990)
         const flash = F.tl.math ? 1 : Math.max(1, Math.sqrt(2.5 / Math.max(o.left, 0.05)))
         if (Math.abs(flash - fallFlash) > 1e-3) fallFlash = flash
+        // and its light closing in, over the last 5 s on screen (universe.frag)
+        if (Math.abs(o.light - fallClose) > 1e-4 || (o.light === 1) !== (fallClose === 1)) fallClose = o.light
+        fallSay(o.caption)
         // the fall's own phase, kept through the fade (fall.js turns it to
         // "inner-horizon" 4 s before r-, so it is seen before the fade starts)
         if (fallWhere !== o.phase) fallWhere = o.phase
-        // the fade is black 2.0 s after it starts: begin it so the camera is
-        // still moving when the screen goes dark (at the inner horizon, or at
-        // the mathematics mode's end on the far sheet)
+        // the fade is black 2.0 s after it starts. fall.js says when: at the
+        // inner horizon once the fall has slowed into it and the light has
+        // closed; at the mathematics mode's end on the far sheet early
+        // enough that the camera is still moving when the screen goes dark
         if (fallPhase !== "out" && fallPhase !== "in") {
-          if (o.left < 2.2) { fallPhase = "out"; fallHold = 0; fallHoldFor = 2 }
+          if (o.fade) { fallPhase = "out"; fallHold = 0; fallHoldFor = 2 }
           else if (fallPhase !== o.phase) fallPhase = o.phase
         }
         // the view turns from the hole to the side over the approach (in log
@@ -2289,7 +2322,7 @@ Item {
                         : fallR > -tl.a ? "THROUGH THE DISK INSIDE THE RING" : "THE OTHER UNIVERSE  ·  REPELLED"
             rows = [
               { label: "FALLING", value: fmtNum(fallR, 2) + " SCHWARZSCHILD RADII  ·  " + where },
-              { label: "PROPER TIME", value: left + (tl.math ? " TO THE EDGE OF THE FAR SHEET" : " TO THE INNER HORIZON") + "  ·  " + (fallRate > 1.05 ? "SHOWN " + fmtNum(fallRate) + "× FASTER" : "REAL TIME") }
+              { label: "PROPER TIME", value: left + (tl.math ? " TO THE EDGE OF THE FAR SHEET" : " TO THE INNER HORIZON") + "  ·  " + (fallRate > 1.05 ? "SHOWN " + fmtNum(fallRate) + "× FASTER" : fallRate < 0.95 ? "SHOWN SLOWER" : "REAL TIME") }
             ]
             if (tl.math) rows.push({ label: "MATHEMATICS", value: "THE EXTENDED KERR SOLUTION, NOT OBSERVED PHYSICS  ·  PLUNGE AT 0.75 C" })
           }
@@ -3081,6 +3114,7 @@ Item {
               property real gxRealSky: root.gxRealSky
               property real gxFallE: root.gxFallE
               property real gxFallFade: root.fallFade
+              property real gxFallClose: root.fallClose
               property vector3d gxSpinAxis: root.holeSpinAxis
               property real gxSpin: root.holeSpin
               property real gxCamSheet: root.gxCamSheet

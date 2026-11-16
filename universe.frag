@@ -91,6 +91,7 @@ layout(std140, binding = 0) uniform buf {
     float gxSpin;    // its spin a, in Schwarzschild radii (a/M = 2a; 0: Schwarzschild)
     float gxCamSheet; // +1; -1 once the falling camera is through the disk, on the r < 0 sheet (math mode)
     vec2 holeRes;    // the hole tracer's layer size, px
+    float gxFallClose; // 0..1 over the last seconds before the inner horizon: its light closing in
 };
 
 // NASA maps, equirectangular: Blue Marble (day), Black Marble (night lights),
@@ -1252,6 +1253,25 @@ void main() {
         vec3 gc = g.rgb + g.a * gxSky(rd) + hotspotLook(rd, t) * (0.35 + 0.65 * g.a);
         vec3 hole = blackHole(rd, uv);
         if (hole.r >= 0.0) gc = hole;
+        if (gxFallClose > 0.0) {
+            // The inner horizon's light (realistic fall, the last seconds
+            // before r-). Everything that falls in after us arrives there
+            // blueshifted without bound (Penrose 1968; Poisson & Israel
+            // 1990): it comes from behind, from the pole we fell from. A
+            // labelled cartoon, not a traced image: what is still seen turns
+            // brighter and bluer, and a blue-white front spreads from that
+            // pole over the whole sky, down to the direction of the fall
+            // (in the scripted view: from the top of the screen to the
+            // bottom, over about 3 s), until nothing else is left: at 1 the
+            // screen is one colour. Then it fades to black (below).
+            float c = gxFallClose;
+            float mu = dot(rd, normalize(gxCam / RS_KPC));     // 1: back up the axis; -1: straight down
+            const float W = 0.7;                          // the front's width, in cos(angle)
+            float lit = smoothstep(0.0, 1.0, (mu - mix(1.0, -1.0 - W, c)) / W);
+            gc *= mix(vec3(1.0), vec3(1.0, 1.25, 1.9), c) * (1.0 + 1.5 * c);
+            vec3 front = mix(vec3(0.16, 0.30, 0.85), vec3(0.80, 0.88, 1.0), lit * lit) * (0.35 + 0.65 * c * c);
+            gc = mix(gc, front, lit);
+        }
         if (gxRealSky > 0.0) {
             // the real sky from here: galactic longitude from the Centre
             // toward rotation, latitude toward the north pole

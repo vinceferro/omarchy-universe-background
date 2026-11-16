@@ -313,11 +313,32 @@ The fall ends at the inner (Cauchy) horizon, because the physics does: the
 Kerr solution continues through it, but a real hole's inner horizon is
 unstable (Penrose 1968; Poisson & Israel 1990, "mass inflation"; Ori 1991):
 light falling in after us arrives there blueshifted without bound, and what
-the solution says beyond it describes nothing observed. In the last second
-the glow below brightens and turns blue-white (a labelled cartoon of that),
-the screen fades to black, holds two seconds, and the camera is back beside
-the Sun. Esc gives up the same way; nothing leaves the camera inside the
-hole. The HUD names the phase and counts the proper time left; `status`
+the solution says beyond it describes nothing observed. The ending is told
+rather than cut. The observer would reach the inner horizon at full speed,
+and a camera doing that simply stops: so the last 2.5 s of proper time are
+shown over 6 s, the fall slowing into r- (the HUD says "shown slower"; it is
+a way of showing it, not time dilation). Over the last 5 of those seconds
+the light closes in: the glow below turns blue, what is still seen brightens,
+and a blue-white front spreads from the pole we fell from, where the light
+falling in after us comes from, over the whole sky (a labelled cartoon of
+the unbounded blueshift, in `universe.frag`). Only then the screen fades to
+black, holds two seconds, and the camera is back beside the Sun: 18.4 s from
+the outer horizon to the fade. Esc gives up the same way; nothing leaves the
+camera inside the hole.
+
+The fall says where it is in the story band, the lower-third caption film
+and tours use, so it shows at every text level, `off` included: "Event
+horizon: nothing marks it" for 4 s at the crossing, and "Inner horizon: here
+the known physics ends. Beyond, the equations no longer describe what we
+would see", with the line "K: follow the mathematics through the ring", from
+4 s of proper time before r- through the black. In mathematics mode the
+captions are the event horizon, the inner horizon (no K line), "Through the
+ring" before the disk and "The other universe" beyond it. A caption that is
+not the fall's (a tour's, IPC `caption`) keeps the band, and in film mode the
+fall says nothing: the script has the words. The timing and the words live
+in `lib/fall.js` (`tau`, `light`, `caption`, `CAPTIONS`).
+
+The HUD names the phase and counts the proper time left; `status`
 reports both; the maths has its own checks in `tests/test_fall.js` and
 `tests/test_kerr.js`.
 
@@ -515,8 +536,9 @@ What is simplified or invented:
   a false-colour impression, its motion runs 30 times faster than real, off
   the plane the thick torus keeps the plane's orbital speed, inside the ISCO
   real gas plunges rather than orbits, the glow of infalling gas is a
-  spherical Schwarzschild cartoon, and the inner horizon's flash is a cartoon
-  of an instability the solution cannot show. Mathematics mode is the exact
+  spherical Schwarzschild cartoon, and the inner horizon's closing light (and
+  the fall shown slowing into it) is a cartoon of an instability the solution
+  cannot show. Mathematics mode is the exact
   solution, not physics, with an invented far sky and a plunge no observer at
   rest could make.
 - The soft gas layer of the everyday sky and the far galaxies are procedural
@@ -680,8 +702,8 @@ The camera's feel lives in `lib/camera.js`: `W_INPUT` (how quickly wheel,
 keys and flings settle), `W_MODE` (fades, the field-of-view morph, the
 true-scale blend), `FLING_TAU` (how far a released drag coasts) and the
 flight's `rho` (how high a long hop rises). Its numeric checks run with
-`node tests/test_camera.js lib/camera.js`; the fall's trajectory and timeline
-(`lib/fall.js`) with `node tests/test_fall.js lib/fall.js`; the pointer
+`node tests/test_camera.js lib/camera.js`; the fall's trajectory, timeline,
+ending and captions (`lib/fall.js`) with `node tests/test_fall.js lib/fall.js`; the pointer
 gesture (`lib/drag.js`: click or drag, the release velocity, the sky's
 angular grab) with `node tests/test_drag.js lib/drag.js lib/camera.js`; the Kerr hole's
 numbers, metric, frames, march, shadow edge, gas orbits and axis fall
