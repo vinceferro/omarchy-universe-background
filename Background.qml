@@ -334,6 +334,8 @@ Item {
       if (!rec) R.said = ""
       return
     }
+    // faded on the idle clock: nothing is worked out until something brings the text back
+    if (presAnat === 0 && anatOut && !anatRun.walk) return
     // the drawing: redone when the view, the room or the row being told changed
     const L0 = lay0, zones = labelZones()
     const frames = {}, frameOf = r => frames[r.id] !== undefined ? frames[r.id] : (frames[r.id] = anatFrame(r))
