@@ -404,6 +404,14 @@ check("math captions: each stands at least 4 s, with 2 s between unrelated ones;
 let fade0 = -1, left0 = -1; said = []; lastSaid = null
 run(Fall.begin(6, 0), 165, (o, s) => { if (o.fade && fade0 < 0) { fade0 = s; left0 = o.left } if (o.caption !== lastSaid) { said.push(o.caption); lastSaid = o.caption } })
 check("a = 0: no inner horizon, no slowdown: the fade 2.2 s before the singularity, the one caption", !tl.slow && left0 < Fall.T_FADE && left0 > Fall.T_FADE - 0.02 && said.join("|") === "|event-horizon|", left0.toFixed(3))
+// the inverse on the whole realistic timeline, above the horizon too (the
+// ending's closed form is for its own stretch only)
+let invAll = 0
+for (let s = 0.5; s < tk.sEnd; s += 0.25) invAll = Math.max(invAll, Math.abs(Fall.sAtTau(tk, Fall.tau(tk, s)) - s))
+check("realistic: s(tau(s)) round trip from the start to r-, above the horizon too", invAll < 1e-6, invAll.toExponential(1))
+check("realistic: a fall joined above the horizon (begin at 1.5, 1.0) starts at that radius, before the crossing", [1.5, 1.0].every(r => { const F = Fall.begin(r, A); return F.s > 0 && F.s < Fall.S_HORIZON && Math.abs(Fall.rAt(F.tl, Fall.tau(F.tl, F.s)) - r) < 1e-6 && Fall.caption(F.tl, F.s) === "" }))
+const tx = Fall.timeline(6, 0.5)
+check("extremal spin (the horizons coincide): no stretch to slow, every time finite, the fade at the horizon", tx.tSlow === 0 && [tx.sReal, tx.sEnd, tx.sFade, tx.sInner].every(isFinite) && tx.sFade === Fall.S_HORIZON && Fall.tau(tx, tx.sEnd) === tx.tauEnd && Fall.sAtTau(tx, tx.tauEnd) === tx.sEnd)
 check("a crossing in free flight (begin at 0.6) starts on the event horizon's caption", Fall.caption(tk, Fall.begin(0.6, A).s) === "event-horizon")
 // the words: every key the timeline can return has a caption, short enough
 // for the story band; the K hint is in the realistic ending only
