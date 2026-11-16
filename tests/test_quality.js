@@ -1,7 +1,7 @@
 // checks for quality.js, the adaptive render scale and idle pacing (run with node; strips the QML pragma)
 const fs = require("fs")
 const src = fs.readFileSync(process.argv[2], "utf8").replace(".pragma library", "")
-const Q = new Function(src + "\nreturn { SCALE_MIN, AUTO_MIN, IDLE_FULL, IDLE_SLOW, LEVELS, BUDGET, gpuClass, parseProbe, screenGpu, parseLevel, autoScale, choose, idleDue, perfCreate, perfFrame, perfTake, perfLine, describe };")()
+const Q = new Function(src + "\nreturn { SCALE_MIN, AUTO_MIN, IDLE_FULL, IDLE_SLOW, LEVELS, BUDGET, gpuClass, parseProbe, screenGpu, parseLevel, autoScale, choose, idleDue, perfCreate, perfFrame, perfTake, perfLine, describe, HOLE_NS, HOLE_FULL_MS, HOLE_DUTY_MOVE, HOLE_DUTY_IDLE, HOLE_HZ, HOLE_HZ_MIN, HOLE_OVER, holeRate, holeChoose, holeDue, holeDescribe };")()
 let fails = 0
 function check(name, ok, info) { console.log((ok ? "ok   " : "FAIL ") + name + (info !== undefined ? "  " + info : "")); if (!ok) fails++ }
 const show = c => Q.describe(c)
@@ -115,6 +115,42 @@ check("the next window starts clean and loses no interval", r2.frames === 1 && r
 const line = Q.perfLine("eDP-1", r, "idle", lap)
 check("the log line names screen, mode, numbers and quality", /^universe perf eDP-1 \[idle\]: [\d.]+ fps, interval avg [\d.]+ ms, peak 40 ms, 119 frames \| auto \(apple\): scale 0\.50, 1728x1117, idle 30 fps$/.test(line), line)
 check("direct is said", /5120x2160 direct, idle 60 fps$/.test(show(box)), show(box))
+
+// 8. the hole's tracer: the layer's size, format and rates per GPU
+{
+  const hb = Q.holeChoose({ gpu: "nvidia", width: 5120, height: 2160, dpr: 1, hz: 165 })
+  check("NVIDIA at 5120x2160: half the screen, 32-bit floats", hb.scale === 0.5 && hb.texW === 2560 && hb.texH === 1080 && hb.float32, Q.holeDescribe(hb))
+  check("... a draw is estimated at 9 ms: no full-size layer (it would be 36 ms against the 2 ms allowed)", Math.abs(hb.drawMs - 9.12) < 0.05 && 4 * hb.drawMs > Q.HOLE_FULL_MS)
+  check("... so it is traced at a whole fraction of 165 Hz within a third of the GPU's time while moving", Math.abs(hb.moveHz - 33) < 1e-9 && hb.moveHz * hb.drawMs / 1000 <= Q.HOLE_DUTY_MOVE + 1e-9, hb.moveHz.toFixed(2))
+  check("... and within 20% while only the gas flows", Math.abs(hb.idleHz - 165 / 8) < 1e-9 && hb.idleHz * hb.drawMs / 1000 <= Q.HOLE_DUTY_IDLE + 1e-9, hb.idleHz.toFixed(2))
+  const small = Q.holeChoose({ gpu: "nvidia", width: 960, height: 540, dpr: 1, hz: 60 })
+  check("NVIDIA where a whole draw fits 2 ms: full size, every frame", small.scale === 1 && small.drawMs <= 2 && small.moveHz === 60 && small.idleHz === 30, Q.holeDescribe(small))
+  const fhd = Q.holeChoose({ gpu: "nvidia", width: 1920, height: 1080, dpr: 1, hz: 144 })
+  check("NVIDIA at 1920x1080: a half (a full draw is 6.8 ms), every frame while moving (1.7 ms)", fhd.scale === 0.5 && fhd.moveHz === 144 && Math.abs(fhd.idleHz - 36) < 1e-9, Q.holeDescribe(fhd))
+  const hl = Q.holeChoose({ gpu: "apple", width: 1728, height: 1117, dpr: 2, hz: 120 })
+  check("the laptop keeps a third of the logical size, 16-bit floats and 40 Hz", Math.abs(hl.scale - 1 / 3) < 1e-12 && hl.texW === 576 && hl.texH === 373 && !hl.float32 && hl.moveHz === 40 && hl.idleHz === 40, Q.holeDescribe(hl))
+  for (const g of ["amd", "intel", "unknown", "nonsense"]) {
+    const o = Q.holeChoose({ gpu: g, width: 2560, height: 1440, dpr: 1, hz: 30 })
+    check(g + ": a third, 16-bit, never above the screen's rate", Math.abs(o.scale - 1 / 3) < 1e-12 && !o.float32 && o.moveHz === 30 && o.idleHz === 30)
+  }
+  const ov = Q.holeChoose({ gpu: "nvidia", width: 5120, height: 2160, dpr: 1, hz: 165, holeScale: 1 / 3 })
+  check("an asked scale wins, and the rates follow its cost", Math.abs(ov.scale - 1 / 3) < 1e-12 && ov.texW === 1707 && ov.moveHz > hb.moveHz && ov.moveHz * ov.drawMs / 1000 <= Q.HOLE_DUTY_MOVE + 1e-9, Q.holeDescribe(ov))
+  check("an asked scale is clamped; junk is the automatic choice", Q.holeChoose({ gpu: "apple", width: 1728, height: 1117, hz: 120, holeScale: 7 }).scale === 1
+        && Q.holeChoose({ gpu: "nvidia", width: 5120, height: 2160, hz: 165, holeScale: "x" }).scale === 0.5 && Q.holeChoose({ gpu: "nvidia", width: 5120, height: 2160, hz: 165, holeScale: 0 }).scale === 0.5)
+  check("the margin is the shaders' 1.04", hb.over === 1.04 && hl.over === 1.04)
+  check("rates are whole fractions of the refresh rate", [165, 144, 120, 60].every(hz => [20, 33, 40, 100, 400].every(w => { const r = Q.holeRate(hz, w); return r <= Math.max(w, hz / Math.ceil(hz / w)) + 1e-9 && r <= hz && Math.abs(hz / r - Math.round(hz / r)) < 1e-9 })))
+  // pacing off the frame clock, with a millisecond of jitter either way
+  function traced(hz, frameHz) {
+    let last = -1, n = 0, t = 0
+    for (let i = 0; i < 5000; i++) { t += 1000 / frameHz + ((i * 7) % 3 - 1) * 0.8; if (Q.holeDue(last < 0 ? -1 : t - last, hz, frameHz)) { n++; last = t } }
+    return n / (t / 1000)
+  }
+  check("33 Hz off a 165 Hz frame clock: every fifth frame", Math.abs(traced(33, 165) - 33) < 1.5, traced(33, 165).toFixed(2))
+  check("40 Hz off 120: every third frame", Math.abs(traced(40, 120) - 40) < 1.5, traced(40, 120).toFixed(2))
+  check("at the screen's rate: every frame", Math.abs(traced(144, 144) - 144) < 0.5)
+  check("the first trace is due at once", Q.holeDue(-1, 20, 165))
+  check("the line says size, format, rates and cost", /^hole 2560x1080 32F, 33\/21 Hz, est\. 9\.1 ms a draw$/.test(Q.holeDescribe(hb)), Q.holeDescribe(hb))
+}
 
 if (fails) { console.log(fails + " failed"); process.exit(1) }
 console.log("all passed")
