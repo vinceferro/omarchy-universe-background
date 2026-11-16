@@ -242,7 +242,8 @@ the Local Group. Flight has no body, so nothing is drawn there.
 - Where the view exaggerates sizes against distances (the system overview),
   only what is inside the body is drawn. Pin a planet, or use the chase
   view, and its surroundings appear at true scale.
-- At most six labels show at once, the largest parts first.
+- At most six labels show at once: the part being told, then the largest
+  parts that find room.
 - Lines and labels stay inside the safe rect and out of the rail, the
   caption, the HUD's disc and a story caption.
 

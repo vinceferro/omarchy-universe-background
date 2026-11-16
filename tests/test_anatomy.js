@@ -270,7 +270,7 @@ function frame(view, yaw, pitch, o) {
   const rec = A.byId("sgrA"), c = ctx(rec), f = frame(20, 0.4, 0)
   const plain = A.compose(rec, f, c, env({ obstacles: [] }))
   const last = plain.rows[plain.rows.length - 1]
-  check("six labels at most, the largest rows'", plain.rows.filter(r => r.lab.show).length <= 6 && plain.rows.slice(6).every(r => !r.lab.show) && plain.rows.every((r, i) => i === 0 || r.size <= plain.rows[i - 1].size))
+  check("six labels, the largest rows that find room", plain.rows.filter(r => r.lab.show).length === 6 && plain.rows[0].lab.show && plain.rows.every((r, i) => i === 0 || r.size <= plain.rows[i - 1].size), plain.rows.filter(r => r.lab.show).map(r => r.id).join(" "))
   const told = A.compose(rec, f, c, env({ obstacles: [], lit: last.id }))
   check("the row being told has its label too", told.rows.find(r => r.id === last.id).lab.show, last.id)
   // pointing at a line
