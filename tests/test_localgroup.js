@@ -70,6 +70,10 @@ check("every dwarf becomes a place with name, pos, dpc, size, color, label, blur
 check("the LMC, SMC and Sagittarius are hidden (hotspots already)", places.filter(p => p.hidden).length === 3 && places.find(p => p.name === "LMC").hidden)
 const scl = places.find(p => p.name === "Sculptor")
 check("Sculptor: 1.1 kpc across (4 rh), 2.4 million Suns in the blurb", scl.size === 4 * 283 && scl.blurb.includes("2.4 million Suns") && scl.label.includes("Milky Way satellite"), scl.blurb)
+check("a dwarf's card is sentences in light-years: no magnitudes, no parsecs, the catalogue credited", places.every(p => /^An? [a-z].* (that orbits|that roams|at the edge)/.test(p.blurb) && !/magnitude|parsec/i.test(p.blurb) && p.blurb.endsWith("Data: McConnachie 2012.")), places[0].blurb)
+check("Hercules: 280,000 Suns... half the light within light-years (two figures), its other name spelled out", (() => { const h = places.find(p => /light-years/.test(p.blurb) && /Also known as/.test(p.blurb)); return !!h && /half of that light from within [\d,]+ light-years of its centre\. Also known as [^.]+\. Data/.test(h.blurb) })())
+check("the NGC 3109 association is at the edge of the Local Group, the other loners roam it", ["NGC 3109", "Antlia", "Sextans A", "Sextans B"].every(n => places.find(p => p.name === n).label.endsWith("at the edge of the Local Group")) && places.find(p => p.name === "Leo A").label.endsWith("roams the Local Group on its own"))
+check("Cassiopeia is spelled right", Dw.DWARFS.every(d => !/Casseopia/.test(d.alt || "")) && Dw.DWARFS.some(d => d.alt === "Cassiopeia dSph"))
 check("a dwarf with no half-light radius still has a size", places.find(p => p.name === "Bootes III").size === 800)
 check("irregulars are blue, spheroidals warm", places.find(p => p.name === "IC 1613").color === "#cfdcff" && scl.color === "#ffe4c0")
 

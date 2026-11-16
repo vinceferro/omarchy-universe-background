@@ -95,17 +95,17 @@ check("ease: 95% of the way in 0.3 s, never past the target", (() => { let x = 0
 }
 
 // 6. figures
-check("compact: 166G, 5.2M, 12.5K, 950, 1T", D.compact(5275 * 31557600) === "166G" && D.compact(5.2e6) === "5.2M" && D.compact(12500) === "12.5K" && D.compact(950) === "950" && D.compact(1e12) === "1T", [D.compact(5275 * 31557600), D.compact(5.2e6), D.compact(12500), D.compact(950), D.compact(1e12)].join(" "))
+check("compact: 166B, 5.2M, 12.5K, 950, 1T", D.compact(5275 * 31557600) === "166B" && D.compact(5.2e6) === "5.2M" && D.compact(12500) === "12.5K" && D.compact(950) === "950" && D.compact(1e12) === "1T", [D.compact(5275 * 31557600), D.compact(5.2e6), D.compact(12500), D.compact(950), D.compact(1e12)].join(" "))
 check("compact: rounding never gives four digits (999.6K is 1M)", D.compact(999600) === "1M" && D.compact(99960) === "100K" && D.compact(9996) === "10K", [D.compact(999600), D.compact(99960), D.compact(9996)].join(" "))
 check("ly: 2.48 MLY, 26.6K LY, 1,344 LY, 4.25 LY", D.ly(2.48e6) === "2.48 MLY" && D.ly(26600) === "26.6K LY" && D.ly(1344) === "1,344 LY" && D.ly(4.246) === "4.25 LY", [D.ly(2.48e6), D.ly(26600), D.ly(1344), D.ly(4.246)].join(" | "))
 check("ly: under a tenth of a light year it is AU (Sgr A* from 6 radii: 0.49 AU)", D.ly(0.05) === "3.16K AU" && D.ly(7.8e-6) === "0.49 AU" && D.ly(0.0995) === "0.10 LY", [D.ly(0.05), D.ly(7.8e-6), D.ly(0.0995)].join(" | "))
 check("au: 0.983 AU, 5.20 AU, 30.1 AU, the Moon in km", D.au(0.983) === "0.983 AU" && D.au(5.2) === "5.20 AU" && D.au(30.07) === "30.1 AU" && D.au(0.00257) === "384,467 KM", [D.au(0.983), D.au(5.2), D.au(30.07), D.au(0.00257)].join(" | "))
 check("clock: 4:12, 12.4 S, 15:44", D.clock(252.7) === "4:12" && D.clock(12.44) === "12.4 S" && D.clock(944) === "15:44")
 check("raDec: RA 5H35 +22, and minutes never read 60", D.raDec(5.5833, 22.01) === "RA 5H35 +22" && D.raDec(5.9999, -5.4) === "RA 6H00 -5" && D.raDec(23.9999, 0) === "RA 0H00 +0", D.raDec(5.5833, 22.01))
-check("readout: the galaxy's 5,275 ly/s is 166G × C", D.readout("galaxy", { xc: 5275 * 31557600, targetLy: 2.48e6, sunLy: 100 }, 11) === "166G × C")
-check("readout: a target and not moving: its distance", D.readout("galaxy", { xc: 0, targetLy: 2.48e6, sunLy: 100 }, 11) === "> 2.48 MLY")
+check("readout: the galaxy's 5,275 ly/s is 166B × C", D.readout("galaxy", { xc: 5275 * 31557600, targetLy: 2.48e6, sunLy: 100 }, 11) === "166B × C")
+check("readout: a target and not moving: its distance", D.readout("galaxy", { xc: 0, targetLy: 2.48e6, sunLy: 100 }, 11) === "→ 2.48 MLY")
 check("readout: neither: the distance from the Sun", D.readout("galaxy", { xc: 0, targetLy: -1, sunLy: 26600 }, 11) === "26.6K LY")
-check("readout: system: target, else the simulated date, else the distance from the Sun", D.readout("system", { targetAu: 0.52 }, 11) === "> 0.520 AU" && D.readout("system", { targetAu: -1, date: "16 NOV 2026" }, 11) === "16 NOV 2026" && D.readout("system", { targetAu: -1, date: "", sunAu: 5.2 }, 11) === "5.20 AU" && D.readout("system", { targetAu: -1, date: "", sunAu: 0 }, 11) === "")
+check("readout: system: target, else the simulated date, else the distance from the Sun", D.readout("system", { targetAu: 0.52 }, 11) === "→ 0.520 AU" && D.readout("system", { targetAu: -1, date: "16 NOV 2026" }, 11) === "16 NOV 2026" && D.readout("system", { targetAu: -1, date: "", sunAu: 5.2 }, 11) === "5.20 AU" && D.readout("system", { targetAu: -1, date: "", sunAu: 0 }, 11) === "")
 check("readout: sky, fall, flight", D.readout("sky", { ra: 5.5833, dec: 22 }, 11) === "RA 5H35 +22" && D.readout("fall", { r: 1.84 }, 11) === "1.84 RS" && D.readout("fall", { r: -11.96 }, 11) === "-12.0 RS" && D.readout("flight", { thrust: 80.4 }, 11) === "80%")
 check("readout: the universe and unknown views say nothing", D.readout("universe", {}, 11) === "" && D.readout("x", {}, 11) === "")
 {
