@@ -3399,11 +3399,14 @@ Item {
       // recreates it too: an instance keeps the layer it was created with.
       // The picture at low resolution (96 texels across): what the text's
       // backing reads the brightness under it from. In the scene so that it
-      // keeps up, one pixel in the corner under the opaque full pass.
+      // keeps up, one pixel in the corner under the opaque full pass. It is
+      // the full pass alone (the scene's `picture`), not the scene item: the
+      // HUD's words live in that item, and their backings read this texture,
+      // so drawing them into it would be a texture read while it is written.
       ShaderEffectSource {
         id: sceneLuma
         width: 1; height: 1
-        sourceItem: sceneLoader.item
+        sourceItem: sceneLoader.item ? sceneLoader.item.picture : null
         live: true
         hideSource: false
         smooth: true
@@ -3418,6 +3421,7 @@ Item {
         onLayeredChanged: if (active) { active = false; active = Qt.binding(() => sceneLoader.wanted) }
         sourceComponent: Component {
           Item {
+            readonly property Item picture: fullPass   // what the screen shows under every word (sceneLuma)
             // Soft layer (nebula, galaxies) at half size into a float texture:
             // a quarter of the pixels for the costliest noise, no banding.
             // It stays visible (hidden effects stop updating, see above) and
@@ -3587,6 +3591,7 @@ Item {
             // that: the stars and HUD lines are sized in `resolution` pixels,
             // so none gets thinner than a texel and flickers.
             ShaderEffect {
+              id: fullPass
               anchors.fill: parent
               blending: false
               layer.enabled: panel.q.layered

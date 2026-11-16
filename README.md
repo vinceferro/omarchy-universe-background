@@ -111,8 +111,9 @@ Three rules hold for every word on the screen, each written once
   `off` included; in film mode only the script speaks.
 - **Legibility.** Every text has a soft black backing behind it, feathered
   to nothing at its edge, exactly as strong as the picture under it is
-  bright: the screen's own picture is kept at 96 texels across and the
-  backing reads the brightness under the block from it. Over a dark sky it
+  bright: the screen's own picture (the full pass, without the words) is
+  kept at 96 texels across and the backing reads the brightness under the
+  block from it. Over a dark sky it
   is not there at all; over the fall's closing light, the glowing gas or a
   bright photograph it keeps the words readable. It is black, so it only
   ever lowers what the OLED shows, and it has the text's opacity: it comes
