@@ -277,8 +277,17 @@ Item {
   }
   // one clock for every screen: the slowest idle rate any of them asks for
   readonly property int idleFps: Math.min(Q.IDLE_FULL, ...Quickshell.screens.map(s => qualityOf(s).idleFps))
+  // the hole's tracer on one screen: its layer's size, format and rates
+  // (lib/quality.js, holeChoose). holeScale (IPC `holeScale`, not
+  // remembered): the layer's scale, to compare on screen; 0: automatic
+  property real holeScale: 0
+  function holeOf(screen) {
+    const m = Hyprland.monitors.values.find(m => m.name === screen.name)
+    return Q.holeChoose({ gpu: Q.screenGpu(gpuProbe, screen.name), width: screen.width, height: screen.height,
+                          dpr: m && m.scale > 0 ? m.scale : screen.devicePixelRatio, hz: refreshOf(screen.name), holeScale: holeScale })
+  }
   function qualityInfo() {
-    return Quickshell.screens.map(s => s.name + " " + Math.round(refreshOf(s.name)) + " Hz: " + Q.describe(qualityOf(s))).join("; ")
+    return Quickshell.screens.map(s => s.name + " " + Math.round(refreshOf(s.name)) + " Hz: " + Q.describe(qualityOf(s)) + " | " + Q.holeDescribe(holeOf(s))).join("; ")
   }
   // Frame meter (IPC `perf true`): every 5 s each screen logs its presented
   // frames (rate, average and longest interval between them, as this thread
@@ -793,6 +802,10 @@ Item {
   // closest approach: 0.2 pc anywhere, down to 6 Schwarzschild radii at Sgr A*
   readonly property real rsKpc: 4.11e-10
   property vector3d gxCamRs: Qt.vector3d(0, 1e6, 0)   // camera from Sgr A*, in Schwarzschild radii
+  // the tick, near the hole: the camera is this frame's, for the tracers to
+  // take (a signal, because the tick cannot see the per-screen passes);
+  // lively: it is moving
+  signal holeSync(bool lively)
   property bool gxHoleNear: false
   function gxMinDist() {
     if (gxSel >= 0 && place(gxSel).kind === "blackhole") return 6 * rsKpc
@@ -804,10 +817,13 @@ Item {
   // B flies to the hole, B again goes down to 6 Rs on the spin axis, and
   // parked there B (or one more scroll in) lets go; free flight that carries
   // the camera below the horizon falls too. From there on nothing steers: the
-  // camera rides the free-fall trajectory down the axis, the view turning
-  // from the hole to the side as the outer horizon nears, so that the dark
-  // fills the half of the sky below and the outside squeezes into a bright
-  // band above. Drag and the arrows only look around, on top of that turn
+  // camera rides the free-fall trajectory down the axis, and where it looks
+  // is scripted (fall.js look()): down at the hole, a glance back at the sky
+  // being left, the shadow's rim held in the lower part of the screen
+  // through the horizon (for someone falling in the shadow is never more
+  // than 80 degrees across: it does not fill half the sky), a slow look
+  // around inside. The picture's exposure follows what is in view
+  // (gxHoleExp). Drag and the arrows only look around, on top of that
   // (gxLook below). The phases ("falling", "outer-horizon", "inner-horizon";
   // in mathematics mode on through "ring" and "other-universe") come from
   // fall.js and go to the HUD and status(). At the end the screen fades to
@@ -832,7 +848,7 @@ Item {
   // the spin axis, 30 degrees off our line of sight from the Sun's side, the
   // gas turning clockwise on the sky (EHT 2022; GRAVITY flare loops); the
   // fall goes down this line, from the pole on the camera's side
-  readonly property vector3d holeSpinAxis: Qt.vector3d(0, -0.8660, 0.5)
+  readonly property vector3d holeSpinAxis: Qt.vector3d(0, -Math.sqrt(3) / 2, 0.5)
   // Mathematics mode (K, or IPC mathMode): the fall follows the maximally
   // extended Kerr solution through the inner horizon, the disk inside the
   // ring and into the negative-r universe. Not physics: a from-rest fall
@@ -847,7 +863,8 @@ Item {
   property bool fallInside: false       // below the outer horizon (set once, not per frame: the hints bind to it)
   property real fallLeft: 0             // proper time to the end (the inner horizon; math: -12 Rs), s
   property real fallRate: 1             // proper seconds per screen second (the approach is compressed)
-  property real gxFallE: 0              // the observer's energy per unit mass, for the shaders (0: not falling)
+  property real gxFallE: 0              // the energy per unit mass of the frame the view is drawn in, for the shaders (0: not falling)
+  property real gxHoleExp: 1            // the hole's picture's exposure: the falling eye's adaptation (fall.js), 1 hovering
   property real gxCamSheet: 1           // -1 once through the disk: the shaders' r < 0 sheet
   property real fallFlash: 1            // > 1 in the last seconds before the inner horizon: the glow's blueshift (cartoon)
   property real fallClose: 0            // 0..1 over the last 5 s before the inner horizon: its light closing in (cartoon)
@@ -863,8 +880,8 @@ Item {
   // about its up and pitch about its right (radians). It turns the camera
   // only: the trajectory and the falling observer's frame stay radial. After
   // 2.5 s without input it eases back (1.5 s per e-fold), so the scripted
-  // framing, the dark below and the band above, returns on its own: the
-  // turn keeps changing on the way down and a held offset would lose it.
+  // framing returns on its own: the script keeps turning on the way down
+  // and a held offset would lose it.
   // Set over IPC (fallLook) it holds until the next drag or arrow.
   property real gxLookYaw: 0
   property real gxLookPitch: 0
@@ -949,10 +966,13 @@ Item {
     // the side we turn toward once inside: where we already look, else north
     const fr = F.fwd[0] * F.x[0] + F.fwd[1] * F.x[1] + F.fwd[2] * F.x[2]
     let t = [F.fwd[0] - F.x[0] * fr, F.fwd[1] - F.x[1] * fr, F.fwd[2] - F.x[2] * fr]
+    // looking straight down the axis (the parked view): the screen's up, so the view does not roll as the fall starts
+    if (Math.hypot(t[0], t[1], t[2]) < 1e-3) { const ur = F.up[0] * F.x[0] + F.up[1] * F.x[1] + F.up[2] * F.x[2]; t = [F.up[0] - F.x[0] * ur, F.up[1] - F.x[1] * ur, F.up[2] - F.x[2] * ur] }
     if (Math.hypot(t[0], t[1], t[2]) < 1e-3) t = [-F.x[0] * F.x[2], -F.x[1] * F.x[2], 1 - F.x[2] * F.x[2]]
     if (Math.hypot(t[0], t[1], t[2]) < 1e-3) t = [1, 0, 0]
     const tl = Math.hypot(t[0], t[1], t[2])
     F.t = [t[0] / tl, t[1] / tl, t[2] / tl]
+    F.next = Fall.next(F.tl, Fall.tau(F.tl, F.s))
     fallState = F
     fallLookReset()
     fallPhase = "falling"
@@ -963,7 +983,8 @@ Item {
     gxCamSheet = 1
     fallFlash = 1
     fallClose = 0
-    gxFallE = F.tl.E
+    gxFallE = Fall.viewE(F.tl, F.s)
+    gxHoleExp = 1
     gxSel = gxIndex("Sagittarius A")
     gxTarget = [0, 0, 0]
     keysDown = ({})
@@ -985,6 +1006,7 @@ Item {
     fallState = null
     fallLookReset()
     gxFallE = 0
+    gxHoleExp = 1
     gxCamSheet = 1
     fallFlash = 1
     fallClose = 0
@@ -1903,9 +1925,8 @@ Item {
         if (fallHold >= fallHoldFor) { fallHome(); fallPhase = "in" }
       } else if (fallPhase === "in" && fallFade <= 0.01) fallPhase = ""
       if (fallState) {
-        // the camera rides the trajectory (lib/fall.js); the view turns from
-        // the hole to the side over the approach (in log r), so at the
-        // horizon the dark is below and the sky above; nothing else steers
+        // the camera rides the trajectory (lib/fall.js) and looks where the
+        // fall's script says (below); nothing else steers
         const F = fallState
         const o = Fall.step(F, dt)
         // the radius is signed (negative past the disk); never exactly 0 for the shaders
@@ -1936,14 +1957,20 @@ Item {
           if (o.fade) { fallPhase = "out"; fallHold = 0; fallHoldFor = 2 }
           else if (fallPhase !== o.phase) fallPhase = o.phase
         }
-        // the view turns from the hole to the side over the approach (in log
-        // r, a right angle at r+); past the disk it turns on to look back at
-        // the ring, which is behind us now
-        let chi = Math.PI / 2 * Math.min(1, Math.max(0, Math.log(F.tl.r0 / Math.max(r, F.tl.rPlus)) / Math.log(F.tl.r0 / F.tl.rPlus)))
-        if (r < -F.tl.a) chi += Math.PI / 2 * Math.min(1, (-r - F.tl.a) / 2.5)
-        const c = Math.cos(chi), sn = Math.sin(chi), k = Math.min(1, dt * 2.5)
-        const gf = [-c * F.x[0] + sn * F.t[0], -c * F.x[1] + sn * F.t[1], -c * F.x[2] + sn * F.t[2]]
-        const gu = [sn * F.x[0] + c * F.t[0], sn * F.x[1] + c * F.t[1], sn * F.x[2] + c * F.t[2]]
+        // the frame the view is drawn in (the mathematics mode's shove comes
+        // on over its first seconds) and the landmark ahead, for the HUD
+        if (Math.abs(o.E - gxFallE) > 1e-5) gxFallE = o.E
+        F.next = o.next
+        // the scripted view (fall.js look()): a tilt from straight down the
+        // axis toward the side we face (F.t) and a pan about the axis; down
+        // at the hole, a glance back at the sky, the shadow's rim through
+        // the horizon, a look around inside, and past the disk back at the ring
+        const cyw = Math.cos(o.yaw), syw = Math.sin(o.yaw)
+        const xt = [F.x[1] * F.t[2] - F.x[2] * F.t[1], F.x[2] * F.t[0] - F.x[0] * F.t[2], F.x[0] * F.t[1] - F.x[1] * F.t[0]]
+        const ty = [F.t[0] * cyw + xt[0] * syw, F.t[1] * cyw + xt[1] * syw, F.t[2] * cyw + xt[2] * syw]
+        const c = Math.cos(o.tilt), sn = Math.sin(o.tilt), k = Math.min(1, dt * 2.5)
+        const gf = [-c * F.x[0] + sn * ty[0], -c * F.x[1] + sn * ty[1], -c * F.x[2] + sn * ty[2]]
+        const gu = [sn * F.x[0] + c * ty[0], sn * F.x[1] + c * ty[1], sn * F.x[2] + c * ty[2]]
         let fw = F.fwd.map((v, j) => v + (gf[j] - v) * k)
         let fl = Math.hypot(fw[0], fw[1], fw[2]); fw = fw.map(v => v / fl)
         let u = F.up.map((v, j) => v + (gu[j] - v) * k)
@@ -1965,6 +1992,7 @@ Item {
           gxLookYawTarget -= gxLookYawTarget * d
           gxLookPitchTarget -= gxLookPitchTarget * d
         }
+        const ek = Math.min(1, dt * 3)
         gxLookYaw += (gxLookYawTarget - gxLookYaw) * ek
         gxLookPitch += (gxLookPitchTarget - gxLookPitch) * ek
         // the view handed to the shaders: the scripted one turned by the
@@ -1976,6 +2004,14 @@ Item {
         const f1 = fw.map((v, j) => v * cy + rt[j] * sy)
         F.lookFwd = f1.map((v, j) => v * cq + u[j] * sq)
         F.lookUp = u.map((v, j) => v * cq - f1[j] * sq)
+        // the exposure follows what is in view (the user's own look too),
+        // easing like an eye: it closes for a brighter view faster than it
+        // opens for a darker one (6 and 2.5 e-folds a second), so turning
+        // back down onto the boosted gas does not flare for a second
+        F.tilt = Math.acos(Math.max(-1, Math.min(1, -(F.lookFwd[0] * F.x[0] + F.lookFwd[1] * F.x[1] + F.lookFwd[2] * F.x[2]))))
+        const wantExp = Fall.exposure(F.tl, r, o.E, F.tilt, aspect)
+        const ex = Math.exp(Math.log(gxHoleExp) + (Math.log(wantExp) - Math.log(gxHoleExp)) * Math.min(1, dt * (wantExp < gxHoleExp ? 6 : 2.5)))
+        if (Math.abs(ex / gxHoleExp - 1) > 1e-3) gxHoleExp = ex
         cam = [F.x[0] * r * rsKpc, F.x[1] * r * rsKpc, F.x[2] * r * rsKpc]
         gxDist = r * rsKpc
         gxTarget = [0, 0, 0]
@@ -1993,23 +2029,17 @@ Item {
           gxFwd = Qt.vector3d(fallState.lookFwd[0], fallState.lookFwd[1], fallState.lookFwd[2])
           gxUp = Qt.vector3d(fallState.lookUp[0], fallState.lookUp[1], fallState.lookUp[2])
           gxRight = gxFwd.crossProduct(gxUp)
-          // while the look turns, the hole tracer gets the camera every
-          // frame: at its 40 Hz the whole sky (all of it read from the
-          // tracer when falling) would judder against the live edge
-          if (holePass.near && (gxLookDragging || gxLookIdle < 0.1
-              || Math.abs(gxLookYawTarget - gxLookYaw) + Math.abs(gxLookPitchTarget - gxLookPitch) > 1e-4)) {
-            holePass.camPos = gxCamRs
-            holePass.camSheet = gxCamSheet
-            holePass.camFwd = gxFwd
-            holePass.camRight = gxRight
-            holePass.camUp = gxUp
-          }
         } else {
           gxFwd = fwd
           gxRight = right
           gxUp = up
         }
       }
+      // near the hole its tracer (holePass, one per screen) is offered this
+      // frame's camera; it takes it at its own rate, the faster one while
+      // the camera moves. (A view that only turns needs no new trace:
+      // universe.frag reads the layer by direction.)
+      if (gxHoleNear) holeSync(moved)
       // the Milky Way's own stars thin out once we are outside it
       const outside = Math.max(Math.hypot(cam[0], cam[1]) - 15, Math.abs(cam[2]) - 0.5, 0)
       gxStars = 1 - 0.85 * Math.min(1, outside / 10)
@@ -2369,7 +2399,14 @@ Item {
                         : fallR >= tl.rMinus - 1e-6 ? "AT THE INNER HORIZON (" + fmtNum(tl.rMinus, 2) + " RS)"
                         : fallR > 0 ? "INSIDE THE INNER HORIZON (" + fmtNum(tl.rMinus, 2) + " RS)"
                         : fallR > -tl.a ? "THROUGH THE DISK INSIDE THE RING" : "THE OTHER UNIVERSE  ·  REPELLED"
-            detail = where + "  ·  THE CLOCK: PROPER TIME " + (tl.math ? "TO THE EDGE OF THE FAR SHEET" : "TO THE INNER HORIZON")
+            // the landmark ahead: how far below (the radius is 12.3 million km) and how long on our own clock
+            const nx = fallState.next
+            const nxR = nx.what === "outer-horizon" ? tl.rPlus : nx.what === "inner-horizon" ? tl.rMinus : nx.what === "disk" ? 0 : tl.rEnd
+            const nxKm = Math.abs(fallR - nxR) * Fall.RS_KM
+            const nxIn = nx.left >= 60 ? fmtNum(Math.floor(nx.left / 60)) + " MIN " + fmtNum(Math.floor(nx.left % 60), 0) + " S" : fmtNum(nx.left, 1) + " S"
+            const nxName = nx.what === "outer-horizon" ? "OUTER HORIZON" : nx.what === "inner-horizon" ? "INNER HORIZON" : nx.what === "disk" ? "THE DISK INSIDE THE RING" : tl.math ? "THE END OF THE FAR SHEET" : "INNER HORIZON"
+            const ahead = "AHEAD: " + nxName + "  ·  " + (nxKm >= 1e6 ? fmtNum(nxKm / 1e6, 1) + " MILLION KM" : fmtNum(Math.round(nxKm / 1000) * 1000) + " KM") + (fallR < 0 ? " OUT" : " BELOW") + "  ·  IN " + nxIn + " ON OUR CLOCK"
+            detail = where + "  ·  " + ahead + "  ·  THE CLOCK: PROPER TIME " + (tl.math ? "TO THE EDGE OF THE FAR SHEET" : "TO THE INNER HORIZON")
                    + (tl.math ? "  ·  MATHEMATICS: THE EXTENDED KERR SOLUTION, NOT OBSERVED PHYSICS  ·  PLUNGE AT 0.75 C" : "")
           }
           if (fallDetail !== detail) fallDetail = detail
@@ -2996,6 +3033,12 @@ Item {
       return root.qualityInfo()
     }
 
+    // the hole tracer's layer as a fraction of the screen (0.25-1; 0: the
+    // automatic choice), to compare on screen; not remembered
+    function holeScale(scale: real): void {
+      root.holeScale = scale > 0 ? scale : 0
+    }
+
     // frame-time meter: logs each screen's frame rate, average and peak
     // frame time every 5 s (console.warn, so the shell's log)
     function perf(on: bool): void {
@@ -3090,6 +3133,7 @@ Item {
 
       // this screen's render scale and idle rate (lib/quality.js)
       readonly property var q: root.qualityOf(modelData)
+      readonly property var hq: root.holeOf(modelData)
       // and its zones and type sizes (lib/layout.js)
       readonly property var lay: root.layOf(modelData)
       readonly property var tok: lay.tok
@@ -3259,24 +3303,30 @@ Item {
               property var youngTex: mwYoungTex
               property var dustTex: mwDustTex
             }
-            // Sgr A* up close: geodesic ray tracing at a third of the size, only near the hole
+            // Sgr A* up close: geodesic ray tracing, only near the hole, into
+            // a layer whose size, format and rate lib/quality.js chooses for
+            // this screen's GPU (holeChoose: a half of the screen on NVIDIA,
+            // a third elsewhere)
             ShaderEffect {
               id: holePass
               readonly property bool near: root.galaxyMix > 0 && root.gxHoleNear
-              width: near ? Math.ceil(panel.width / 3) : 4
-              height: near ? Math.ceil(panel.height / 3) : 4
+              width: near ? panel.hq.texW : 4
+              height: near ? panel.hq.texH : 4
               layer.enabled: true
-              // one texel per logical pixel whatever the monitor's scale:
+              // one texel per unit of this item whatever the monitor's scale:
               // universe.frag's four-texel gather (holeRes) counts on it
               layer.textureSize: Qt.size(width, height)
-              layer.format: ShaderEffectSource.RGBA16F
+              layer.format: panel.hq.float32 ? ShaderEffectSource.RGBA32F : ShaderEffectSource.RGBA16F
               layer.smooth: true
               fragmentShader: Qt.resolvedUrl("hole.qsb")
               property vector2d resolution: Qt.vector2d(width, height)
               property real shown: near ? 1 : 0
-              // camera and gas clock are copied in at 40 Hz (holeClock below):
-              // the layer only re-renders when they change, and the slow flow
-              // does not need the display's 165 Hz
+              // camera and gas clock are copied in at the tracer's own rate
+              // (take(), called by the tick through root.holeSync): the layer
+              // only re-renders when they change. A draw is milliseconds of
+              // GPU time, so it is not every frame; universe.frag reads the
+              // layer by direction (holeFwd/holeRight/holeUp below are this
+              // camera), so a view that has turned since is still exact
               property vector3d camPos: Qt.vector3d(0, 1e6, 0)
               property vector3d camFwd: Qt.vector3d(0, -1, 0)
               property vector3d camRight: Qt.vector3d(1, 0, 0)
@@ -3292,21 +3342,27 @@ Item {
               // very frame it starts, so this layer must switch in that frame too
               property real fallE: root.gxFallE
               property real flash: root.fallFlash
-            }
-            Timer {
-              id: holeClock
-              interval: 25
-              repeat: true
-              running: holePass.near && root.animate
-              triggeredOnStart: true
-              onTriggered: {
-                holePass.camPos = root.gxCamRs
-                holePass.camSheet = root.gxCamSheet
-                holePass.camFwd = root.gxFwd
-                holePass.camRight = root.gxRight
-                holePass.camUp = root.gxUp
-                holePass.flowTime = root.shaderTime * 30 / 42.3
+              // the layer covers a little more than the screen: what a turn
+              // brings in at the edge before the next trace
+              property real over: panel.hq.over
+              property real takenAt: -1
+              onNearChanged: takenAt = -1
+              // lively: the camera is moving (the fall, a flight, a drag)
+              function take(lively) {
+                const t = Date.now()
+                if (!near || !Q.holeDue(takenAt < 0 || t < takenAt ? -1 : t - takenAt, lively ? panel.hq.moveHz : panel.hq.idleHz, root.refreshOf(panel.modelData.name))) return
+                takenAt = t
+                camPos = root.gxCamRs
+                camSheet = root.gxCamSheet
+                camFwd = root.gxFwd
+                camRight = root.gxRight
+                camUp = root.gxUp
+                flowTime = root.shaderTime * 30 / 42.3
               }
+            }
+            Connections {
+              target: root
+              function onHoleSync(lively) { holePass.take(lively) }
             }
 
             // face-on maps built from the measured arms (gen_milkyway.py)
@@ -3424,6 +3480,11 @@ Item {
               property real gxSpin: root.holeSpin
               property real gxCamSheet: root.gxCamSheet
               property vector2d holeRes: Qt.vector2d(holePass.width, holePass.height)
+              property vector3d holeFwd: holePass.camFwd
+              property vector3d holeRight: holePass.camRight
+              property vector3d holeUp: holePass.camUp
+              property real holeOver: holePass.over
+              property real gxHoleExp: root.gxHoleExp
               property var skyFull: skyFullTex
               property vector4d gxPhoto: root.gxPhoto
               property var photoAtlas: photoAtlasTex

@@ -362,16 +362,42 @@ to the polar photon orbit (1.25 Rs) is shown 45 times faster than real, the
 last stretch to the outer horizon in 4 s, and the inside at the true rate,
 14.9 s of proper time between the two horizons (28.7 s to the singularity
 for a non-spinning hole, which `holeSpin = 0` still gives). The ray tracer
-takes the falling observer's frame: aberration shrinks the shadow, and once
-inside the dark fills the half of the sky toward the centre while the
-outside squeezes into an ever thinner, blueshifted band, red and dim
-straight behind. Nothing marks the outer horizon but the HUD. Nothing
-steers on the way down, but drag or the arrows look around (right looks
-right, up looks up; all the way round, short of straight up or down): back
-at the hole, or up at the shrinking sky. Only the camera turns; the fall
-stays on the axis, and the ray tracer's frame with it. After a few seconds
-without input the view eases back to the scripted one, which turns from the
-hole to the side so that at the horizon the dark is below and the sky above.
+takes the falling observer's frame: aberration keeps the shadow ahead and
+smaller than a hovering observer would see it. It is a disc 44 degrees
+across at 6 Rs, 80 at the outer horizon and 60 again at the inner one: for
+someone falling in it never fills half the sky. The sky beside it is
+squeezed toward its rim and shifted blue (4.5 times the frequency at the
+rim when crossing), unchanged in frequency exactly sideways, and red and
+dim straight behind (0.55 at the horizon). Nothing marks the outer horizon
+but the HUD and the caption.
+
+**Where the camera looks.** Nothing steers on the way down, but a fixed view
+shows little of this, so the view is scripted (`look()` in `lib/fall.js`),
+as a tilt from straight down the axis and a pan about it, eased between
+keys in screen time: down at the hole for 4 s; the hole lowered in the
+frame by 8 s; from 11.5 to 19.5 s (about 4.2 to 1.4 Rs) a glance back up at
+the sky being left, 145 degrees from straight down, held from 13.5 to 16 s;
+then down to the shadow's rim, held in the lower part of the screen through
+the horizon crossing at 24 s (the rim's own angle, from the same closed
+form the shaders draw the edge with); between the horizons a slow look
+around, up to level and 50 degrees to one side, then 35 to the other; level
+for the realistic ending, whose light closes in from above; in mathematics
+mode down through the ring and, on the far sheet, back at it. Drag or the
+arrows look around on top of that (right looks right, up looks up; all the
+way round, short of straight up or down). Only the camera turns; the fall
+stays on the axis, and the ray tracer's frame with it. After 2.5 s without
+input the view eases back to the scripted one.
+
+**Exposure.** Light from ahead is boosted (the gas by g^3.5: 47 times at a
+shift of 3), light from behind dimmed, so one exposure is white ahead or
+black behind. The hole's picture has its own exposure while falling
+(`exposure()` in `lib/fall.js`): the mean boost over fifteen directions of
+the current view against the same at the start, to the power 0.8 (partial,
+as eyes adapt), between 0.004 and 6, eased at 6 e-folds a second closing and 2.5 opening; what is
+still brighter than 0.6 rolls off toward 1 with its colour kept instead of
+clipping (`universe.frag`, `HOLE_KNEE`). Drawn off screen along both
+scripted falls (`tools/hole_view.py`), no frame is more than 7% white
+before the realistic ending's own light.
 
 The fall ends at the inner (Cauchy) horizon, because the physics does: the
 Kerr solution continues through it, but a real hole's inner horizon is
@@ -402,10 +428,19 @@ not the fall's (a tour's, IPC `caption`) keeps the band, and in film mode the
 fall says nothing: the script has the words. The timing and the words live
 in `lib/fall.js` (`tau`, `light`, `caption`, `CAPTIONS`).
 
+Two more captions follow the view: "Looking back: the sky we are leaving,
+redder and dimmer the faster we fall away from it" during the glance (11 to
+17 s), and in the realistic fall "Between the horizons" from 29 s until a
+second before the inner horizon's.
+
 The HUD's hub counts the proper time left, its dial shows the radius
-against the horizons, and the caption's detail line names the phase; `status`
-reports both; the maths has its own checks in `tests/test_fall.js` and
-`tests/test_kerr.js`.
+against the horizons, and the caption's detail line names the phase and the
+landmark ahead (the outer horizon, the inner horizon, in mathematics mode
+the disk and the end of the far sheet): how far below it is in kilometres
+(a Schwarzschild radius is 12.3 million km) and how long until it on our
+own clock. `status` reports phase and radius; the maths has its own checks
+in `tests/test_fall.js` and `tests/test_kerr.js`, and the whole fall is run
+headless by `tests/harness/fall.sh`.
 
 **Mathematics mode** (`K`, or `mathMode true` over IPC; off by default, not
 remembered, takes effect at the next fall). What the maximally extended Kerr
@@ -424,10 +459,14 @@ r = -a with 1 + M/a > E^2, so a from-rest fall turns back inside the inner
 horizon at r = a^2/r0 = 0.037 Rs and is thrown out into a new positive-r
 universe instead; reaching r < 0 needs E >= sqrt(1 + M/a) = 1.44, and the
 mode starts with E = 1.5, an impossible shove of 0.75 c down the axis. The
-caption, the card and `status` all say so.
+caption, the card and `status` all say so. The trajectory has that energy from
+the first frame; the frame the picture is drawn in comes on over the first
+3 s (`viewE`: from rest to E = 1.5), the shove shown as an acceleration
+rather than as one frame in which the shadow shrinks to a third and the sky
+ahead turns blue-white.
 
 **What you see below you.** The dark toward the centre, the shadow from
-outside and the whole lower half of the sky once inside, is not quite black:
+outside and the disc ahead once inside, is not quite black:
 it holds the faint light of gas that fell in ahead of us. Outside the horizon
 that light climbs up to us from below. Inside, where nothing climbs, it is
 light the gas sent while it was still above where we are now, and we catch it
@@ -541,7 +580,8 @@ Everything is reachable through the shell's IPC, `omarchy-shell background <func
 | `hudDemo <view>` | the HUD's instrument with fixed, invented values, to look at every element without flying there: `universe`, `flight`, `system`, `year`, `galaxy`, `outside`, `sky`, `fall`, `math`; `hudDemo off` returns to the live values. The hub's date line says `DEMO` while it is on |
 | `status` | prints `<view> <fall phase or -> <radius in Rs, signed> <real/math>`, e.g. `galaxy outer-horizon 0.52 real`, for scripts; the phases are `falling`, `outer-horizon`, `inner-horizon`, `ring`, `other-universe`, `out`, `in` |
 | `quality <level>` | render quality: `auto` (default), `full`, `high`, `balanced`, `low`, or a render scale from 0.25 to 1; remembered across restarts (see [Adaptive quality](#adaptive-quality)) |
-| `qualityInfo` | prints what each screen runs at, e.g. `eDP-1 120 Hz: auto (apple): scale 0.50, 1728x1117, idle 30 fps` |
+| `qualityInfo` | prints what each screen runs at, and the hole tracer's layer, e.g. `DP-1 165 Hz: auto (nvidia): scale 1.00, 5120x2160 direct, idle 60 fps \| hole 2560x1080 32F, 33/21 Hz, est. 9.1 ms a draw` |
+| `holeScale <scale>` | the hole tracer's layer as a fraction of the screen (0.25 to 1; 0: the automatic choice), to compare on screen with `perf true`; not remembered |
 | `perf <true/false>` | frame meter: every 5 s each screen logs its frame rate and the average and longest interval between frames to the shell's log (not remembered) |
 | `refresh`, `set <path>`, `setInstant <path>`, `transition <from> <to>`, `themeTransition ...` | the stock background plugin's functions, unchanged |
 
@@ -618,11 +658,13 @@ Measured on an RTX 3080 Ti driving 5120x2160 at 165 Hz:
 - live background with the animated sky: about 160-180 W board power (it
   pauses while a fullscreen window is visible);
 - Milky Way overview: about 140 W;
-- near the black hole: about 300 W measured for the Schwarzschild tracer (the
-  ray tracer runs at a third of the resolution only while the camera is near
-  the hole). The Kerr tracer takes about 4 metric evaluations per step but a
-  typical ray needs 20-60 steps instead of 200, so its cost is estimated at
-  1-1.5x the old one; to be measured.
+- near the black hole: about 300 W measured for the Schwarzschild tracer.
+  The Kerr tracer, timed by itself off screen with the desktop running
+  beside it (`tools/hole_layer.py hole.frag 2560 1080 time=120`): 9 to 12 ms
+  for one draw of the layer at half of 5120x2160 (5 ms looking away from the
+  hole, 15 ms inside the inner horizon in mathematics mode), 4 to 6 ms at a
+  third. See [the hole's tracer](#the-holes-tracer) for what that buys and
+  how often it is drawn.
 
 The soft sky layer re-renders about ten times a second at half resolution;
 the Milky Way volume renders at a third of the screen size and only when the
@@ -656,7 +698,8 @@ pixels, which is the size the shaders already measure stars and HUD lines in.
 
 Below scale 1 the full pass renders into a texture and is stretched smoothly
 over the screen; the nebula and the Milky Way volume (the half- and
-third-size layers) shrink with it, the black hole's tracer keeps its size,
+third-size layers) shrink with it, the black hole's tracer keeps its own
+size (below),
 and the clock, the HUD's words, labels and markers (QML text on top) stay at device
 resolution. The full pass is recreated whenever it changes between direct
 and textured. Below one texel per logical pixel the shaders' `resolution`
@@ -694,6 +737,59 @@ To compare on a new machine (`perf` logs through the shell, e.g.
 4. Still short while exploring: `quality low` or a number (`quality 0.4`).
    Too soft and fast enough: `quality high` or `quality 0.75`.
 5. `perf false`.
+
+
+### The hole's tracer
+
+Near Sgr A* every texel of `hole.frag`'s layer is a light ray marched through
+the Kerr metric (RK4, about 35 steps of four metric evaluations for a ray
+that reaches the sky): the dearest texels in the wallpaper, 3.3 ns each on
+the 3080 Ti. `lib/quality.js` (`holeChoose`) picks the layer's size, format
+and rate per screen; `qualityInfo` prints the choice.
+
+- **Size.** NVIDIA: the full screen where a whole draw fits 2 ms (it does
+  not at 5120x2160: 36 ms), else a half per axis. Every other GPU keeps a
+  third of the logical size, as before.
+- **Rate.** A draw of 9 ms cannot happen on every 6 ms frame, and does not
+  need to. `universe.frag` reads the layer by direction, not by screen
+  position: the bend vector is written about the look direction itself, so
+  a view that has turned since the last trace still finds each direction's
+  own ray (the layer covers 4% more than the screen for what a turn brings
+  in at the edge). A new trace is only needed as the camera moves and as the
+  gas flows. NVIDIA: the largest whole fraction of the refresh rate that
+  keeps the tracer within a third of the GPU's time while the camera moves
+  (33 Hz at 5120x2160 and 165 Hz; every frame where a draw is cheap enough,
+  as at 1920x1080) and within a fifth while only the gas flows (21 Hz).
+  Elsewhere 40 Hz, as before.
+- **Format.** 32-bit floats on NVIDIA: 16-bit ones round the bend vector by
+  a median 0.6 px and up to 4.7 px at 6 Rs. 16-bit elsewhere.
+
+What makes the picture clean is mostly not the size:
+
+- the shadow's edge is the closed form in both shaders now: `hole.frag`
+  does not march a ray the closed form calls dark (it gets the glow at
+  once, which also saves the long crawl of a captured ray down to the
+  horizon), so no texel inside the shadow can come out as sky. That was the
+  ring of single bright texels at 0.81 of the shadow's radius (22 of them
+  parked at 6 Rs), each a 3x3 px dot; they came from one RK4 step taken
+  where the coordinate speed vanishes at r+, which is now refused as well;
+- the march's first step is no longer jittered (a fixed grain of 2 to 6% from
+  texel to texel in the gas); the gas is sampled on each step's chord
+  instead, twice where the step is long, and is 0.1 to 2.4% from texel to
+  texel and 1.4 to 2.8% rms from a march with five times finer steps;
+- `universe.frag` blends the layer's four texels only over those of one
+  kind, and where it knows from the closed form which side of the edge a
+  pixel is on, only over that side's: no nearest-texel blocks along the edge;
+- the spin axis is made unit in the shaders (it was 0.99998 long, which put
+  every photon that far off null and, near the photon orbit, the closed
+  form's edge three texels from the march's).
+
+The march's step is 0.18 of the distance to r = 0.3 (it was 0.12; `STEP` in
+`hole.frag` and `lib/kerr.js`): against five times finer steps the bend is
+off by a median of at most 0.3 px of a 2160 px screen. With all of it a draw at
+a half costs about 1.5 times what a draw at a third did, and at 33 Hz the
+tracer takes about the GPU time it took before at 40 Hz. `holeScale 0.3333`
+puts the old size back for a comparison with `perf true`.
 
 ## Tools and rebuilding assets
 
@@ -793,6 +889,34 @@ and the Moon's lit side (`lib/sun.js`) with `node tests/test_sun.js
 lib/sun.js`; the render scale, GPU probe,
 idle pacing and frame meter (`lib/quality.js`) with `node
 tests/test_quality.js lib/quality.js`.
+
+The hole's tracer can be run by itself, off screen, on the GPU:
+`tools/hole_layer.py hole.frag fallE=0` draws `hole.frag`'s layer for one
+camera (no window: an EGL device context; needs numpy) and reports the
+shadow's size, the texels of each kind, the lone texels inside the dark that
+the march let escape (each is a 3x3 px dot on screen), the gas's light and
+its texel-to-texel grain. `camPos=`, `camFwd=`, `fallE=`, `spin=` and the
+other uniforms are arguments; `out=layer.npy` keeps the layer. It is the
+shader with the GPU's 32-bit floats, which the double-precision port in
+`lib/kerr.js` does not reproduce.
+
+`tools/hole_view.py out.png` goes one step further: `hole.frag` into its
+layer, then `universe.frag` over it, both as the shell runs them, saved as a
+PNG (the galaxy view near the hole only: the other textures are black). It
+takes the camera, the falling energy, the exposure, the layer's scale and
+format, and optionally another camera for the layer (`tPos=`, `tFwd=`: a
+tracer running behind), and prints how much of the picture is white. `time=N`
+on `hole_layer.py` times the layer's draw.
+
+`tests/harness/fall.sh [--math] [--gpu <driver>]` runs a whole fall headless:
+`Background.qml`'s own logic under `qmlscene6` on the offscreen platform,
+against stub Quickshell modules, with no shader drawn (about 90 s; it needs
+qt6-declarative and node). `fall_check.js` then checks what no node suite
+can: that the tick ran without a JavaScript error on every frame, that the
+camera rides the trajectory and that the camera handed to the hole's tracer
+moves all the way down with it (it once stayed where the fall began while
+the HUD counted down), the layer's size for the GPU, the scripted view, the
+exposure, the captions and the landmark ahead.
 
 The text's timing is in `lib/text.js` (`HOLD_S`, `WORDS_PER_S`, `HOLD_MAX_S`,
 the fades, and the HUD's own: `DIAL_WORDS`, `EVENT_S`, `DWELL_S`) and its
