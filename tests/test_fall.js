@@ -4,7 +4,7 @@ const fs = require("fs"), path = require("path")
 const kerrSrc = fs.readFileSync(path.join(path.dirname(process.argv[2]), "kerr.js"), "utf8").replace(".pragma library", "")
 const src = fs.readFileSync(process.argv[2], "utf8").replace(".pragma library", "").replace(/^\.import .*$/m, "")
 const Fall = new Function(kerrSrc + "\nconst Kerr = { horizons, polarPhotonOrbit, axisEnergyFromRest, axisSpeed, axisFall, tableR, tableTau };\n" + src
-  + "\nreturn { GM_C3, RS_C, TAU_MAX_INSIDE, S_PHOTON, S_HORIZON, S_OTHER, E_MATH, R_END_MATH, T_INNER, timeline, tauAtR, rAt, speedAt, tau, rate, sAtTau, phase, begin, step };")()
+  + "\nreturn { GM_C3, RS_C, TAU_MAX_INSIDE, S_PHOTON, S_HORIZON, S_OTHER, E_MATH, R_END_MATH, T_INNER, T_SLOW, S_SLOW, S_LIGHT, T_FADE, S_CAPTION, CAPTIONS, light, caption, timeline, tauAtR, rAt, speedAt, tau, rate, sAtTau, phase, begin, step };")()
 let fails = 0
 function check(name, ok, info) { console.log((ok ? "ok   " : "FAIL ") + name + (info !== undefined ? "  " + info : "")); if (!ok) fails++ }
 
@@ -308,7 +308,7 @@ const tk = Fall.timeline(6, A)
 check("chi = 0.94: E = 0.9134 from rest at 6 Rs", Math.abs(tk.E - 0.91343) < 1e-5, tk.E.toFixed(5))
 check("chi = 0.94: knots at the polar photon orbit (1.2535) and r+ (0.6706)", Math.abs(tk.rPhoton - 1.2535) < 1e-4 && Math.abs(tk.rPlus - 0.6706) < 1e-4)
 check("chi = 0.94: the drop ends at r- (0.3294), 961 s of proper time", tk.rEnd === tk.rMinus && Math.abs(tk.tauEnd - 960.9) < 0.1, tk.tauEnd.toFixed(1))
-check("chi = 0.94: 14.9 s between the horizons, on screen 24 + 14.9 s", Math.abs(tk.tauEnd - tk.tauHorizon - 14.90) < 0.01 && Math.abs(tk.sEnd - (24 + tk.tauEnd - tk.tauHorizon)) < 1e-9, (tk.tauEnd - tk.tauHorizon).toFixed(2))
+check("chi = 0.94: 14.9 s between the horizons; on screen 24 s + 12.4 s at the true rate + 6 s slowing into r-", Math.abs(tk.tauEnd - tk.tauHorizon - 14.90) < 0.01 && Math.abs(tk.sEnd - (24 + tk.tauEnd - tk.tauHorizon - Fall.T_SLOW + Fall.S_SLOW)) < 1e-9, (tk.tauEnd - tk.tauHorizon).toFixed(2) + ", ends at " + tk.sEnd.toFixed(2) + " s")
 check("chi = 0.94: r(0) = 6, r(tauHorizon) = r+, r(tauEnd) = r-", Fall.rAt(tk, 0) === 6 && Math.abs(Fall.rAt(tk, tk.tauHorizon) - tk.rPlus) < 1e-9 && Fall.rAt(tk, tk.tauEnd) === tk.rMinus)
 check("chi = 0.94: tau(20 s) is the photon orbit, tau(24 s) is r+", Math.abs(Fall.tau(tk, 20) - tk.tauPhoton) < 1e-9 && Math.abs(Fall.tau(tk, 24) - tk.tauHorizon) < 1e-9)
 let kMono = true, kC1 = 0, kPrev = Fall.rate(tk, 0), kInv = 0, kV = 0
@@ -328,11 +328,11 @@ check("chi = 0.94: at r+ the fall is at 0.91 c; the clock runs in real time ther
 check("phases: falling above r+, outer-horizon between, inner-horizon in the last seconds", Fall.phase(tk, 2, 0) === "falling" && Fall.phase(tk, 0.5, Fall.tauAtR(tk, 0.5)) === "outer-horizon" && Fall.phase(tk, 0.34, tk.tauEnd - 0.5) === "inner-horizon" && Fall.phase(tk, 0.5, tk.tauEnd - Fall.T_INNER - 0.5) === "outer-horizon")
 const Fk = Fall.begin(6, A)
 let lastPhase = "", order = [], innerSeen = 0
-for (let i = 0; i < 165 * 60; i++) { const o = Fall.step(Fk, 1 / 165); if (o.phase !== lastPhase) { order.push(o.phase); lastPhase = o.phase } if (o.phase === "inner-horizon" && o.left >= 2.2) innerSeen += 1 / 165; if (o.left === 0) break }
+for (let i = 0; i < 165 * 60; i++) { const o = Fall.step(Fk, 1 / 165); if (o.phase !== lastPhase) { order.push(o.phase); lastPhase = o.phase } if (o.phase === "inner-horizon" && !o.fade) innerSeen += 1 / 165; if (o.left === 0) break }
 check("stepping the realistic fall: falling -> outer-horizon -> inner-horizon, ends at r-", order.join(" ") === "falling outer-horizon inner-horizon" && Math.abs(Fk.s - tk.sEnd) < 0.02, order.join(" ") + ", " + Fk.s.toFixed(2) + " s on screen")
-// Background.qml starts the fade when 2.2 s are left and stops taking phases
+// Background.qml starts the fade when step() says so and stops taking phases
 // then: the inner horizon must be reported for a readable while before that
-check("realistic: inner-horizon is reported for > 1.5 s before the fade begins", innerSeen > 1.5 && innerSeen < Fall.T_INNER, innerSeen.toFixed(2) + " s")
+check("realistic: inner-horizon is reported for 7.5 s before the fade begins", Math.abs(innerSeen - (Fall.T_INNER - Fall.T_SLOW + Fall.S_SLOW)) < 0.02, innerSeen.toFixed(2) + " s")
 check("a = 0 through the general path gives the cycloid's numbers", Math.abs(Fall.timeline(6, 0).tauEnd - tl.tauEnd) < 1e-12 && Fall.timeline(6, 0).rPhoton === 1.5)
 // the mathematics mode
 const tm = Fall.timeline(6, A, true)
@@ -355,6 +355,70 @@ for (let i = 0; i < 165 * 90; i++) { const o = Fall.step(Fm, 1 / 165); if (o.pha
 check("stepping the plunge: falling -> outer-horizon -> inner-horizon -> ring -> other-universe, r monotone to -12", order.join(" ") === "falling outer-horizon inner-horizon ring other-universe" && rMonoM && rMin === -12, order.join(" ") + ", r min " + rMin)
 check("math: on screen about a minute", Math.abs(Fm.s - tm.sEnd) < 0.02 && tm.sEnd > 55 && tm.sEnd < 70, tm.sEnd.toFixed(1) + " s")
 check("math: the crossing joins the plunge where free flight crossed (begin at 0.6)", Fall.begin(0.6, A, true).tl.math && Math.abs(Fall.rAt(tm, Fall.tau(tm, Fall.begin(0.6, A, true).s)) - 0.6) < 1e-6)
+
+
+// 9. the ending. Realistic, spinning: the last 2.5 s of proper time shown
+//    over 6 s, the clock running down to a stop at r- (no halt), the light
+//    closing in over the last 5 s, the fade when it has closed. The other
+//    endings keep the fade 2.2 s of proper time before the end.
+check("ending: the slowdown begins 2.5 s of proper time before r-, at the true rate (C1)", tk.slow && Math.abs(Fall.tau(tk, tk.sReal) - (tk.tauEnd - Fall.T_SLOW)) < 1e-9 && Math.abs(Fall.rate(tk, tk.sReal - 1e-6) - 1) < 1e-9 && Math.abs(Fall.rate(tk, tk.sReal + 1e-6) - 1) < 1e-5)
+check("ending: tau(sEnd) = r- exactly, and stays there", Fall.tau(tk, tk.sEnd) === tk.tauEnd && Fall.tau(tk, tk.sEnd + 3) === tk.tauEnd && Fall.rAt(tk, Fall.tau(tk, tk.sEnd)) === tk.rMinus && Fall.rate(tk, tk.sEnd) === 0)
+let eMono = true, eStill = true, ePrevRate = 1, ePrevR = 9, eD = 0, eInv = 0
+for (let s = tk.sReal; s < tk.sEnd - 1e-9; s += 1 / 165) {
+  const rt = Fall.rate(tk, s), r = Fall.rAt(tk, Fall.tau(tk, s))
+  if (rt > ePrevRate + 1e-12 || rt <= 0) eMono = false
+  if (r >= ePrevR) eStill = false
+  ePrevRate = rt; ePrevR = r
+  eD = Math.max(eD, Math.abs((Fall.tau(tk, s + 1e-4) - Fall.tau(tk, s - 1e-4)) / 2e-4 - rt))
+  eInv = Math.max(eInv, Math.abs(Fall.sAtTau(tk, Fall.tau(tk, s)) - s))
+}
+check("ending: the rate only falls, never reaches 0 before r-, and the radius shrinks every frame at 165 Hz", eMono && eStill)
+check("ending: rate = d tau / d s, s(tau(s)) round trip", eD < 1e-4 && eInv < 1e-6, eD.toExponential(1) + " " + eInv.toExponential(1))
+const rateAt = dt => Fall.rate(tk, tk.sReal + dt)
+check("ending: visibly slowing over seconds: 3/4 of the rate after 1.1 s, half after 2.3 s, a tenth after 4.8 s", Math.abs(rateAt(1.1) - 0.75) < 0.02 && Math.abs(rateAt(2.3) - 0.5) < 0.02 && Math.abs(rateAt(4.8) - 0.1) < 0.02, [1.1, 2.3, 4.8].map(d => rateAt(d).toFixed(2)).join(" "))
+check("ending: half of the last 2.5 s is still ahead 1.5 s in (not a halt)", Math.abs((tk.tauEnd - Fall.tau(tk, tk.sReal + 1.5)) / Fall.T_SLOW - 0.5) < 0.02)
+check("light: 0 until 5 s before r-, 1 at r-, linear between", Fall.light(tk, tk.sEnd - Fall.S_LIGHT - 0.01) === 0 && Fall.light(tk, 30) === 0 && Math.abs(Fall.light(tk, tk.sEnd - 2.5) - 0.5) < 1e-9 && Fall.light(tk, tk.sEnd) === 1 && Fall.light(tk, tk.sEnd + 4) === 1)
+check("light: a beat of 3 to 5 s, begun once the slowing has (never before it)", Fall.S_LIGHT >= 3 && Fall.S_LIGHT <= 5 && tk.sEnd - Fall.S_LIGHT >= tk.sReal)
+check("light: none in mathematics mode or without spin", Fall.light(tm, tm.sEnd) === 0 && Fall.light(tm, tm.sReal) === 0 && Fall.light(tl, tl.sEnd) === 0)
+// stepping at 165 Hz, as Background.qml does: when the fade begins
+function run(F, hz, onFrame) { for (let i = 0; i < hz * 120; i++) { const o = Fall.step(F, 1 / hz); onFrame(o, F.s); if (o.left === 0 && o.fade && F.s > F.tl.sEnd + 5) break } }
+let fadeAt = -1, lightAtFade = -1, rateAtFade = -1, said = [], saidAt = [], lastSaid = null
+run(Fall.begin(6, A), 165, (o, s) => {
+  if (o.fade && fadeAt < 0) { fadeAt = s; lightAtFade = o.light; rateAtFade = o.rate }
+  if (o.caption !== lastSaid) { said.push(o.caption); saidAt.push(s); lastSaid = o.caption }
+})
+check("realistic: the fade begins at r-, the light closed and the camera at rest", Math.abs(fadeAt - tk.sEnd) < 0.01 && lightAtFade === 1 && rateAtFade === 0, fadeAt.toFixed(2) + " s")
+check("realistic: 18.4 s from the outer horizon to the fade (it was 12.7 s)", Math.abs(fadeAt - Fall.S_HORIZON - 18.4) < 0.02, (fadeAt - Fall.S_HORIZON).toFixed(2))
+check("realistic captions: event horizon at the crossing for 4 s, then the inner horizon to the end", said.join("|") === "|event-horizon||inner-horizon" && Math.abs(saidAt[1] - 24) < 0.01 && Math.abs(saidAt[2] - 28) < 0.01 && Math.abs(saidAt[3] - tk.sInner) < 0.01, saidAt.map(v => v.toFixed(1)).join(" "))
+// a story caption is fully up 3 s after it is set (0.4 s pause, 2.6 s fade)
+check("realistic: the inner horizon's caption stands 4.5 s before the fade (and through the black)", Math.abs(fadeAt - (tk.sInner + 3) - 4.5) < 0.02 && tk.sInner - 28 > 3, (fadeAt - tk.sInner - 3).toFixed(2))
+let fadeM = -1, leftM = -1; said = []; saidAt = []; lastSaid = null
+run(Fall.begin(6, A, true), 165, (o, s) => {
+  if (o.fade && fadeM < 0) { fadeM = s; leftM = o.left }
+  if (o.caption !== lastSaid) { said.push(o.caption); saidAt.push(s); lastSaid = o.caption }
+})
+check("math: the fade begins with 2.2 s of proper time left, as before", leftM < Fall.T_FADE && leftM > Fall.T_FADE - 1 && Math.abs(fadeM - tm.sFade) < 0.01, leftM.toFixed(2) + " s left at " + fadeM.toFixed(2))
+check("math captions: event horizon, inner horizon, the ring, the other universe", said.join("|") === "|event-horizon||inner-horizon-math||ring|other-universe", said.join("|"))
+const span = k => saidAt[said.indexOf(k) + 1] - saidAt[said.indexOf(k)]
+check("math captions: each stands at least 4 s, with 2 s between unrelated ones; the ring's is up before the disk", span("event-horizon") >= 3.99 && span("inner-horizon-math") >= 4 && span("ring") >= 5.5 && tm.sRing - tm.sInnerEnd >= 2 && tm.sRing + 3 < tm.sReal && tm.sOther > tm.sReal && tm.sEnd - tm.sOther > 10, [span("event-horizon"), span("inner-horizon-math"), span("ring"), tm.sEnd - tm.sOther].map(v => v.toFixed(1)).join(" "))
+let fade0 = -1, left0 = -1; said = []; lastSaid = null
+run(Fall.begin(6, 0), 165, (o, s) => { if (o.fade && fade0 < 0) { fade0 = s; left0 = o.left } if (o.caption !== lastSaid) { said.push(o.caption); lastSaid = o.caption } })
+check("a = 0: no inner horizon, no slowdown: the fade 2.2 s before the singularity, the one caption", !tl.slow && left0 < Fall.T_FADE && left0 > Fall.T_FADE - 0.02 && said.join("|") === "|event-horizon|", left0.toFixed(3))
+// the inverse on the whole realistic timeline, above the horizon too (the
+// ending's closed form is for its own stretch only)
+let invAll = 0
+for (let s = 0.5; s < tk.sEnd; s += 0.25) invAll = Math.max(invAll, Math.abs(Fall.sAtTau(tk, Fall.tau(tk, s)) - s))
+check("realistic: s(tau(s)) round trip from the start to r-, above the horizon too", invAll < 1e-6, invAll.toExponential(1))
+check("realistic: a fall joined above the horizon (begin at 1.5, 1.0) starts at that radius, before the crossing", [1.5, 1.0].every(r => { const F = Fall.begin(r, A); return F.s > 0 && F.s < Fall.S_HORIZON && Math.abs(Fall.rAt(F.tl, Fall.tau(F.tl, F.s)) - r) < 1e-6 && Fall.caption(F.tl, F.s) === "" }))
+const tx = Fall.timeline(6, 0.5)
+check("extremal spin (the horizons coincide): no stretch to slow, every time finite, the fade at the horizon", tx.tSlow === 0 && [tx.sReal, tx.sEnd, tx.sFade, tx.sInner].every(isFinite) && tx.sFade === Fall.S_HORIZON && Fall.tau(tx, tx.sEnd) === tx.tauEnd && Fall.sAtTau(tx, tx.tauEnd) === tx.sEnd)
+check("a crossing in free flight (begin at 0.6) starts on the event horizon's caption", Fall.caption(tk, Fall.begin(0.6, A).s) === "event-horizon")
+// the words: every key the timeline can return has a caption, short enough
+// for the story band; the K hint is in the realistic ending only
+const keys = Object.keys(Fall.CAPTIONS), nWords = t => t.split(/\s+/).length
+check("captions: a title and a body each, at most 25 words", keys.every(k => Fall.CAPTIONS[k].title && Fall.CAPTIONS[k].body && nWords(Fall.CAPTIONS[k].body) <= 25), keys.map(k => nWords(Fall.CAPTIONS[k].body)).join(" "))
+check("captions: the K hint closes the realistic inner horizon's, on its own line, and is nowhere else", /\nK: follow the mathematics through the ring$/.test(Fall.CAPTIONS["inner-horizon"].body) && keys.every(k => k === "inner-horizon" || !/\bK\b/.test(Fall.CAPTIONS[k].body)))
+check("captions: the outer horizon's says nothing marks it", Fall.CAPTIONS["event-horizon"].title === "Event horizon" && /othing marks it/.test(Fall.CAPTIONS["event-horizon"].body))
 
 console.log(fails ? fails + " FAILED" : "all passed")
 process.exit(fails ? 1 : 0)

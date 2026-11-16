@@ -15,9 +15,10 @@ import "lib/fall.js" as Fall
 import "lib/kerr.js" as Kerr
 import "lib/localgroup.js" as LG
 import "lib/dwarfs.js" as Dw
-import "lib/labels.js" as Lb
+import "lib/text.js" as Tx
 import "lib/drag.js" as Dr
 import "lib/quality.js" as Q
+import "lib/layout.js" as Lay
 
 Item {
   id: root
@@ -133,54 +134,106 @@ Item {
     onTriggered: root.nebulaTime = root.shaderTime
   }
 
-  // The JARVIS HUD: Super+Alt+J (or H while exploring, or
-  // `omarchy-shell background toggleHud`) hides or shows it; hidden is
-  // remembered by a flag file. `omarchy-shell background hud <level>` sets its
-  // brightness until the shell restarts.
-  property bool hudOn: true
+  // The text level (lib/text.js): one setting for every word and line the
+  // wallpaper draws over the scene. T cycles off, names, full while exploring
+  // (Shift+T back); H, Super+Alt+J and IPC `toggleHud` switch the cockpit:
+  // full, and the last level below it. IPC `text <level>` sets it from a
+  // script. The level is one word in a state file and survives a restart.
+  // Every element belongs to a group the level shows or not:
+  //   names    place and planet names, markers, the card's head, a caption's title
+  //   guide    the card's text, caption detail, the key hints (full only)
+  //   cockpit  the HUD's rings, clock, readouts and beacons (full only)
+  // and to a zone that comes up with any interaction (a key, the pointer, a
+  // flight) and fades once its words have had time to be read, so a parked
+  // view puts no standing text on the OLED: opacity = textMix(group, zone).
+  // Only the cockpit's rings, clock and readouts stand while the level is
+  // full: they are dim and drift. `omarchy-shell background hud <level>` sets
+  // the cockpit's brightness until the shell restarts.
+  property string textLevel: ""                   // "" until the state file is read: nothing shows
+  property string textLower: "names"              // the last level below full: where the cockpit key returns to
+  property string textHold: ""                    // IPC textHold: a level for a film or a tour, never saved
+  readonly property string textShown: Tx.effective(textLevel, textHold, film)
+  readonly property var textModel: Tx.create()
+  property real gateNames: 0                      // the groups, eased over a level change
+  property real gateGuide: 0
+  property real gateCockpit: 0
+  property real presLabel: 0                      // the zones: names, markers and beacons (8 s),
+  property real presCard: 0                       //   the place card, by its words,
+  property real presHints: 0                      //   the key hints,
+  property real presCaption: 0                    //   the mode caption
+  function textMix(group, zone) {
+    return (group === "names" ? gateNames : group === "guide" ? gateGuide : group === "cockpit" ? gateCockpit : 1)
+         * (zone === "label" ? presLabel : zone === "card" ? presCard : zone === "hints" ? presHints : zone === "caption" ? presCaption : 1)
+  }
+  function readTextModel() {
+    gateNames = Tx.gate(textModel, "names"); gateGuide = Tx.gate(textModel, "guide"); gateCockpit = Tx.gate(textModel, "cockpit")
+    presLabel = Tx.presence(textModel, "label"); presCard = Tx.presence(textModel, "card")
+    presHints = Tx.presence(textModel, "hints"); presCaption = Tx.presence(textModel, "caption")
+  }
+  function touchText() { Tx.touch(textModel) }
+  // word: a level, "next", "prev", or "toggle" (the cockpit key). It ends a
+  // hold, is saved, and names itself in a toast where the caption goes
+  property string toastText: ""
+  property int toastSerial: 0                     // each screen's toast follows this
+  function setText(word) {
+    const st = Tx.apply({ level: textLevel || "full", lower: textLower }, word)
+    if (!st) return
+    textHold = ""
+    textLower = st.lower
+    if (st.level !== textLevel) { textLevel = st.level; saveText() }
+    touchText()
+    toastText = st.level === "off" ? "TEXT OFF  ·  T BRINGS IT BACK" : "TEXT  ·  " + st.level.toUpperCase()
+    toastSerial++
+  }
   property real hudBrightness: 0.38
-  readonly property real hudLevel: hudOn ? hudBrightness * (1 - filmMix) : 0
+  readonly property real hudLevel: hudBrightness * gateCockpit * cockpitYield
 
-  // Film mode (IPC `film true`): for recording. The HUD, key hints, place
-  // labels, markers and mode captions fade out over 1.5 s and the scene
-  // stays; `caption <title> <body>` then shows a quiet lower-third caption
-  // that fades in and out. Not remembered: a restart is back to normal.
+  // Film mode (IPC `film true`): for recording. It is the level `off` for as
+  // long as it is on, reached over the same 1.5 s: the cockpit, key hints,
+  // names, markers and mode captions go and the scene stays; `caption
+  // <title> <body>` then shows a quiet lower-third caption that fades in and
+  // out. Neither film nor a hold touches the saved level, and film itself is
+  // not remembered: a restart is back to normal.
   property bool film: false
-  property real filmMix: film ? 1 : 0
-  Behavior on filmMix { NumberAnimation { duration: 1500; easing.type: Easing.InOutSine } }
-  readonly property real unclutter: 1 - filmMix   // multiplies every overlay that film mode hides
-  // The label layer (L, IPC `labels <true/false>`): place markers and names
-  // in the Milky Way view, planet names in the system view. On, it comes up
-  // with any interaction (a key, the pointer, a flight) and fades Lb.HOLD_S
-  // seconds after the last one, so a parked view puts no standing text on
-  // the OLED; off, it stays away. Film mode hides it as before (unclutter).
-  property bool labelsOn: true
-  readonly property var labelClock: Lb.create()
-  property real labelsMix: 1
-  function touchLabels() { Lb.touch(labelClock) }
-  function setLabels(on) { labelsOn = on; touchLabels() }
   property string captionTitle: ""
   property string captionBody: ""
   property int captionSerial: 0                   // each screen's caption follows this
   function setCaption(title, body) {
     captionTitle = title; captionBody = body
     captionSerial++
+    touchText()
   }
+  readonly property string textFile: stateHome + "/universe-background/text-level"
+  // what remembered a hidden HUD before there was a level: read once at the
+  // start when there is no text-level yet (present: names, absent: full, so
+  // each machine starts showing what it showed), never written again
   readonly property string hudHiddenFlag: stateHome + "/universe-background/hud-hidden"
 
-  function setHud(on) {
-    hudOn = on
-    hudFlagProc.command = on ? ["rm", "-f", hudHiddenFlag]
-                             : ["bash", "-c", "mkdir -p \"$(dirname \"$1\")\" && touch \"$1\"", "_", hudHiddenFlag]
-    hudFlagProc.running = true
+  function saveText() {
+    if (textFileProc.running) return              // its exit writes the newer level
+    textFileProc.written = textLevel
+    textFileProc.command = ["bash", "-c", "mkdir -p \"$(dirname \"$1\")\" && printf '%s\\n' \"$2\" > \"$1\"", "_", textFile, textLevel]
+    textFileProc.running = true
   }
-
-  Process { id: hudFlagProc }
   Process {
-    id: hudFlagCheck
+    id: textFileProc
+    property string written: ""
+    onExited: if (written !== root.textLevel) root.saveText()
+  }
+  Process {
+    id: textFileCheck
     running: true
-    command: ["test", "-e", root.hudHiddenFlag]
-    onExited: function(code) { root.hudOn = code !== 0 }
+    command: ["sh", "-c", "cat \"$1\" 2>/dev/null; echo; [ -e \"$2\" ] && echo hud-hidden", "_", root.textFile, root.hudHiddenFlag]
+    stdout: StdioCollector {
+      onStreamFinished: {
+        if (root.textLevel !== "") return         // set by hand before the file answered
+        const lines = String(text || "").split("\n")
+        root.textLevel = Tx.migrate(lines[0], lines.slice(1).some(l => l.trim() === "hud-hidden"))
+        // the level the shell starts with is simply there (the rings have their own draw-in)
+        Tx.snap(root.textModel, root.textShown)
+        root.readTextModel()
+      }
+    }
   }
 
   // Adaptive quality (lib/quality.js): how many pixels the full pass shades
@@ -243,6 +296,63 @@ Item {
     }
   }
 
+  // Where text may go (lib/layout.js): per screen, a safe rect inside
+  // Hyprland's reserved bands (the bar) and under a camera notch, and in it
+  // the rail (bottom left), the caption slot (bottom centre), the story band
+  // and the HUD's plan. The notch comes from the platform's cutouts file, as
+  // the bar reads it, so it is respected with the bar hidden; the file is
+  // absent on most machines. Hyprland's answer is asked for again a moment
+  // after the start (the bar may reserve its band after this layer maps) and
+  // with every change of view.
+  property var displayCutouts: Lay.parseCutouts(cutoutsFile.text())
+  FileView {
+    id: cutoutsFile
+    path: "/usr/share/omarchy-platform/display-cutouts.json"
+    blockLoading: true
+    watchChanges: true
+    printErrors: false
+    onLoaded: root.displayCutouts = Lay.parseCutouts(text())
+    onLoadFailed: root.displayCutouts = []
+    onFileChanged: reload()
+  }
+  Timer { interval: 1500; running: true; onTriggered: Hyprland.refreshMonitors() }
+  function layOf(screen) {
+    const m = Hyprland.monitors.values.find(m => m.name === screen.name)
+    const o = m ? m.lastIpcObject : null
+    const mode = m && m.width > 0 && m.height > 0 ? { width: m.width, height: m.height, transform: o ? o.transform : 0 } : null
+    return Lay.plan(screen.width, screen.height, o && o.reserved ? o.reserved : null,
+                    Lay.cutoutTop(displayCutouts, screen.name, screen.width, screen.height, screen.devicePixelRatio, mode))
+  }
+  // the first screen's plan: the camera and the label pass work in its aspect
+  readonly property var lay0: Quickshell.screens.length > 0 ? layOf(Quickshell.screens[0]) : Lay.plan(2370, 1000, null, 0)
+  // for scripts and checks, as JSON: the level, what is showing right now,
+  // and every screen's zones in logical pixels
+  function textReport() {
+    const px = b => ({ x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.w), h: Math.round(b.h) })
+    const up = v => v > 0.01
+    const exploring = explore !== "universe"
+    const showing = []
+    if (up(hudLevel)) showing.push("cockpit")
+    if (up(hudLevel * presLabel) && exploring && navBeacons.some(b => !!b)) showing.push("beacons")
+    if (up(gateNames * presLabel) && exploring && explore !== "flight") showing.push("names")
+    if (cardShown && up(galaxyMix * gateNames * presCard)) showing.push("card")
+    if (cardShown && up(galaxyMix * gateGuide * presCard)) showing.push("blurb")
+    if (railRows.length > 0 && up((touring ? gateNames : gateGuide) * presHints)) showing.push(touring ? "tour keys" : "hints")
+    if (captionUp) showing.push("caption")
+    if (captionWords > 0 && up(gateGuide * presCaption)) showing.push("caption detail")
+    if (up(sysHover * gateNames)) showing.push("hover hint")
+    if (captionTitle !== "" || captionBody !== "") showing.push("story caption")
+    return JSON.stringify({ level: textLevel, hold: textHold, film: film, shown: textShown, showing: showing, screens: Quickshell.screens.map(s => {
+      const l = layOf(s), e = Lay.hudExtent(l), h = Lay.hudAt(l, [hudDrift.x, hudDrift.y])
+      return { screen: s.name, size: [s.width, s.height],
+               safe: { x0: Math.round(l.safe.x0), y0: Math.round(l.safe.y0), x1: Math.round(l.safe.x1), y1: Math.round(l.safe.y1) },
+               rail: { x: Math.round(l.rail.x), w: Math.round(l.rail.w), bottom: Math.round(l.rail.bottom) },
+               caption: { x: Math.round(l.caption.x), w: Math.round(l.caption.w), bottom: Math.round(l.caption.bottom) },
+               story: { x: Math.round(l.story.x), y: Math.round(l.story.y), w: Math.round(l.story.w) },
+               hud: { arrangement: h.arr, scale: Math.round(h.s * 1000) / 1000, centre: [Math.round(h.cx), Math.round(h.cy)], radius: Math.round(h.R),
+                      ring: px(e.ring), stats: px(e.stats) } }
+    }) })
+  }
 
   // Pointer parallax: the pointer over the desktop shifts each layer by its
   // depth; `view` eases toward `viewTarget` (both -0.5..0.5 from the centre).
@@ -292,7 +402,7 @@ Item {
     hover: new Cam.Spring(0, Cam.W_MODE),
     sys: new Cam.Spring(0, Cam.W_MODE),        // overlays fade in with the system view
     chase: new Cam.Spring(0, Cam.W_MODE),      // labels give way to markers in the chase view
-    labels: new Cam.Spring(1, Cam.W_MODE),     // the label layer, up after an interaction
+    yield: new Cam.Spring(1, Cam.W_MODE),      // the HUD steps back for a subject inside its ring
     exposure: new Cam.Spring(1, 1.3),          // the sky brightens slowly on an empty workspace
     fallFade: new Cam.Spring(0, 2.9)           // the fall's black, 2 s each way (0.98 at 2.0 s)
   })
@@ -307,6 +417,8 @@ Item {
   onEmptyWorkspaceChanged: if (!emptyWorkspace) explore = "universe"
   onExploreChanged: {
     keysDown = ({})
+    touchText()   // a view entered from a script or a binding brings its text up like a key does
+    Hyprland.refreshMonitors()   // the bar may have come or gone: the safe rect follows
     if (explore !== "galaxy") { gxRateIndex = 0; fallReset() }
     if (explore !== "system") {
       chasing = false
@@ -430,7 +542,7 @@ Item {
   property int galSlowIndex: 0
   readonly property var galSlows: [1, 2, 5, 10, 20, 50, 100, 200]
   readonly property real galSlow: galSlows[galSlowIndex]
-  onGalacticChanged: setLimits()
+  onGalacticChanged: { setLimits(); touchText() }
   onGalBackChanged: setLimits()
   // a galactic-view pose as the eye's direction from the Sun, in the Sun's
   // velocity frame (yaw around the velocity's vertical, pitch above the plane)
@@ -643,7 +755,7 @@ Item {
     gxView = i
     gxAim(o.yaw, o.pitch)
     gxDistGoal = o.dist
-    touchLabels()
+    touchText()
   }
   readonly property vector4d lmcPos: { const h = hotspots[gxIndex("Large Magellanic")]; return Qt.vector4d(h.pos[0], h.pos[1], h.pos[2], h.size / 4000) }
   readonly property vector4d smcPos: { const h = hotspots[gxIndex("Small Magellanic")]; return Qt.vector4d(h.pos[0], h.pos[1], h.pos[2], h.size / 4000) }
@@ -696,6 +808,13 @@ Item {
   // fading in ("in"). Esc gives up by the same fade; leaving the view, sleep
   // or a fullscreen window reset it all.
   //
+  // The realistic ending is told, not just cut (fall.js): the fall is shown
+  // slowing into the inner horizon over 6 s, the light falling in after us
+  // closes in from the pole we fell from (fallClose, universe.frag), and
+  // only then the fade. What it is goes to the story band (fallSay): the
+  // outer horizon, the inner horizon and, in mathematics mode, the ring and
+  // the other universe, at every text level like a film's caption.
+  //
   // The spin: a/M = 0.94, the EHT 2022 Sgr A* Paper V best-bet model (a MAD
   // flow at 30 degrees inclination; Daly et al. 2024 find ~0.9 from the
   // outflow method, Fragione & Loeb 2020 argue for < 0.1 from the S stars'
@@ -724,6 +843,9 @@ Item {
   property real gxFallE: 0              // the observer's energy per unit mass, for the shaders (0: not falling)
   property real gxCamSheet: 1           // -1 once through the disk: the shaders' r < 0 sheet
   property real fallFlash: 1            // > 1 in the last seconds before the inner horizon: the glow's blueshift (cartoon)
+  property real fallClose: 0            // 0..1 over the last 5 s before the inner horizon: its light closing in (cartoon)
+  property string fallCaption: ""       // the story caption the fall is at (a key of Fall.CAPTIONS)
+  property string fallSaid: ""          // the caption the fall put in the story band, while it is still the one there
   property real fallFade: 0             // 0..1 black
   property real fallHold: 0             // seconds spent black
   property real fallHoldFor: 2
@@ -791,6 +913,22 @@ Item {
     gxAim(Math.atan2(pole[0], pole[1]), Math.asin(pole[2]))
     gxView = -1
   }
+  // The fall's story caption, through the band film and tours use (so it
+  // shows at every text level). A caption that is not the fall's (a tour's,
+  // IPC `caption`) keeps the band, and film mode leaves the words to its
+  // script: the fall then says nothing new, and only takes down a caption
+  // of its own that film mode found up.
+  function fallSay(key) {
+    if (key === fallCaption) return
+    fallCaption = key
+    const up = captionTitle + "\n" + captionBody
+    const ours = fallSaid !== "" && fallSaid === up
+    if (up !== "\n" && !ours) { fallSaid = ""; return }
+    const c = film ? undefined : Fall.CAPTIONS[key]
+    if (!c && !ours) return
+    setCaption(c ? c.title : "", c ? c.body : "")
+    fallSaid = c ? c.title + "\n" + c.body : ""
+  }
   // at: where the fall starts (kpc), when not the camera's last position. The
   // fall is always down the axis: from the pole on that side, at that radius
   // (a jump when free flight crossed the horizon off the axis: the rare path)
@@ -817,6 +955,7 @@ Item {
     fallHold = 0
     gxCamSheet = 1
     fallFlash = 1
+    fallClose = 0
     gxFallE = F.tl.E
     gxSel = gxIndex("Sagittarius A")
     gxTarget = [0, 0, 0]
@@ -841,6 +980,8 @@ Item {
     gxFallE = 0
     gxCamSheet = 1
     fallFlash = 1
+    fallClose = 0
+    fallSay("")
     fallInside = false
     gxFlyTo(-1)
     const sp = sunPosAt(gxMyr)
@@ -863,7 +1004,7 @@ Item {
     if (fallState) return   // below the horizon, or on the way: nothing steers
     gxFallArmed = false
     gxView = -1
-    touchLabels()
+    touchText()
     if (i >= 0 && photoOf(i)) {
       // come in from Earth's side, as the photo was taken, framed to fill the view
       const P = hotspotPos(i), Sn = sunPosAt(gxMyr)
@@ -890,7 +1031,7 @@ Item {
     fallReset()
     gxFallArmed = false
     gxView = -1
-    touchLabels()
+    touchText()
     gxFromSystem = explore === "system"
     explore = "galaxy"
     gxMyr = 0
@@ -1005,7 +1146,7 @@ Item {
     }
   }
   property real chaseMix: 0          // 0 overview .. 1 chase, for the overlays' opacity
-  onChasingChanged: { mix.chase.g = chasing ? 1 : 0; setLimits() }
+  onChasingChanged: { mix.chase.g = chasing ? 1 : 0; setLimits(); touchText() }
   function chaseGoals() {
     sysCam.yaw.g = Cam.unwrap(sysCam.ref.az + (chaseLocked ? 0 : 0.35), sysCam.yaw.x)
     sysCam.pitch.g = chaseLocked ? 0 : 0.18
@@ -1065,19 +1206,34 @@ Item {
     else { sysCam.lim.ell = [Math.log(1 / 150), Math.log(1 / 1.3)]; sysCam.lim.pitch = [Math.asin(follow > 0 ? 0.04 : 0.12), Math.asin(0.98)] }
   }
 
-  // key hints shown under the HUD readouts, per mode
+  // A tour's own keys (IPC `tourKeys "SPACE=next; B=back; ESC=leave"`, ""
+  // ends it): while set, the rail shows these rows instead of the mode's
+  // hints, at `names` and `full` (not at `off` or in a film, where only a
+  // story caption shows), and no place card: the tour's caption is the card.
+  property var tourKeys: []
+  function setTourKeys(spec) {
+    tourKeys = String(spec || "").split(";").map(r => r.split("=")).filter(r => r.length >= 2 && r[0].trim() !== "")
+      .map(r => [r[0].trim().toUpperCase(), r.slice(1).join("=").trim()])
+    touchText()
+  }
+  readonly property bool touring: tourKeys.length > 0
+  // key hints in the rail, per mode
+  readonly property var railRows: touring ? tourKeys : controlHints
+  readonly property var textHint: ["T", "text: names / full / off (now " + textShown + ")"]
+  readonly property int hintWords: Tx.words(railRows.map(r => r[0] + " " + r[1]).join(" "))
   readonly property var controlHints: explore === "flight" ? [
       ["W / S", "thrust forward / back"],
       ["A / D", "strafe left / right"],
       ["R / F", "up / down"],
-      ["H", "hide / show the HUD"],
+      textHint,
+      ["H", "cockpit on / off"],
       ["ESC / RIGHT-CLICK", "back to the universe"]
     ] : explore === "sky" ? [
       ["1 - 7  /  TAB", "the named views"],
       ["DRAG / ARROWS", "look around (WASD too)"],
       ["SCROLL / Q E", "zoom"],
-      ["L", labelsOn ? "labels off" : "labels on (they fade after " + Lb.HOLD_S + " s)"],
-      ["H", "hide / show the HUD"],
+      textHint,
+      ["H", "cockpit on / off"],
       ["ESC / RIGHT-CLICK", "back to the universe"]
     ] : explore === "galaxy" && fallState ? [
       // fallWhere, not fallPhase: the hint stays through the fade; the mode is
@@ -1087,7 +1243,8 @@ Item {
          : fallWhere === "inner-horizon" ? (fallMath ? "the inner horizon" : "the inner horizon: here the Kerr solution stops being trustworthy")
          : fallInside ? "below the horizon there is no way out" : "falling down the spin axis: nothing steers now"],
       ["DRAG / ARROWS", "look around: you cannot steer"],
-      ["H", "hide / show the HUD"],
+      textHint,
+      ["H", "cockpit on / off"],
       fallPhase !== "out" && fallPhase !== "in" ? ["ESC / RIGHT-CLICK", "give up: fade back to the Sun"] : ["", "back beside the Sun in a moment"]
     ] : explore === "galaxy" ? [
       ["TAB", "next place (shift: previous)"],
@@ -1105,8 +1262,8 @@ Item {
       ["[  ]", "time-lapse: the Galaxy turns (" + gxRateNames[gxRateIndex].toLowerCase() + ")"],
       ["N", "back to now"],
       ["X", "the solar system"],
-      ["L", labelsOn ? "labels off" : "labels on (they fade after " + Lb.HOLD_S + " s)"],
-      ["H", "hide / show the HUD"],
+      textHint,
+      ["H", "cockpit on / off"],
       ["ESC / RIGHT-CLICK", gxFromSystem ? "back to the solar system" : "back to the universe"]
     ] : explore !== "system" ? [] : galactic ? [
       ["-  =", galSlow === 1 ? "slow the Sun to see the coils" : "slower / faster Sun (now 1/" + galSlow + ")"],
@@ -1116,7 +1273,8 @@ Item {
       ["SCROLL / Q E", "camera distance"],
       ["[  ]", "slower / faster time"],
       ["N", "back to now"],
-      ["H", "hide / show the HUD"],
+      textHint,
+      ["H", "cockpit on / off"],
       ["G / ESC / RIGHT-CLICK", "back to the system"]
     ] : chasing ? [
       ["X", chaseLocked ? "angled view" : "lock on the " + chaseTargetName.toUpperCase() + " vector"],
@@ -1127,7 +1285,8 @@ Item {
       ["TAB / 0-6 / M", "chase another body (M: Moon)"],
       ["[  ]", "slower / faster time"],
       ["N", "back to now"],
-      ["H", "hide / show the HUD"],
+      textHint,
+      ["H", "cockpit on / off"],
       ["V / ESC / RIGHT-CLICK", "back to the system"]
     ] : [
       ["CLICK / 1-6", "pin a planet"],
@@ -1138,7 +1297,6 @@ Item {
       ["G", "galactic motion (paths through space)"],
       ["X", "fly out to the Milky Way"],
       ["I", root.guides ? "hide orbit lines" : "show orbit lines"],
-      ["L", labelsOn ? "labels off" : "labels on (they fade after " + Lb.HOLD_S + " s)"],
       ["SCROLL / Q E", "zoom"],
       ["DRAG", "orbit the camera (a release coasts)"],
       ["RIGHT-DRAG / WASD", "pan (Shift-drag too)"],
@@ -1146,9 +1304,46 @@ Item {
       ["O", "auto orbit"],
       ["[  ]", "slower / faster time"],
       ["N", "back to now"],
-      ["H", "hide / show the HUD"],
+      textHint,
+      ["H", "cockpit on / off"],
       ["ESC / RIGHT-CLICK", "back to the universe"]
     ]
+
+  // The chosen place's card as text: its name, what it is, a line of facts
+  // and the blurb. The rail shows it; its words set how long it stays.
+  readonly property var cardPlace: gxSel >= 0 ? place(gxSel) : null
+  readonly property var cardView: gxView >= 0 ? gxViews[gxView] : null   // a named viewpoint
+  readonly property bool cardShown: (gxSel !== -2 || !!cardView) && !touring
+  readonly property string cardTitle: cardPlace ? cardPlace.name.toUpperCase() : cardView ? cardView.name.toUpperCase() : "THE SUN  ·  YOU ARE HERE"
+  readonly property string cardSub: cardPlace ? cardPlace.label.toUpperCase() : cardView ? cardView.label
+    : "26,600 LY FROM THE GALACTIC CENTRE  ·  ONE ORBIT EVERY ~203 MILLION YEARS AT 249 KM/S"
+  readonly property string cardFacts: {
+    const h = cardPlace
+    if (!h) return ""
+    if (h.kind === "blackhole" && fallPhase !== "")
+      return "falling  ·  " + fallR.toFixed(2) + " Schwarzschild radii from the centre  ·  spin a/M = 0.94: horizons at " + (fallState ? fallState.tl.rPlus.toFixed(2) + " and " + fallState.tl.rMinus.toFixed(2) : "0.67 and 0.33") + " radii, 15 s between them"
+    if (h.kind === "blackhole" && gxDist < 2e-6)
+      return Math.round(gxDist / rsKpc) + " Schwarzschild radii from it (" + (gxDist * 2.0626e8).toFixed(1) + " AU)  ·  event horizon "
+        + (2 * rsKpc * 2.0626e8).toFixed(2) + " AU across"
+    return lightYears(h.dpc) + " away  ·  " + sizeText(h.size) + " across"
+  }
+  readonly property string cardBlurb: {
+    const h = cardPlace
+    if (!h) return cardView ? cardView.blurb
+      : "The Sun circles Sagittarius A* with everything around it, rising and sinking through the disk as it goes. Press [ ] to watch."
+    const light = h.dpc * 3.26156 >= 10 ? "  The light you see left it " + lightYears(h.dpc).replace(" ly", " years") + " ago." : ""
+    if (h.kind === "blackhole" && fallPhase !== "")
+      return (fallMath
+        ? "Mathematics mode: the maximally extended Kerr solution, not physics. A plunge down the spin axis at 0.75 c (from rest the fall would turn back inside the inner horizon), through both horizons and the disk inside the ring singularity into the negative-r universe, where the hole repels and the sky is not ours. The sky there is invented; the solution says nothing about it."
+        : "Letting go from 6 radii on the spin axis: free fall, the way down shown 45 times faster, the inside at the true rate. Nothing marks the outer horizon; below it every direction leads inward and the outside sky squeezes into a thin bright band. The fall ends at the inner horizon, where light falling in behind us arrives blueshifted without bound: beyond it the Kerr solution describes nothing real.") + light
+    if (h.kind === "blackhole")
+      return h.blurb + "  Visible light never gets out to us through the dust; you see the crowded star cluster around it. Its shadow was imaged in radio by the Event Horizon Telescope in 2022. Drawn spinning at a/M = 0.94 (the EHT's best-bet model; uncertain): the gas on prograde Kerr orbits, the shadow flattened on one side when seen from the equator." + light
+    return h.blurb + light
+  }
+  // the facts line changes every frame of a fall: it counts as a dozen words
+  readonly property int cardWords: cardShown ? Tx.words(cardSub) + 12 + Tx.words(cardBlurb) : 0
+  // the mode caption's words (a title and a line or two of detail)
+  readonly property int captionWords: galactic ? 30 : explore === "sky" ? 16 : explore === "galaxy" ? 18 : 0
 
   // pointer over the solar system in the universe view, eased 0..1
   property bool hoverSystem: false
@@ -1158,6 +1353,7 @@ Item {
   property int follow: 0 // -1 free camera, 0 sun, 1..6 planets, 7 the Moon
   readonly property string followName: follow === 7 ? "Moon" : follow > 0 ? planetInfo[follow - 1].name : follow === 0 ? "Sun" : ""
   onFollowChanged: {
+    touchText()
     if (follow < 0 && chasing) leaveChase()
     setLimits()
   }
@@ -1188,43 +1384,16 @@ Item {
     const m = markerPts[kind] || { x: 0, y: 0, r: 0, dist: 0 }
     return { x: (m.x / aspect + 0.5) * w, y: (m.y + 0.5) * h, r: m.r * h, dist: m.dist }
   }
-  // Labels never sit on top of each other. Planet names give way to the
-  // pinned body, then to the outer planets (the inner ones crowd together when
-  // zoomed out); marker labels move down a row until they are clear.
-  function labelBox(x, y, text, px) {
-    return { x: x, y: y, w: text.length * (px * 0.62 + 2) + 6, h: px * 1.5 }
-  }
-  function boxesOverlap(a, b) {
-    return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
-  }
-  function markerWanted(kind, w, h) {
+  // A marker is wanted when its body is outside the safe rect (a dot on the
+  // edge points at it) or too small to see. lay: the screen's plan
+  function markerWanted(kind, lay) {
     if (!root.liveBackground || root.sys < 0.5 || root.galMix > 0.5) return false
-    const pr = markerProj(kind, w, h)
-    const m = 70
-    const off = pr.x < m || pr.x > w - m || pr.y < m || pr.y > h - m
+    const pr = markerProj(kind, lay.W, lay.H)
+    const off = Lay.clampMarker(pr.x, pr.y, lay.safe, []).off
     const inChase = chaseMix > 0.5
     if (kind === "moon") return follow !== 7 || inChase ? (off || pr.r < 10) : off
     if (kind === "earth") return follow !== 3 && (inChase ? (off || pr.r < 10) : off)
     return inChase && (off || pr.r < 14) // sun
-  }
-  // y of a marker's label: below its body, pushed down past earlier labels
-  function markerLabelY(kind, w, h) {
-    const px = Math.round(h * 0.0085)
-    const m = 70
-    const placed = []
-    for (const k of ["sun", "earth", "moon"]) {
-      if (!markerWanted(k, w, h)) { if (k === kind) return 0; continue }
-      const pr = markerProj(k, w, h)
-      const cx = Math.max(m, Math.min(w - m, pr.x)), cy = Math.max(m, Math.min(h - m, pr.y))
-      const up = cy > h - m - 1
-      const text = markerLabel(k)
-      const b = labelBox(Math.min(cx + 16, w - text.length * (px * 0.62 + 2) - 8), cy - px * 0.75 + (up ? -18 : 18), text, px)
-      let tries = 0
-      while (tries++ < 6 && placed.some(o => boxesOverlap(o, b))) b.y += up ? -b.h : b.h
-      placed.push(b)
-      if (k === kind) return b.y
-    }
-    return 0
   }
   function markerLabel(kind) {
     var fmt = function(n) { return Math.round(n).toLocaleString(Qt.locale("en_US"), "f", 0) }
@@ -1245,7 +1414,7 @@ Item {
   // radii, the real Sun. The overview squeezes orbits a thousandfold so they
   // fit on screen; zooming back out returns to it. The blend is the camera's
   // sigma channel, so it runs WITH a pick's flight, not after it.
-  // guide lines (orbit rings, the Sun vector, long galactic trails): L toggles
+  // guide lines (orbit rings, the Sun vector, long galactic trails): I toggles
   property bool guides: false
   property real guideMix: 0
   readonly property real trueAu: 0.0045 * auKm / 6371 // display units per AU at true scale
@@ -1358,9 +1527,52 @@ Item {
 
   function key(name) { return keysDown[name] ? 1 : 0 }
 
-  // HUD centre in shader coordinates: right third of the screen, drifting
-  // slowly (OLED) and leaning toward the pointer.
-  property vector2d hudCenter: Qt.vector2d(0.57, 0.02)
+  // The HUD centre's offset from its anchor, in shader coordinates: drifting
+  // slowly (OLED) and leaning toward the pointer, within +-0.10 and +-0.08.
+  // Each screen has its own anchor and HUD scale (lib/layout.js: right of
+  // centre on a wide screen, the top right corner on a narrow one) and adds
+  // this, times the scale, to it; the rings and the text read that one place.
+  property vector2d hudDrift: Qt.vector2d(0, 0)
+  // The label pass (lib/layout.js placeLabels) runs once a tick for the view
+  // in front, on the first screen (the camera works in its aspect): every
+  // scene name goes right of its thing, else left, else hides, clear of the
+  // bar and notch, the rail, the caption, the HUD's ring, readouts and
+  // beacon words, a story caption, and every name placed before it. The
+  // first screen's panel says how tall its zones stand right now.
+  property real railNow: 0
+  property real statsNow: 0
+  property real storyNow: 0
+  property real toastNow: 0   // the level toast's height while it has the caption slot
+  readonly property bool captionUp: captionWords > 0 && presCaption * gateNames > 0.01
+  readonly property var labelState: ({ sides: {}, beacons: [] })   // the side each name had; the beacon words' boxes
+  property var markerLabels: ({})   // moon / earth / sun: label shown, side
+  property var galLabels: []        // galactic view: the heading's words, then the planets: shown, side
+  // the HUD steps back (to 0.3) while the chosen or hovered thing is inside its ring, so its name reads
+  property real cockpitYield: 1
+  // a pass's answers reach the label bindings only when one of them changed
+  function labelsDiffer(was, now) {
+    const ks = Object.keys(now)
+    return Object.keys(was).length !== ks.length || ks.some(k => !was[k] || was[k].show !== now[k].show || was[k].side !== now[k].side)
+  }
+  function labelZones() {
+    const l = lay0, keep = []
+    if (railNow > 0) keep.push(Lay.railRect(l, railNow))
+    if (captionUp) keep.push(Lay.captionRect(l, l.caption.maxH))
+    else if (toastNow > 0) keep.push(Lay.captionRect(l, toastNow))   // in a view without a caption the toast still stands there
+    const cover = keep.slice()   // where a dot hides too: the rail, the caption, the readouts
+    let disc = null
+    if (gateCockpit > 0.01) {
+      const h = Lay.hudAt(l, [hudDrift.x, hudDrift.y])
+      disc = { cx: h.cx, cy: h.cy, r: h.R }
+      if (statsNow > 0) cover.push({ x: h.stats.x, y: h.arr === "beside" ? h.cy - statsNow / 2 : h.stats.y, w: h.stats.w, h: statsNow })
+    }
+    return { keep: keep, cover: cover, disc: disc,
+             all: cover.concat(disc ? [disc] : [], disc ? labelState.beacons : [], storyNow > 0 ? [Lay.storyRect(l, storyNow)] : []) }
+  }
+  // IPC `textDebug true`: the plan drawn over the scene (safe rect, rail,
+  // caption slot, story band, the readouts' rect, and a circle that must lie
+  // on the rings' outer bracket at any render scale)
+  property bool textDebug: false
 
   // frameDt: the FrameAnimation's own clock (monotonic, sub-millisecond); the
   // fallback Timer passes nothing and the wall clock serves (whole milliseconds:
@@ -1369,6 +1581,7 @@ Item {
     const now = Date.now()
     const dt = Math.min(0.1, frameDt !== undefined ? frameDt : (now - lastTick) / 1000)
     lastTick = now
+    let subjectInRing = false   // the chosen or hovered thing is inside the HUD's ring (set by the label pass)
     shaderTime = ((now - shaderEpoch) / 1000) % 600
     if (idleFps < Q.IDLE_FULL && !navigating && now - lastNebulaAt >= 90) { nebulaTime = shaderTime; lastNebulaAt = now }
 
@@ -1389,9 +1602,9 @@ Item {
 
     // Same one-cycle-per-600 s rates as the shader, so the wrap never jumps.
     const w = 2 * Math.PI / 600
-    hudCenter = Qt.vector2d(
-      0.57 + 0.06 * Math.sin(w * 2 * shaderTime) + view.x * 0.08,
-      0.02 + 0.04 * Math.sin(w * 3 * shaderTime + 1.3) + view.y * 0.08)
+    hudDrift = Qt.vector2d(
+      0.06 * Math.sin(w * 2 * shaderTime) + view.x * 0.08,
+      0.04 * Math.sin(w * 3 * shaderTime + 1.3) + view.y * 0.08)
 
     // solar system: the Sun's place in the universe view (left third, drifting),
     // which the camera's principal point follows while it is the corner view
@@ -1681,19 +1894,26 @@ Item {
         if ((r < F.tl.rPlus) !== fallInside) fallInside = r < F.tl.rPlus
         const sheet = r < 0 ? -1 : 1
         if (sheet !== gxCamSheet) gxCamSheet = sheet
-        // the inner horizon's flash (realistic mode, the last 2.5 s, through
-        // the fade): the glow below shifted blue by sqrt(2.5 s / time left),
+        // the inner horizon's flash (realistic mode, the last 2.5 s of proper
+        // time, which the ending shows over 6): the glow below shifted blue
+        // by sqrt(2.5 s / time left),
         // a cartoon of the unbounded blueshift there (Poisson & Israel 1990)
         const flash = F.tl.math ? 1 : Math.max(1, Math.sqrt(2.5 / Math.max(o.left, 0.05)))
         if (Math.abs(flash - fallFlash) > 1e-3) fallFlash = flash
+        // and its light closing in, over the last 5 s on screen (universe.frag)
+        if (Math.abs(o.light - fallClose) > 1e-4 || (o.light === 1) !== (fallClose === 1)) fallClose = o.light
+        // (nothing new once the screen is going black: Esc just before a
+        // caption's time would bring it up over the black)
+        if (fallPhase !== "out") fallSay(o.caption)
         // the fall's own phase, kept through the fade (fall.js turns it to
         // "inner-horizon" 4 s before r-, so it is seen before the fade starts)
         if (fallWhere !== o.phase) fallWhere = o.phase
-        // the fade is black 2.0 s after it starts: begin it so the camera is
-        // still moving when the screen goes dark (at the inner horizon, or at
-        // the mathematics mode's end on the far sheet)
+        // the fade is black 2.0 s after it starts. fall.js says when: at the
+        // inner horizon once the fall has slowed into it and the light has
+        // closed; at the mathematics mode's end on the far sheet early
+        // enough that the camera is still moving when the screen goes dark
         if (fallPhase !== "out" && fallPhase !== "in") {
-          if (o.left < 2.2) { fallPhase = "out"; fallHold = 0; fallHoldFor = 2 }
+          if (o.fade) { fallPhase = "out"; fallHold = 0; fallHoldFor = 2 }
           else if (fallPhase !== o.phase) fallPhase = o.phase
         }
         // the view turns from the hole to the side over the approach (in log
@@ -1847,11 +2067,11 @@ Item {
         gxPhoto = Qt.vector4d(0, 0, 0, 0)
         gxResetFades()
       }
-      // labels: projected, and laid out so none overlap (chosen place first,
-      // then the Sun, then the biggest on screen). The hotspots always get
-      // their marker; a dwarf galaxy only when chosen, big enough on screen
-      // or under the pointer (dot), so the sky is not a field of dots
-      const H = 1000, Wd = H * aspect, px = 8.5
+      // labels: projected, and laid out by the one label pass (the chosen and
+      // the hovered place first, then the Sun, the hotspots by size, the
+      // dwarfs). The hotspots always get their marker; a dwarf galaxy only
+      // when chosen, big enough on screen or under the pointer (dot), so
+      // the sky is not a field of dots
       const pts = []
       const nAll = gxSunIndex + 1 + dwarfPlaces.length
       for (let i = 0; i < nAll; i++) {
@@ -1883,21 +2103,35 @@ Item {
       }
       if (hov !== gxHover) gxHover = hov
       const sel = gxSel >= 0 ? gxSel : gxSel === -1 ? gxSunIndex : -1
+      const L0 = lay0, tok0 = L0.tok, zones = labelZones()
+      const toX = x => L0.W / 2 + x * L0.H, toY = y => (y + 0.5) * L0.H
+      // a dot under the bar or notch, the card, the caption or the readouts
+      // hides (and cannot be clicked); inside the ring it stays: thin lines
+      for (const pt of pts) {
+        if (pt.dot && (toY(pt.y) < L0.safe.y0 || zones.cover.some(k => Lay.pointIn(toX(pt.x), toY(pt.y), k)))) pt.dot = false
+      }
+      const isDwarf = i => i !== gxSunIndex && !!place(i).dwarf
       const order = pts.map((_, i) => i).filter(i => pts[i].dot)
-        .sort((a, b) => (b === sel) - (a === sel) || (b === hov) - (a === hov) || (b === gxSunIndex) - (a === gxSunIndex) || pts[b].apparent - pts[a].apparent)
-      const placed = []
-      for (const i of order) {
-        const name = i === gxSunIndex ? "SUN · YOU ARE HERE" : place(i).name
-        const bx = labelBox((pts[i].x / aspect + 0.5) * Wd + 10, (pts[i].y + 0.5) * H - px * 0.75, name.toUpperCase(), px)
-        if (placed.every(o => !boxesOverlap(o, bx))) { placed.push(bx); pts[i].show = true }
+        .sort((a, b) => (b === sel) - (a === sel) || (b === hov) - (a === hov) || (b === gxSunIndex) - (a === gxSunIndex)
+                        || isDwarf(a) - isDwarf(b) || pts[b].apparent - pts[a].apparent)
+      const res = Lay.placeLabels(order.map(i => {
+        const name = i === gxSunIndex ? "SUN  ·  YOU ARE HERE" : place(i).name
+        return { id: "g" + i, x: toX(pts[i].x), y: toY(pts[i].y), r: tok0.gap, w: Lay.textW(name.length, tok0.label, tok0.track.normal), h: tok0.label * 1.5,
+                 pin: i === sel || i === hov }
+      }), zones.all, L0.safe, labelState.sides)
+      order.forEach((i, n) => { pts[i].show = res[n].show; pts[i].side = res[n].side })
+      if (zones.disc) for (const i of [sel, hov]) {
+        if (i >= 0 && pts[i] && pts[i].front && Math.hypot(toX(pts[i].x) - zones.disc.cx, toY(pts[i].y) - zones.disc.cy) < zones.disc.r) subjectInRing = true
       }
       gxScreen = pts
     }
 
-    // the label layer: up for Lb.HOLD_S after an interaction, then gone
-    Lb.step(labelClock, dt)
-    mix.labels.g = Lb.wanted(labelsOn, labelClock)
-    labelsMix = mix.labels.step(dt)
+    // the text model: the level's gates, and each zone up for as long as its
+    // words take after an interaction, then gone. A fall is scripted (nothing
+    // steers, so nothing would touch the clock): it holds its own text up
+    if (fallState) touchText()
+    Tx.step(textModel, dt, textShown, { label: 0, card: cardWords, hints: hintWords, caption: captionWords })
+    readTextModel()
 
     mix.hover.g = hoverSystem && explore === "universe" ? 1 : 0
     sysHover = mix.hover.step(dt)
@@ -1921,22 +2155,15 @@ Item {
       principal = Qt.vector2d(cb.o[0], cb.o[1])
     }
 
-    // labels and markers, projected once per tick through the same camera.
-    // Planet names give way to the pinned body, then to the outer planets
-    // (the inner ones crowd together when zoomed out).
+    // labels and markers, projected once per tick through the same camera,
+    // and laid out by the one label pass: the pinned body first, then the
+    // Moon, Earth and Sun markers, then the outer planets before the inner
+    // (which crowd together when zoomed out). In the galactic view its own
+    // names take the pass: the heading's words, then the planets.
     {
-      const H = 1000, Wd = H * aspect, px = 8.5
-      const pts = disp.map(b => { const pr = sysCam.project(b); return { x: pr.x, y: pr.y, r: b[3] * pr.scale, front: pr.front, show: false } })
-      const order = []
-      if (follow >= 1 && follow <= 6) order.push(follow - 1)
-      for (let k = 5; k >= 0; k--) if (k !== follow - 1) order.push(k)
-      const placed = []
-      for (const k of order) {
-        if (!pts[k].front) continue
-        const bx = labelBox((pts[k].x / aspect + 0.5) * Wd + pts[k].r * H + 10, (pts[k].y + 0.5) * H - px * 0.75, planetInfo[k].name, px)
-        if (placed.every(o => !boxesOverlap(o, bx))) { placed.push(bx); pts[k].show = true }
-      }
-      sysScreen = pts
+      const L0 = lay0, tk = L0.tok
+      const toX = x => L0.W / 2 + x * L0.H, toY = y => (y + 0.5) * L0.H
+      const pts = disp.map(b => { const pr = sysCam.project(b); return { x: pr.x, y: pr.y, r: b[3] * pr.scale, front: pr.front, show: false, side: 1 } })
       const mk = {}
       for (const [kind, P, R] of [["moon", moonD, moonD[3]], ["earth", disp[2], disp[2][3]], ["sun", [0, 0, 0], sunR]]) {
         const pr = sysCam.project(P)
@@ -1945,7 +2172,63 @@ Item {
         mk[kind] = { x: pr.x * k, y: pr.y * k, r: pr.front ? R * pr.scale : 0, dist: Cam.len(Cam.sub(P, cb.C)) }
       }
       markerPts = mk
+      const items = [], put = []   // put: where each item's answer goes
+      // no name of these shows outside the system and galactic views (the
+      // universe view, the galaxy, the sky): no pass, and nothing to place
+      const zones = sys > 0.5 || galMix > 0.5 ? labelZones() : null
+      if (!zones) {
+        if (galLabels.length > 0) galLabels = []
+        if (labelsDiffer(markerLabels, {})) markerLabels = ({})
+      } else if (galMix > 0.5) {
+        const gl = galNow.map(() => ({ show: false, side: 1 }))
+        const s0 = galNow[0]
+        if (s0 && s0.z > 0.004) {
+          const reach = 0.06 * L0.H
+          // the heading's words point away from the Sun, never back across it
+          items.push({ id: "gal-heading", x: toX(s0.x) + galHeading.x * reach, y: toY(s0.y) + galHeading.y * reach, r: tk.gap + tk.glyph * 0.3,
+                       w: Lay.textW(19, tk.micro, tk.track.normal), h: tk.micro * 1.5, pin: false, only: galHeading.x >= 0 ? 1 : -1 })
+          put.push(gl[0])
+        }
+        for (let i = 1; i < galNow.length; i++) {
+          const b = galNow[i]
+          if (!(b.z > 0.004)) continue
+          items.push({ id: "gal-" + i, x: toX(b.x), y: toY(b.y), r: Math.max(4, b.r * L0.H * 2) / 2 + tk.gap,
+                       w: Lay.textW(planetInfo[i - 1].name.length, tk.micro, tk.track.normal), h: tk.micro * 1.5, pin: false })
+          put.push(gl[i])
+        }
+        const res = Lay.placeLabels(items, zones.all, L0.safe, labelState.sides)
+        res.forEach((r, n) => { put[n].show = r.show; put[n].side = r.side })
+        if (labelsDiffer(galLabels, gl)) galLabels = gl
+        if (labelsDiffer(markerLabels, {})) markerLabels = ({})
+      } else {
+        const ml = {}
+        const planet = k => {
+          if (!pts[k].front) return
+          items.push({ id: "p" + k, x: toX(pts[k].x), y: toY(pts[k].y), r: pts[k].r * L0.H + tk.gap,
+                       w: Lay.textW(planetInfo[k].name.length, tk.label, tk.track.normal), h: tk.label * 1.5, pin: k === follow - 1 })
+          put.push(pts[k])
+        }
+        const named = chaseMix < 0.5   // the chase view has markers only
+        if (named && follow >= 1 && follow <= 6) planet(follow - 1)
+        for (const kind of ["sun", "earth", "moon"]) {
+          ml[kind] = { show: false, side: 1 }
+          if (!markerWanted(kind, L0)) continue
+          const pr = markerProj(kind, L0.W, L0.H)
+          const at = Lay.clampMarker(pr.x, pr.y, L0.safe, zones.keep, tk.gap)
+          items.push({ id: "m-" + kind, x: at.x, y: at.y, r: tk.gap + 6, w: Lay.textW(markerLabel(kind).length, tk.label, tk.track.normal), h: tk.label * 1.5, pin: false })
+          put.push(ml[kind])
+        }
+        if (named) for (let k = 5; k >= 0; k--) if (k !== follow - 1) planet(k)
+        const res = Lay.placeLabels(items, zones.all, L0.safe, labelState.sides)
+        res.forEach((r, n) => { put[n].show = r.show; put[n].side = r.side })
+        if (labelsDiffer(markerLabels, ml)) markerLabels = ml
+        if (zones.disc && explore === "system" && follow >= 1 && follow <= 6 && pts[follow - 1].front
+            && Math.hypot(toX(pts[follow - 1].x) - zones.disc.cx, toY(pts[follow - 1].y) - zones.disc.cy) < zones.disc.r) subjectInRing = true
+      }
+      sysScreen = pts
     }
+    mix.yield.g = subjectInRing && gateNames * presLabel > 0.01 ? 0.3 : 1
+    cockpitYield = mix.yield.step(dt)
 
     // JARVIS: beacons every frame, telemetry 5 times a second
     {
@@ -2042,7 +2325,7 @@ Item {
                         : fallR > -tl.a ? "THROUGH THE DISK INSIDE THE RING" : "THE OTHER UNIVERSE  ·  REPELLED"
             rows = [
               { label: "FALLING", value: fmtNum(fallR, 2) + " SCHWARZSCHILD RADII  ·  " + where },
-              { label: "PROPER TIME", value: left + (tl.math ? " TO THE EDGE OF THE FAR SHEET" : " TO THE INNER HORIZON") + "  ·  " + (fallRate > 1.05 ? "SHOWN " + fmtNum(fallRate) + "× FASTER" : "REAL TIME") }
+              { label: "PROPER TIME", value: left + (tl.math ? " TO THE EDGE OF THE FAR SHEET" : " TO THE INNER HORIZON") + "  ·  " + (fallRate > 1.05 ? "SHOWN " + fmtNum(fallRate) + "× FASTER" : fallRate < 0.95 ? "SHOWN SLOWER" : "REAL TIME") }
             ]
             if (tl.math) rows.push({ label: "MATHEMATICS", value: "THE EXTENDED KERR SOLUTION, NOT OBSERVED PHYSICS  ·  PLUNGE AT 0.75 C" })
           }
@@ -2069,6 +2352,20 @@ Item {
       }
       navBeacons = nb
       if (rows !== null) navRows = rows
+      // where the beacons' words stand on the first screen (as the readout
+      // places them, from estimated widths): scene names keep clear of them
+      const words = []
+      if (gateCockpit > 0.01 && explore !== "universe") {
+        const h0 = Lay.hudAt(lay0, [hudDrift.x, hudDrift.y]), tk = lay0.tok
+        const st = { x: h0.stats.x, y: h0.arr === "beside" ? h0.cy - statsNow / 2 : h0.stats.y, w: h0.stats.w, h: statsNow }
+        for (const b of nb) {
+          if (!b) continue
+          const bw = Lay.textW((b.name + (b.dist ? "  " + b.dist : "")).length, tk.micro, tk.track.normal), bh = tk.micro * 1.4
+          const at = Lay.beaconLabel(b.ang, bw, bh, h0.cx, h0.cy, h0.R * Lay.BEACON / Lay.RING + tk.gap, lay0.safe, st, b.shift)
+          if (at.show) words.push({ x: at.x, y: at.y, w: bw, h: bh })
+        }
+      }
+      labelState.beacons = words
     }
 
     mix.exposure.g = emptyWorkspace && explore === "universe" ? 1.9 : 1
@@ -2077,7 +2374,7 @@ Item {
     // anything still easing keeps the idle clock at its full rate (see idleFps)
     idleBusy = bootLevel < 1 || sys > 0 || galaxyMix > 0 || skyMix > 0 || navMix > 0 || galMix > 0 || fallFade > 0 || sysCam.flying()
       || mix.viewX.moving() || mix.viewY.moving() || mix.hover.moving() || mix.exposure.moving()
-      || mix.speed.moving() || mix.strafeX.moving() || mix.strafeY.moving()
+      || mix.speed.moving() || mix.strafeX.moving() || mix.strafeY.moving() || textModel.moving || mix.yield.moving()
     gauges = Qt.vector3d(cpu, gpu, mem)
   }
 
@@ -2285,8 +2582,22 @@ Item {
       root.hudBrightness = Math.max(0, Math.min(1, level))
     }
 
+    // the cockpit key (Super+Alt+J): full, and the last level below it
     function toggleHud(): void {
-      root.setHud(!root.hudOn)
+      root.setText("toggle")
+    }
+
+    // the text level: off, names or full; next and prev cycle (T, Shift+T);
+    // toggle is toggleHud. Remembered across restarts
+    function text(level: string): void {
+      root.setText(level)
+    }
+
+    // a level for now (a film, a tour), over the saved one and never saved;
+    // "" lets go of it, and so does any T or H
+    function textHold(level: string): void {
+      root.textHold = Tx.parseLevel(level)
+      root.touchText()
     }
 
     function navigate(): void {
@@ -2347,11 +2658,6 @@ Item {
       else root.gxFlyTo(place === "sun" ? -1 : root.placeIndex(place))
     }
 
-    // the label layer: on, it shows for a few seconds after each interaction
-    function labels(on: bool): void {
-      root.setLabels(on)
-    }
-
     function hole(): void {
       if (root.explore !== "galaxy") root.enterGalaxy()
       root.gxB()
@@ -2369,7 +2675,7 @@ Item {
       if (!root.galactic) root.toggleGalactic()
     }
 
-    // film mode: the scene without the HUD, hints, labels and markers
+    // film mode: the scene with no text but the caption (the level off, for now)
     function film(on: bool): void {
       root.film = on
       if (!on) root.setCaption("", "")
@@ -2412,6 +2718,22 @@ Item {
     // frame time every 5 s (console.warn, so the shell's log)
     function perf(on: bool): void {
       root.perf = on
+    }
+
+    // the text level, what is showing, and every screen's zones (safe rect,
+    // rail, caption slot, story band, the HUD's plan and reach) as JSON
+    function textReport(): string {
+      return root.textReport()
+    }
+
+    // a tour's keys in the rail: "KEY=what it does; KEY=..."; "" ends it
+    function tourKeys(rows: string): void {
+      root.setTourKeys(rows)
+    }
+
+    // draw the zones over the scene, to check them by eye
+    function textDebug(on: bool): void {
+      root.textDebug = on
     }
 
     function themeTransition(fromPath: string, path: string, finalPath: string, colorsB64: string, shellB64: string): void {
@@ -2476,6 +2798,40 @@ Item {
 
       // this screen's render scale and idle rate (lib/quality.js)
       readonly property var q: root.qualityOf(modelData)
+      // and its zones and type sizes (lib/layout.js)
+      readonly property var lay: root.layOf(modelData)
+      readonly property var tok: lay.tok
+      // its HUD, in pixels: radius, arrangement and the readouts' rect at the
+      // anchor, and the centre where it is now. The drift moves every frame,
+      // so it comes in as two numbers and nothing is built for it.
+      readonly property var hud: Lay.hudAt(lay, null)
+      readonly property real hudCx: Lay.hudCx(lay, root.hudDrift.x)
+      readonly property real hudCy: Lay.hudCy(lay, root.hudDrift.y)
+      // the first screen tells the label pass how tall its zones stand
+      readonly property bool first: Quickshell.screens.length > 0 && Quickshell.screens[0].name === modelData.name
+      property real statsH: 0   // the readouts' height (set from inside the live layer)
+      Binding { target: root; property: "statsNow"; value: panel.statsH; when: panel.first }
+      Binding { target: root; property: "railNow"; value: rail.visible ? rail.height : 0; when: panel.first }
+      Binding { target: root; property: "toastNow"; value: toast.up > 0 ? toast.height : 0; when: panel.first }
+      // A story caption (film, a tour, IPC `caption`) wins its band: while it
+      // shows, a zone its rect touches steps aside, the whole cockpit
+      // together (never rings without their text), over the HUD's whole
+      // drift so it does not flicker; a rail of a few rows stays clear of it,
+      // and so does the caption slot unless the story runs to many lines.
+      readonly property bool storyUp: filmCaption.opacity > 0.01
+      readonly property var storyBox: Lay.storyRect(lay, filmCaption.height)
+      readonly property var hudReach: Lay.hudExtent(lay, statsH)
+      property real cockpitStep: storyUp && (Lay.intersects(storyBox, hudReach.ring) || Lay.intersects(storyBox, hudReach.stats)) ? 0 : 1
+      Behavior on cockpitStep { NumberAnimation { duration: Tx.FADE_OUT_S * 1000; easing.type: Easing.InOutSine } }
+      property real railStep: storyUp && Lay.intersects(storyBox, Lay.railRect(lay, rail.height)) ? 0 : 1
+      Behavior on railStep { NumberAnimation { duration: Tx.FADE_OUT_S * 1000; easing.type: Easing.InOutSine } }
+      property real captionStep: storyUp && Lay.intersects(storyBox, Lay.captionRect(lay, lay.caption.maxH)) ? 0 : 1
+      Behavior on captionStep { NumberAnimation { duration: Tx.FADE_OUT_S * 1000; easing.type: Easing.InOutSine } }
+      // what a mode caption has of its slot: the toast and a story caption come first
+      readonly property real captionSlot: toast.slot * captionStep
+      Binding { target: root; property: "storyNow"; value: filmCaption.opacity > 0.01 ? filmCaption.height : 0; when: panel.first }
+      // where a marker may not sit: this screen's rail and caption as they stand
+      readonly property var keepRects: [Lay.railRect(lay, rail.visible ? rail.height : 0), Lay.captionRect(lay, root.captionUp ? lay.caption.maxH : toast.up > 0 ? toast.height : 0)]
       readonly property var perfMeter: Q.perfCreate()
       Connections {
         target: base.Window.window
@@ -2707,9 +3063,10 @@ Item {
               property real time: root.shaderTime
               property vector2d resolution: Qt.vector2d(panel.width * panel.q.res, panel.height * panel.q.res)
               property color accent: Color.accent
-              property real hudLevel: root.hudLevel
+              property real hudLevel: root.hudLevel * panel.cockpitStep
               property vector2d view: root.view
-              property vector2d hudCenter: root.hudCenter
+              property vector2d hudCenter: Qt.vector2d((panel.hudCx - panel.lay.W / 2) / panel.lay.H, panel.hudCy / panel.lay.H - 0.5)
+              property real hudScale: panel.lay.hud.s
               property real flight: root.flight
               property real cpu: root.idleFps < Q.IDLE_FULL ? root.gauges.x : root.cpu
               property real gpu: root.idleFps < Q.IDLE_FULL ? root.gauges.y : root.gpu
@@ -2760,6 +3117,7 @@ Item {
               property real gxRealSky: root.gxRealSky
               property real gxFallE: root.gxFallE
               property real gxFallFade: root.fallFade
+              property real gxFallClose: root.fallClose
               property vector3d gxSpinAxis: root.holeSpinAxis
               property real gxSpin: root.holeSpin
               property real gxCamSheet: root.gxCamSheet
@@ -2787,18 +3145,22 @@ Item {
             }
 
             // HUD readouts in the shell font: the time inside the rings and the
-            // gauge values beside them, moving with the HUD centre.
+            // gauge values beside them (under them on a narrow screen), moving
+            // with the HUD centre and sized with its scale.
             Item {
               id: readout
-              readonly property real hudOpacity: Math.min(0.75, root.hudLevel * 1.8)
+              readonly property real hudOpacity: Math.min(0.75, root.hudLevel * 1.8) * panel.cockpitStep
               readonly property real unit: panel.height
-              readonly property real cx: (root.hudCenter.x * panel.height / panel.width + 0.5) * panel.width
-              readonly property real cy: (root.hudCenter.y + 0.5) * panel.height
-              readonly property real rowSize: Math.round(unit * 0.0105)
+              readonly property real s: panel.lay.hud.s
+              readonly property real cx: panel.hudCx
+              readonly property real cy: panel.hudCy
+              readonly property real rowSize: panel.tok.body
+              // the text joins the rings' draw-in over its last 40%
+              readonly property real bootIn: Math.max(0, Math.min(1, (root.bootLevel - 0.6) / 0.4))
 
               Column {
                 visible: root.hudLevel > 0
-                opacity: readout.hudOpacity
+                opacity: readout.hudOpacity * readout.bootIn
                 x: readout.cx - width / 2
                 y: readout.cy - height / 2
                 spacing: 0
@@ -2807,7 +3169,7 @@ Item {
                   text: Qt.formatTime(root.now, "HH:mm")
                   color: Color.foreground
                   font.family: Style.resolvedFontFamily
-                  font.pixelSize: Math.round(readout.unit * 0.026)
+                  font.pixelSize: panel.tok.display
                   font.weight: Font.Light
                 }
                 Text {
@@ -2815,8 +3177,8 @@ Item {
                   text: Qt.formatDate(root.now, "ddd d MMM").toUpperCase()
                   color: Color.accent
                   font.family: Style.resolvedFontFamily
-                  font.pixelSize: Math.round(readout.unit * 0.0085)
-                  font.letterSpacing: 2
+                  font.pixelSize: panel.tok.label
+                  font.letterSpacing: panel.tok.label * panel.tok.track.normal
                 }
               }
 
@@ -2828,9 +3190,9 @@ Item {
                   id: beacon
                   required property int index
                   readonly property var b: root.navBeacons[index]
-                  readonly property real ringR: readout.unit * 0.248
+                  readonly property real ringR: readout.unit * Lay.BEACON * readout.s
                   visible: !!b && root.hudLevel > 0 && root.explore !== "universe"
-                  opacity: readout.hudOpacity * (b && b.behind ? 0.55 : 1)
+                  opacity: readout.hudOpacity * root.presLabel * (b && b.behind ? 0.55 : 1)
                   x: readout.cx + Math.cos(b ? b.ang : 0) * ringR
                   y: readout.cy + Math.sin(b ? b.ang : 0) * ringR
                   Text {
@@ -2838,98 +3200,91 @@ Item {
                     text: beacon.b && beacon.b.behind ? "△" : "▲"
                     rotation: (beacon.b ? beacon.b.ang : 0) * 180 / Math.PI + 90
                     color: beacon.b ? beacon.b.color : "white"
-                    font.pixelSize: Math.round(readout.unit * 0.009)
+                    font.pixelSize: panel.tok.label
                   }
                   Text {
-                    // left half: label outside the ring; right half: inside, clear of the readout column
-                    readonly property bool onLeft: true
-                    x: onLeft ? -width - readout.unit * 0.01 : readout.unit * 0.01
-                    y: -height / 2 + (beacon.b ? beacon.b.shift : 0) * height * 1.3
+                    // the name and distance stand radially outside the ring, every
+                    // point of them (lib/layout.js beaconLabel). Where they would
+                    // leave the safe rect or touch the readouts the words hide and
+                    // the triangle stays: the readout rows carry the same names
+                    readonly property var at: Lay.beaconLabel(beacon.b ? beacon.b.ang : 0, width, height, readout.cx, readout.cy,
+                                                              beacon.ringR + panel.tok.gap, panel.lay.safe, statsBox.rect, beacon.b ? beacon.b.shift : 0)
+                    visible: at.show
+                    x: at.x - beacon.x
+                    y: at.y - beacon.y
                     text: beacon.b ? beacon.b.name + (beacon.b.dist ? "  " + beacon.b.dist : "") : ""
                     color: beacon.b ? beacon.b.color : "white"
                     font.family: Style.resolvedFontFamily
-                    font.pixelSize: Math.round(readout.unit * 0.0072)
-                    font.letterSpacing: 1.5
+                    font.pixelSize: panel.tok.micro
+                    font.letterSpacing: panel.tok.micro * panel.tok.track.normal
                   }
                 }
               }
 
-              Column {
+              // the readouts: a fixed column beside the ring, centred on it,
+              // or under it, as wide as the ring; values wrap to three lines
+              // and it never grows past what the plan leaves it
+              Item {
+                id: statsBox
+                readonly property var at: panel.hud.stats   // at the anchor; it moves with the centre
+                readonly property var rect: ({ x: x, y: y, w: width, h: height })   // as it stands now
+                Binding { target: panel; property: "statsH"; value: statsBox.visible ? statsBox.height : 0 }
                 visible: root.hudLevel > 0
-                opacity: readout.hudOpacity
-                id: statsColumn
-                x: readout.cx + readout.unit * 0.255
-                y: readout.cy - height / 2
-                spacing: Math.round(readout.unit * 0.004)
+                opacity: readout.hudOpacity * readout.bootIn
+                x: at.x + readout.cx - panel.hud.cx
+                y: panel.hud.arr === "beside" ? readout.cy - height / 2 : at.y + readout.cy - panel.hud.cy
+                width: at.w
+                height: Math.min(statsColumn.height, at.h)
+                clip: statsColumn.height > at.h
+                Column {
+                  id: statsColumn
+                  width: parent.width
+                  spacing: panel.tok.row
 
-                Repeater {
-                  model: root.explore !== "universe" && root.explore !== "flight" && root.navRows.length > 0
-                    ? [{ label: "SYS", color: Color.accent,
-                         value: "CPU " + Math.round(root.stats.cpu * 100) + "%  ·  GPU " + Math.round(root.stats.gpu * 100) + "% " + Math.round(root.stats.gpuWatts) + " W  ·  MEM " + root.stats.memUsed.toFixed(1) + " GB" }]
-                      .concat(root.navRows.map(r => ({ label: r.label, color: root.hudHighlight, value: r.value })))
-                    : [
-                    { label: "CPU", color: Color.accent,
-                      value: Math.round(root.stats.cpu * 100) + "%  " + Math.round(root.stats.cpuTemp) + "°C" },
-                    { label: "GPU", color: root.hudHighlight,
-                      value: Math.round(root.stats.gpu * 100) + "%  " + Math.round(root.stats.gpuWatts) + " W  " + Math.round(root.stats.gpuTemp) + "°C" },
-                    { label: "MEM", color: Color.accent,
-                      value: root.stats.memUsed.toFixed(1) + " / " + root.stats.memTotal.toFixed(0) + " GB" },
-                    { label: "NAV", color: root.hudHighlight, value: "FLIGHT", hidden: !root.navigating },
-                    { label: "SYS", color: root.hudHighlight,
-                      value: (root.chasing ? (root.chaseLocked ? "LOCKED ON " + root.chaseTargetName.toUpperCase() + " VECTOR  " : "CHASE  ") : "")
-                        + (root.follow > 0 ? "PINNED " + root.followName.toUpperCase() + (root.chasing ? " → " + root.chaseTargetName.toUpperCase() : "") + "  "
-                           : root.follow === 0 ? "SUN  " : "FREE  ")
-                        + Qt.formatDateTime(new Date(root.simMs), "d MMM yyyy HH:mm").toUpperCase() + "  "
-                        + root.simRateNames[root.simRateIndex] + (root.autoOrbit ? "  AUTO ORBIT" : ""),
-                      hidden: root.explore !== "system" }
-                  ]
-                  Row {
-                    required property var modelData
-                    visible: !modelData.hidden
-                    spacing: Math.round(readout.unit * 0.008)
-                    Text {
-                      text: modelData.label
-                      color: modelData.color
-                      font.family: Style.resolvedFontFamily
-                      font.pixelSize: readout.rowSize
-                      font.letterSpacing: 2
-                    }
-                    Text {
-                      text: modelData.value
-                      color: Color.foreground
-                      font.family: Style.resolvedFontFamily
-                      font.pixelSize: readout.rowSize
-                    }
-                  }
-                }
-              }
-
-              // what each key does in the current mode, one per row: the
-              // visor's edge (bottom left), clear of the view, gone with the HUD
-              Column {
-                visible: root.hudLevel > 0
-                opacity: readout.hudOpacity * 0.9
-                x: Math.round(readout.unit * 0.03)
-                y: panel.height - height - Math.round(readout.unit * 0.03)
-                spacing: Math.round(readout.unit * 0.003)
-
-                Repeater {
-                  model: root.controlHints
-                  Row {
-                    required property var modelData
-                    Text {
-                      width: readout.rowSize * 11
-                      text: modelData[0]
-                      color: Color.accent
-                      font.family: Style.resolvedFontFamily
-                      font.pixelSize: Math.round(readout.rowSize * 0.85)
-                      font.letterSpacing: 1
-                    }
-                    Text {
-                      text: modelData[1]
-                      color: Color.foreground
-                      font.family: Style.resolvedFontFamily
-                      font.pixelSize: Math.round(readout.rowSize * 0.85)
+                  Repeater {
+                    model: root.explore !== "universe" && root.explore !== "flight" && root.navRows.length > 0
+                      ? [{ label: "SYS", color: Color.accent,
+                           value: "CPU " + Math.round(root.stats.cpu * 100) + "%  ·  GPU " + Math.round(root.stats.gpu * 100) + "% " + Math.round(root.stats.gpuWatts) + " W  ·  MEM " + root.stats.memUsed.toFixed(1) + " GB" }]
+                        .concat(root.navRows.map(r => ({ label: r.label, color: root.hudHighlight, value: r.value })))
+                      : [
+                      { label: "CPU", color: Color.accent,
+                        value: Math.round(root.stats.cpu * 100) + "%  " + Math.round(root.stats.cpuTemp) + "°C" },
+                      { label: "GPU", color: root.hudHighlight,
+                        value: Math.round(root.stats.gpu * 100) + "%  " + Math.round(root.stats.gpuWatts) + " W  " + Math.round(root.stats.gpuTemp) + "°C" },
+                      { label: "MEM", color: Color.accent,
+                        value: root.stats.memUsed.toFixed(1) + " / " + root.stats.memTotal.toFixed(0) + " GB" },
+                      { label: "NAV", color: root.hudHighlight, value: "FLIGHT", hidden: !root.navigating },
+                      { label: "SYS", color: root.hudHighlight,
+                        value: (root.chasing ? (root.chaseLocked ? "LOCKED ON " + root.chaseTargetName.toUpperCase() + " VECTOR  " : "CHASE  ") : "")
+                          + (root.follow > 0 ? "PINNED " + root.followName.toUpperCase() + (root.chasing ? " → " + root.chaseTargetName.toUpperCase() : "") + "  "
+                             : root.follow === 0 ? "SUN  " : "FREE  ")
+                          + Qt.formatDateTime(new Date(root.simMs), "d MMM yyyy HH:mm").toUpperCase() + "  "
+                          + root.simRateNames[root.simRateIndex] + (root.autoOrbit ? "  AUTO ORBIT" : ""),
+                        hidden: root.explore !== "system" }
+                    ]
+                    Row {
+                      id: statsRow
+                      required property var modelData
+                      visible: !modelData.hidden
+                      spacing: panel.tok.gap
+                      Text {
+                        id: statsLabel
+                        text: statsRow.modelData.label
+                        color: statsRow.modelData.color
+                        font.family: Style.resolvedFontFamily
+                        font.pixelSize: readout.rowSize
+                        font.letterSpacing: readout.rowSize * panel.tok.track.normal
+                      }
+                      Text {
+                        width: statsColumn.width - statsLabel.width - statsRow.spacing
+                        wrapMode: Text.WordWrap
+                        maximumLineCount: 3
+                        elide: Text.ElideRight
+                        text: statsRow.modelData.value
+                        color: Color.foreground
+                        font.family: Style.resolvedFontFamily
+                        font.pixelSize: readout.rowSize
+                      }
                     }
                   }
                 }
@@ -3016,21 +3371,22 @@ Item {
       // hint beside the sun while the pointer is over the solar system
       Text {
         visible: root.liveBackground && root.sysHover > 0.01
-        opacity: root.sysHover * 0.8 * root.unclutter
+        opacity: root.sysHover * 0.8 * root.gateNames
         x: (root.sunScreen.x / root.aspect + 0.5) * panel.width - width / 2
         y: (root.sunScreen.y + 0.5) * panel.height + panel.height * 0.05
         text: "SOLAR SYSTEM  ·  CLICK TO EXPLORE"
         color: Color.accent
         font.family: Style.resolvedFontFamily
-        font.pixelSize: Math.round(panel.height * 0.0085)
-        font.letterSpacing: 3
+        font.pixelSize: panel.tok.label
+        font.letterSpacing: panel.tok.label * panel.tok.track.wide
       }
 
-      // Highlights for the Moon, Earth and the Sun: a bracket around the body
-      // when it is tiny on screen, or a dot on the screen edge pointing at it
-      // when it is off screen, with its name and distance. The Moon is marked in
-      // the system and chase views; Earth and the Sun in the chase view (and
-      // Earth when off screen in the system view).
+      // Highlights for the Moon, Earth and the Sun: a dot on the safe rect's
+      // edge pointing at the body when it is outside it, and its name and
+      // distance (beside the body itself when it is in view but tiny). The dot
+      // keeps out of the rail and the caption; the words come from the label
+      // pass. The Moon is marked in the system and chase views; Earth and the
+      // Sun in the chase view (and Earth when off screen in the system view).
       Repeater {
        model: ["moon", "earth", "sun"]
        Item {
@@ -3039,21 +3395,20 @@ Item {
         readonly property string kind: modelData
         readonly property color tint: kind === "moon" ? Color.accent : kind === "earth" ? "#6ab7ff" : "#ffd27a"
         readonly property var proj: root.markerProj(kind, panel.width, panel.height)
-        readonly property real margin: 70
-        readonly property bool offscreen: proj.x < margin || proj.x > panel.width - margin
-                                          || proj.y < margin || proj.y > panel.height - margin
-        readonly property real cx: Math.max(margin, Math.min(panel.width - margin, proj.x))
-        readonly property real cy: Math.max(margin, Math.min(panel.height - margin, proj.y))
-        readonly property bool inChase: root.chaseMix > 0.5
-        readonly property bool wanted: root.markerWanted(kind, panel.width, panel.height)
-        visible: wanted && root.unclutter > 0
-        opacity: Math.min(1, (root.sys - 0.5) * 2) * 0.85 * root.unclutter
+        readonly property var at: Lay.clampMarker(proj.x, proj.y, panel.lay.safe, panel.keepRects, panel.tok.gap)
+        readonly property bool offscreen: at.off
+        readonly property real cx: at.x
+        readonly property real cy: at.y
+        readonly property bool wanted: root.markerWanted(kind, panel.lay)
+        readonly property var lab: root.markerLabels[kind] || ({ show: false, side: 1 })
+        visible: wanted && opacity > 0
+        opacity: Math.min(1, (root.sys - 0.5) * 2) * 0.85 * root.textMix("names", "label")
 
         Rectangle { // off screen only: a small dot at the edge (no box around bodies in view)
           visible: marker.offscreen
           x: marker.cx - width / 2
           y: marker.cy - height / 2
-          width: 10
+          width: Math.round(panel.tok.gap * 0.7)
           height: width
           radius: width / 2
           color: marker.tint
@@ -3063,22 +3418,22 @@ Item {
           x: marker.cx - width / 2
           y: marker.cy - height / 2
           rotation: Math.atan2(marker.proj.y - marker.cy, marker.proj.x - marker.cx) * 180 / Math.PI
-          transform: Translate { x: 14 }
+          transform: Translate { x: panel.tok.gap }
           text: "➤"
           color: marker.tint
-          font.pixelSize: Math.round(panel.height * 0.01)
+          font.pixelSize: panel.tok.body
         }
         Text {
-          x: Math.min(marker.cx + 16, panel.width - width - 8)
-          y: root.markerLabelY(marker.kind, panel.width, panel.height)
+          visible: marker.lab.show
+          x: marker.lab.side < 0 ? marker.cx - panel.tok.gap - 6 - width : marker.cx + panel.tok.gap + 6
+          y: marker.cy - height / 2
           text: root.markerLabel(marker.kind)
           color: Qt.alpha(Color.foreground, 0.6)
           font.family: Style.resolvedFontFamily
-          font.pixelSize: Math.round(panel.height * 0.0085)
-          font.letterSpacing: 2
+          font.pixelSize: panel.tok.label
+          font.letterSpacing: panel.tok.label * panel.tok.track.normal
         }
-      }
-
+       }
       }
 
       // ---- galactic view: real paths through space, drawn from the tick's points ----
@@ -3124,7 +3479,7 @@ Item {
                   anchors.fill: parent
                   preferredRendererType: Shape.CurveRenderer
                   ShapePath {
-                    // only with guide lines on (L): space has no trails; without them the
+                    // only with guide lines on (I): space has no trails; without them the
                     // streaming dust and the heading mark show the motion
                     strokeColor: Qt.alpha(trail.tint, (trail.index === 0 ? 0.45 : 0.95) * root.guideMix * Math.pow(1 - age, 1.6))
                     strokeWidth: (trail.index === 0 ? 1.4 : 2.2) * (1 - 0.6 * age)
@@ -3186,20 +3541,23 @@ Item {
             y: root.galHeading.y * reach - height / 2
             rotation: Math.atan2(root.galHeading.y, root.galHeading.x) * 180 / Math.PI
             text: "›"
-            opacity: root.unclutter
+            opacity: root.textMix("names", "label")
             color: Qt.alpha("#ffd27a", 0.8)
-            font.pixelSize: Math.round(panel.height * 0.02)
+            font.pixelSize: panel.tok.glyph
           }
           Text {
             readonly property real reach: panel.height * 0.06
-            x: root.galHeading.x * reach + (root.galHeading.x >= 0 ? 18 : -width - 18)
+            readonly property var lab: root.galLabels[0] || ({ show: false, side: 1 })
+            readonly property real off: panel.tok.gap + panel.tok.glyph * 0.3
+            visible: lab.show
+            x: root.galHeading.x * reach + (lab.side < 0 ? -width - off : off)
             y: root.galHeading.y * reach - height / 2
             text: "249 KM/S  ·  CYGNUS"
-            opacity: root.unclutter
+            opacity: root.textMix("names", "label")
             color: Qt.alpha("#ffd27a", 0.7)
             font.family: Style.resolvedFontFamily
-            font.pixelSize: Math.round(panel.height * 0.0075)
-            font.letterSpacing: 2
+            font.pixelSize: panel.tok.micro
+            font.letterSpacing: panel.tok.micro * panel.tok.track.normal
           }
         }
 
@@ -3254,85 +3612,113 @@ Item {
               }
             }
             Text {
-              x: body.d / 2 + 10
+              readonly property var lab: root.galLabels[body.index + 1] || ({ show: false, side: 1 })
+              visible: lab.show
+              x: lab.side < 0 ? -body.d / 2 - panel.tok.gap - width : body.d / 2 + panel.tok.gap
               y: -height / 2
               text: root.planetInfo[body.index].name.toUpperCase()
-              opacity: root.unclutter
+              opacity: root.textMix("names", "label")
               color: Qt.alpha(Color.foreground, 0.55)
               font.family: Style.resolvedFontFamily
-              font.pixelSize: Math.round(panel.height * 0.0075)
-              font.letterSpacing: 2
+              font.pixelSize: panel.tok.micro
+              font.letterSpacing: panel.tok.micro * panel.tok.track.normal
             }
           }
         }
 
-        // caption, bottom centre, in the HUD's voice
+        // caption, in the caption slot, in the HUD's voice
         Column {
-          opacity: root.unclutter
-          anchors.horizontalCenter: parent.horizontalCenter
-          y: Math.round(panel.height * 0.86)
-          spacing: Math.round(panel.height * 0.004)
+          opacity: panel.captionSlot
+          x: panel.lay.caption.x
+          width: panel.lay.caption.w
+          y: panel.lay.caption.bottom - height
+          spacing: panel.tok.row
           Text {
-            anchors.horizontalCenter: parent.horizontalCenter
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            elide: Text.ElideRight
+            opacity: root.textMix("names", "caption")
             text: "GALACTIC FRAME"
             color: Color.accent
             font.family: Style.resolvedFontFamily
-            font.pixelSize: Math.round(panel.height * 0.009)
-            font.letterSpacing: 6
+            font.pixelSize: panel.tok.label
+            font.letterSpacing: panel.tok.label * panel.tok.track.title
           }
           Text {
-            anchors.horizontalCenter: parent.horizontalCenter
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+            maximumLineCount: 2
+            elide: Text.ElideRight
+            visible: opacity > 0
+            opacity: root.textMix("guide", "caption")
             text: "THE SUN CARRIES THE PLANETS AT 249 KM/S  ·  THEIR PLANE TILTED 61° TO THE PATH"
             color: Qt.alpha(Color.foreground, 0.65)
             font.family: Style.resolvedFontFamily
-            font.pixelSize: Math.round(panel.height * 0.0075)
-            font.letterSpacing: 2
+            font.pixelSize: panel.tok.micro
+            font.letterSpacing: panel.tok.micro * panel.tok.track.normal
           }
           Text {
-            anchors.horizontalCenter: parent.horizontalCenter
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+            maximumLineCount: 2
+            elide: Text.ElideRight
+            visible: opacity > 0
+            opacity: root.textMix("guide", "caption")
             text: (root.galSlow === 1 ? "TRUE SPEED" : "SUN SLOWED TO 1/" + root.galSlow + "  ·  EXAGGERATED")
-                  + (root.guides ? "  ·  TRAILS " + root.galTrailYears + " YEARS" : "  ·  L SHOWS THE PATHS") + "  ·  TRUE SIZES: THE PLANETS ARE POINTS"
+                  + (root.guides ? "  ·  TRAILS " + root.galTrailYears + " YEARS" : "  ·  I SHOWS THE PATHS") + "  ·  TRUE SIZES: THE PLANETS ARE POINTS"
             color: root.galSlow === 1 ? Qt.alpha(Color.foreground, 0.45) : Qt.alpha("#ffd27a", 0.8)
             font.family: Style.resolvedFontFamily
-            font.pixelSize: Math.round(panel.height * 0.0075)
-            font.letterSpacing: 2
+            font.pixelSize: panel.tok.micro
+            font.letterSpacing: panel.tok.micro * panel.tok.track.normal
           }
         }
       }
 
       // ---- Sky mode caption ----
       Column {
-        visible: root.liveBackground && root.skyMix > 0.01 && root.unclutter > 0
-        opacity: root.skyMix * root.unclutter
-        anchors.horizontalCenter: parent.horizontalCenter
-        y: Math.round(panel.height * 0.90)
-        spacing: Math.round(panel.height * 0.004)
+        visible: root.liveBackground && root.skyMix > 0.01
+        opacity: root.skyMix * panel.captionSlot
+        x: panel.lay.caption.x
+        width: panel.lay.caption.w
+        y: panel.lay.caption.bottom - height
+        spacing: panel.tok.row
         readonly property var v: root.skyViews[root.skyView]
         Text {
-          anchors.horizontalCenter: parent.horizontalCenter
+          width: parent.width
+          horizontalAlignment: Text.AlignHCenter
+          elide: Text.ElideRight
+          opacity: root.textMix("names", "caption")
           text: (root.skyStaticMix > 0.5 ? parent.v.name : "THE SKY FROM EARTH") + "  ·  l " + ((root.skyL % 360 + 360) % 360).toFixed(1) + "°  b " + root.skyB.toFixed(1) + "°  ·  " + root.skyVfov.toFixed(0) + "° FIELD"
           color: Color.accent
           font.family: Style.resolvedFontFamily
-          font.pixelSize: Math.round(panel.height * 0.009)
-          font.letterSpacing: 4
+          font.pixelSize: panel.tok.label
+          font.letterSpacing: panel.tok.label * panel.tok.track.wide
         }
         Text {
-          anchors.horizontalCenter: parent.horizontalCenter
+          width: parent.width
+          horizontalAlignment: Text.AlignHCenter
+          wrapMode: Text.WordWrap
+          maximumLineCount: 3
+          elide: Text.ElideRight
+          visible: opacity > 0
+          opacity: root.textMix("guide", "caption")
           text: (root.skyStaticMix > 0.5 ? parent.v.note + "  ·  " : "") + "NASA SVS DEEP STAR MAPS 2020  ·  ESA/GAIA/DPAC"
           color: Qt.alpha(Color.foreground, 0.45)
           font.family: Style.resolvedFontFamily
-          font.pixelSize: Math.round(panel.height * 0.0075)
-          font.letterSpacing: 2
+          font.pixelSize: panel.tok.micro
+          font.letterSpacing: panel.tok.micro * panel.tok.track.normal
         }
       }
 
-      // ---- Milky Way view: place markers, the chosen place's card, the clock ----
+      // ---- Milky Way view: place markers and the caption (the chosen place's card is in the rail) ----
       Item {
         id: gxOverlay
         width: panel.width
         height: panel.height
-        visible: root.liveBackground && root.galaxyMix > 0.01 && root.unclutter > 0
-        opacity: root.galaxyMix * (1 - root.fallFade) * root.unclutter
+        visible: root.liveBackground && root.galaxyMix > 0.01
+        opacity: root.galaxyMix * (1 - root.fallFade)
 
         // the label layer: every place's marker and name (the hotspots, the
         // Sun, then the dwarf galaxies, which show up close or under the pointer)
@@ -3347,11 +3733,10 @@ Item {
             readonly property var pt: root.gxScreen[index] || ({ x: 0, y: 0, front: false, show: false, dot: false })
             readonly property bool chosen: isSun ? root.gxSel === -1 : root.gxSel === index
             readonly property color tint: isSun ? "#fff4e0" : h.color
-            // the place under the pointer keeps its marker and name with the
-            // labels off, so a dim dwarf can always be identified
-            readonly property bool hovered: index === root.gxHover
-            visible: pt.dot && (root.labelsMix > 0.01 || hovered)
-            opacity: hovered ? 1 : root.labelsMix
+            // moving the pointer brings the names up, so a dim dwarf under it
+            // can be identified; with the text off, nothing shows
+            visible: pt.dot && opacity > 0.01
+            opacity: root.textMix("names", "label")
             x: (pt.x / root.aspect + 0.5) * gxOverlay.width
             y: (pt.y + 0.5) * gxOverlay.height
             Rectangle {
@@ -3362,92 +3747,50 @@ Item {
             }
             Text {
               visible: mark.pt.show
-              x: 10
+              x: mark.pt.side < 0 ? -width - panel.tok.gap : panel.tok.gap
               y: -height / 2
               text: (mark.isSun ? "SUN  ·  YOU ARE HERE" : mark.h.name.toUpperCase())
               color: mark.chosen ? root.hudHighlight : Qt.alpha(Color.foreground, mark.isSun ? 0.85 : 0.55)
               font.family: Style.resolvedFontFamily
-              font.pixelSize: Math.round(panel.height * 0.0085)
-              font.letterSpacing: 2
+              font.pixelSize: panel.tok.label
+              font.letterSpacing: panel.tok.label * panel.tok.track.normal
             }
           }
         }
 
-        // the chosen place: what it is, how far, how big, and how old its light is
+        // caption, in the caption slot
         Column {
-          x: Math.round(panel.width * 0.03)
-          y: Math.round(panel.height * 0.80)
-          spacing: Math.round(panel.height * 0.005)
-          width: Math.round(panel.width * 0.3)
-          readonly property var h: root.gxSel >= 0 ? root.place(root.gxSel) : null
-          readonly property var vw: root.gxView >= 0 ? root.gxViews[root.gxView] : null   // a named viewpoint
-          visible: root.gxSel !== -2 || !!vw
-          Text {
-            text: parent.h ? parent.h.name.toUpperCase() : parent.vw ? parent.vw.name.toUpperCase() : "THE SUN  ·  YOU ARE HERE"
-            color: Color.accent
-            font.family: Style.resolvedFontFamily
-            font.pixelSize: Math.round(panel.height * 0.011)
-            font.letterSpacing: 4
-          }
-          Text {
-            text: parent.h ? parent.h.label.toUpperCase() : parent.vw ? parent.vw.label
-                           : "26,600 LY FROM THE GALACTIC CENTRE  ·  ONE ORBIT EVERY ~203 MILLION YEARS AT 249 KM/S"
-            color: Qt.alpha(Color.foreground, 0.6)
-            font.family: Style.resolvedFontFamily
-            font.pixelSize: Math.round(panel.height * 0.0075)
-            font.letterSpacing: 2
-          }
-          Text {
-            visible: !!parent.h
-            text: parent.h && parent.h.kind === "blackhole" && root.fallPhase !== ""
-                  ? "falling  ·  " + root.fallR.toFixed(2) + " Schwarzschild radii from the centre  ·  spin a/M = 0.94: horizons at " + (root.fallState ? root.fallState.tl.rPlus.toFixed(2) + " and " + root.fallState.tl.rMinus.toFixed(2) : "0.67 and 0.33") + " radii, 15 s between them"
-                  : parent.h && parent.h.kind === "blackhole" && root.gxDist < 2e-6
-                  ? Math.round(root.gxDist / root.rsKpc) + " Schwarzschild radii from it (" + (root.gxDist * 2.0626e8).toFixed(1) + " AU)  ·  event horizon "
-                    + (2 * root.rsKpc * 2.0626e8).toFixed(2) + " AU across"
-                  : parent.h ? root.lightYears(parent.h.dpc) + " away  ·  " + root.sizeText(parent.h.size) + " across" : ""
-            color: Color.foreground
-            font.family: Style.resolvedFontFamily
-            font.pixelSize: Math.round(panel.height * 0.0085)
-          }
+          opacity: panel.captionSlot
+          x: panel.lay.caption.x
+          width: panel.lay.caption.w
+          y: panel.lay.caption.bottom - height
+          spacing: panel.tok.row
           Text {
             width: parent.width
-            wrapMode: Text.WordWrap
-            text: parent.h ? (parent.h.kind === "blackhole" && root.fallPhase !== ""
-                               ? (root.fallMath
-                                  ? "Mathematics mode: the maximally extended Kerr solution, not physics. A plunge down the spin axis at 0.75 c (from rest the fall would turn back inside the inner horizon), through both horizons and the disk inside the ring singularity into the negative-r universe, where the hole repels and the sky is not ours. The sky there is invented; the solution says nothing about it."
-                                  : "Letting go from 6 radii on the spin axis: free fall, the way down shown 45 times faster, the inside at the true rate. Nothing marks the outer horizon; below it every direction leads inward and the outside sky squeezes into a thin bright band. The fall ends at the inner horizon, where light falling in behind us arrives blueshifted without bound: beyond it the Kerr solution describes nothing real.")
-                               : parent.h.kind === "blackhole"
-                               ? parent.h.blurb + "  Visible light never gets out to us through the dust; you see the crowded star cluster around it. Its shadow was imaged in radio by the Event Horizon Telescope in 2022. Drawn spinning at a/M = 0.94 (the EHT's best-bet model; uncertain): the gas on prograde Kerr orbits, the shadow flattened on one side when seen from the equator."
-                               : parent.h.blurb) + (parent.h.dpc * 3.26156 >= 10 ? "  The light you see left it " + root.lightYears(parent.h.dpc).replace(" ly", " years") + " ago." : "")
-                           : parent.vw ? parent.vw.blurb
-                           : "The Sun circles Sagittarius A* with everything around it, rising and sinking through the disk as it goes. Press [ ] to watch."
-            color: Qt.alpha(Color.foreground, 0.7)
-            font.family: Style.resolvedFontFamily
-            font.pixelSize: Math.round(panel.height * 0.0085)
-          }
-        }
-
-        Column {
-          anchors.horizontalCenter: parent.horizontalCenter
-          y: Math.round(panel.height * 0.90)
-          spacing: Math.round(panel.height * 0.004)
-          Text {
-            anchors.horizontalCenter: parent.horizontalCenter
+            horizontalAlignment: Text.AlignHCenter
+            elide: Text.ElideRight
+            opacity: root.textMix("names", "caption")
             text: "MILKY WAY  ·  ABOUT 100,000 LY ACROSS  ·  TRUE SCALE"
             color: Color.accent
             font.family: Style.resolvedFontFamily
-            font.pixelSize: Math.round(panel.height * 0.009)
-            font.letterSpacing: 6
+            font.pixelSize: panel.tok.label
+            font.letterSpacing: panel.tok.label * panel.tok.track.title
           }
           Text {
-            anchors.horizontalCenter: parent.horizontalCenter
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+            maximumLineCount: 3
+            elide: Text.ElideRight
+            visible: opacity > 0
+            opacity: root.textMix("guide", "caption")
             text: Math.abs(root.gxMyr) < 0.0005 && root.gxRateIndex === 0 ? "NOW  ·  [ ] TO WATCH IT TURN"
                   : (root.gxMyr >= 0 ? "+" : "") + root.gxMyr.toFixed(root.gxMyr < 10 ? 2 : 1) + " MILLION YEARS  ·  " + root.gxRateNames[root.gxRateIndex]
                     + "  ·  " + (root.gxMyr * root.sunOmega * 180 / Math.PI % 360).toFixed(0) + "° AROUND THE CENTRE  ·  SIMPLIFIED: THE DISK TURNS AS ONE"
             color: root.gxRateIndex > 0 ? Qt.alpha("#ffd27a", 0.8) : Qt.alpha(Color.foreground, 0.45)
             font.family: Style.resolvedFontFamily
-            font.pixelSize: Math.round(panel.height * 0.0075)
-            font.letterSpacing: 2
+            font.pixelSize: panel.tok.micro
+            font.letterSpacing: panel.tok.micro * panel.tok.track.normal
           }
         }
       }
@@ -3459,15 +3802,146 @@ Item {
           required property var modelData
           required property int index
           readonly property var pt: root.sysScreen[index] || ({ x: 0, y: 0, r: 0, show: false })
-          visible: root.liveBackground && root.sys > 0.5 && root.chaseMix < 0.02 && root.galMix < 0.5 && pt.show && root.labelsMix > 0.01
-          opacity: (root.sys - 0.5) * 1.4 * (1 - root.chaseMix) * root.unclutter * root.labelsMix
-          x: (pt.x / root.aspect + 0.5) * panel.width + pt.r * panel.height + 10
+          visible: root.liveBackground && root.sys > 0.5 && root.chaseMix < 0.02 && root.galMix < 0.5 && pt.show && opacity > 0.01
+          opacity: (root.sys - 0.5) * 1.4 * (1 - root.chaseMix) * root.textMix("names", "label")
+          x: (pt.x / root.aspect + 0.5) * panel.width + (pt.side < 0 ? -pt.r * panel.height - panel.tok.gap - width : pt.r * panel.height + panel.tok.gap)
           y: (pt.y + 0.5) * panel.height - height / 2
           text: modelData.name.toUpperCase()
           color: root.follow === index + 1 ? root.hudHighlight : Color.foreground
           font.family: Style.resolvedFontFamily
-          font.pixelSize: Math.round(panel.height * 0.0085)
-          font.letterSpacing: 2
+          font.pixelSize: panel.tok.label
+          font.letterSpacing: panel.tok.label * panel.tok.track.normal
+        }
+      }
+
+      // ---- the rail: the chosen place's card over the key hints ----
+      // One column at the bottom left, standing on the safe rect's bottom
+      // and growing upward, so the card and the hints cannot share a corner.
+      // A part that is not showing takes no room: the rest stands lower.
+      Column {
+        id: rail
+        visible: root.liveBackground
+        opacity: panel.railStep
+        x: panel.lay.rail.x
+        width: panel.lay.rail.w
+        y: panel.lay.rail.bottom - height
+        spacing: panel.tok.gap * 2
+
+        // the chosen place: what it is, how far, how big, and how old its light is
+        Column {
+          id: card
+          width: parent.width
+          spacing: panel.tok.row
+          visible: root.cardShown && root.galaxyMix > 0.01 && root.gateNames > 0 && root.presCard > 0
+          opacity: root.galaxyMix * (1 - root.fallFade)
+          Text {
+            width: parent.width
+            wrapMode: Text.WordWrap
+            opacity: root.textMix("names", "card")
+            text: root.cardTitle
+            color: Color.accent
+            font.family: Style.resolvedFontFamily
+            font.pixelSize: panel.tok.title
+            font.letterSpacing: panel.tok.title * panel.tok.track.wide
+          }
+          Text {
+            width: parent.width
+            wrapMode: Text.WordWrap
+            opacity: root.textMix("names", "card")
+            text: root.cardSub
+            color: Qt.alpha(Color.foreground, 0.6)
+            font.family: Style.resolvedFontFamily
+            font.pixelSize: panel.tok.micro
+            font.letterSpacing: panel.tok.micro * panel.tok.track.normal
+          }
+          Text {
+            width: parent.width
+            wrapMode: Text.WordWrap
+            visible: !!root.cardPlace
+            opacity: root.textMix("names", "card")
+            text: root.cardFacts
+            color: Color.foreground
+            font.family: Style.resolvedFontFamily
+            font.pixelSize: panel.tok.label
+          }
+          Text {
+            width: parent.width
+            wrapMode: Text.WordWrap
+            maximumLineCount: 6
+            elide: Text.ElideRight
+            visible: opacity > 0
+            opacity: root.textMix("guide", "card")
+            text: root.cardBlurb
+            color: Qt.alpha(Color.foreground, 0.7)
+            font.family: Style.resolvedFontFamily
+            font.pixelSize: panel.tok.label
+          }
+        }
+
+        // what each key does in the current mode, one per row
+        Column {
+          id: hints
+          width: parent.width
+          spacing: Math.max(1, panel.tok.row - 2)
+          readonly property real keyW: Math.round(panel.tok.label * 13.5)
+          visible: opacity > 0 && root.railRows.length > 0
+          opacity: Math.min(0.75, root.hudBrightness * 1.8) * 0.9 * root.textMix(root.touring ? "names" : "guide", "hints")
+          Repeater {
+            model: root.railRows
+            Row {
+              required property var modelData
+              Text {
+                width: hints.keyW
+                text: modelData[0]
+                color: Color.accent
+                font.family: Style.resolvedFontFamily
+                font.pixelSize: panel.tok.label
+                font.letterSpacing: panel.tok.label * panel.tok.track.tight
+              }
+              Text {
+                width: hints.width - hints.keyW
+                wrapMode: Text.WordWrap
+                text: modelData[1]
+                color: Color.foreground
+                font.family: Style.resolvedFontFamily
+                font.pixelSize: panel.tok.label
+              }
+            }
+          }
+        }
+      }
+
+      // The level's name after a change, for 1.5 s, where the mode caption
+      // goes (which steps aside for it). Shown at every level, off included,
+      // so a key that turns the text off still answers; never in a film.
+      Text {
+        id: toast
+        // one occupant: the caption leaves over the first half of `up`, the
+        // toast comes over the second, and back the same way
+        property real up: 0
+        readonly property real slot: Math.max(0, 1 - 2 * up)   // what the caption has of it
+        visible: root.liveBackground && opacity > 0
+        opacity: Math.max(0, 2 * up - 1) * 0.85 * panel.captionStep
+        x: panel.lay.caption.x
+        width: panel.lay.caption.w
+        y: panel.lay.caption.bottom - height
+        horizontalAlignment: Text.AlignHCenter
+        wrapMode: Text.WordWrap
+        text: root.toastText
+        color: Color.accent
+        font.family: Style.resolvedFontFamily
+        font.pixelSize: panel.tok.label
+        font.letterSpacing: panel.tok.label * panel.tok.track.title
+        Connections {
+          target: root
+          function onToastSerialChanged() { if (!root.film) toastShow.restart() }
+          function onFilmChanged() { if (root.film) { toastShow.stop(); toast.up = 0 } }
+        }
+        SequentialAnimation {
+          id: toastShow
+          NumberAnimation { target: toast; property: "up"; to: 1; duration: Tx.FADE_IN_S * 2000; easing.type: Easing.InOutSine }
+          PauseAnimation { duration: Tx.TOAST_S * 1000 }
+          NumberAnimation { target: toast; property: "up"; to: 0; duration: Tx.FADE_OUT_S * 1000; easing.type: Easing.InOutSine }
         }
       }
 
@@ -3488,9 +3962,9 @@ Item {
         }
         visible: root.liveBackground && opacity > 0
         opacity: 0
-        width: Math.round(panel.width * 0.56)
-        anchors.horizontalCenter: parent.horizontalCenter
-        y: Math.round(panel.height * 0.72)
+        x: Math.round(panel.lay.story.x)
+        width: Math.round(panel.lay.story.w)
+        y: Math.round(panel.lay.story.y)
         spacing: Math.round(panel.height * 0.008)
         Text {
           width: parent.width
@@ -3500,8 +3974,8 @@ Item {
           color: Qt.alpha(Color.foreground, 0.7)
           font.family: Style.resolvedFontFamily
           // sized to read on a phone or a 1080p player, not just on the desk
-          font.pixelSize: Math.round(panel.height * 0.026)
-          font.letterSpacing: Math.round(panel.height * 0.007)
+          font.pixelSize: panel.tok.filmTitle
+          font.letterSpacing: panel.tok.filmTrack
         }
         Text {
           width: parent.width
@@ -3512,7 +3986,7 @@ Item {
           text: filmCaption.body
           color: Qt.alpha(Color.foreground, 0.55)
           font.family: Style.resolvedFontFamily
-          font.pixelSize: Math.round(panel.height * 0.0185)
+          font.pixelSize: panel.tok.filmBody
           font.letterSpacing: 1
         }
         Connections {
@@ -3528,19 +4002,41 @@ Item {
         }
       }
 
+      // IPC `textDebug true`: this screen's plan, outlined
+      Item {
+        id: zoneDebug
+        anchors.fill: parent
+        visible: root.textDebug && root.liveBackground
+        readonly property var ext: Lay.hudExtent(panel.lay)
+        Rectangle { color: "transparent"; border.width: 1; border.color: "#40ff80"; x: panel.lay.safe.x0; y: panel.lay.safe.y0; width: panel.lay.safe.x1 - x; height: panel.lay.safe.y1 - y }
+        Rectangle { color: "transparent"; border.width: 1; border.color: "#ff3060"; x: panel.lay.rail.x; y: rail.y; width: panel.lay.rail.w; height: rail.height }
+        Rectangle { color: "transparent"; border.width: 1; border.color: "#ff3060"; x: panel.lay.caption.x; y: panel.lay.caption.bottom - height; width: panel.lay.caption.w; height: panel.lay.caption.maxH }
+        Rectangle { color: "transparent"; border.width: 1; border.color: "#ffd27a"; x: panel.lay.story.x; y: panel.lay.story.y; width: panel.lay.story.w; height: Math.max(filmCaption.height, panel.lay.H * 0.14) }
+        // the HUD's whole reach as it drifts, then where it is now
+        Rectangle { color: "transparent"; border.width: 1; border.color: "#406080"; x: zoneDebug.ext.ring.x; y: zoneDebug.ext.ring.y; width: zoneDebug.ext.ring.w; height: zoneDebug.ext.ring.h }
+        Rectangle { color: "transparent"; border.width: 1; border.color: "#406080"; x: zoneDebug.ext.stats.x; y: zoneDebug.ext.stats.y; width: zoneDebug.ext.stats.w; height: zoneDebug.ext.stats.h }
+        Rectangle { color: "transparent"; border.width: 1; border.color: "#ff3060"; x: panel.hud.stats.x + panel.hudCx - panel.hud.cx; y: panel.hud.stats.y + panel.hudCy - panel.hud.cy; width: panel.hud.stats.w; height: panel.hud.stats.h }
+        // the rings' outer bracket (0.232 of the HUD's unit)
+        Rectangle {
+          readonly property real r: panel.hud.R * Lay.BRACKET / Lay.RING
+          color: "transparent"; border.width: 1; border.color: "#ff3060"
+          x: panel.hudCx - r; y: panel.hudCy - r; width: 2 * r; height: 2 * r; radius: r
+        }
+      }
+
       Item {
         id: keyTaker
         focus: root.explore !== "universe"
         Keys.onPressed: function(event) {
-          root.touchLabels()
+          root.touchText()
           if (event.key === Qt.Key_Escape) {
             root.back()
             event.accepted = true
             return
           }
           const k = event.text.toLowerCase()
-          if (k === "h") { root.setHud(!root.hudOn); event.accepted = true; return }
-          if (k === "l") { root.setLabels(!root.labelsOn); event.accepted = true; return }
+          if (k === "h") { root.setText("toggle"); event.accepted = true; return }
+          if (k === "t") { root.setText(event.modifiers & Qt.ShiftModifier ? "prev" : "next"); event.accepted = true; return }
           if (root.explore === "sky") {
             const arrowsS = { [Qt.Key_Left]: "left", [Qt.Key_Right]: "right", [Qt.Key_Up]: "up", [Qt.Key_Down]: "down" }
             if (arrowsS[event.key]) {
@@ -3669,7 +4165,7 @@ Item {
         property bool focusing: false     // the press is bringing keyboard focus to the wallpaper
         function now() { return Date.now() / 1000 }
         onPressed: function(mouse) {
-          root.touchLabels()
+          root.touchText()
           const pt = root.toP(mouse.x, mouse.y, width, height), t = now()
           focusing = !keyTaker.activeFocus
           wasClick = false
@@ -3693,7 +4189,7 @@ Item {
           }
         }
         onPositionChanged: function(mouse) {
-          if (root.explore !== "universe") root.touchLabels()
+          if (root.explore !== "universe") root.touchText()
           const pt = root.toP(mouse.x, mouse.y, width, height)
           if (root.explore === "galaxy" && !pressed) {
             // hovering: the tick finds the place under the pointer (gxHover)
@@ -3822,7 +4318,7 @@ Item {
           }
         }
         onWheel: function(wheel) {
-          root.touchLabels()
+          root.touchText()
           const pt = root.toP(wheel.x, wheel.y, width, height)
           const steps = wheel.angleDelta.y / 120
           if (root.explore === "sky") root.skyVfovTarget = Math.max(8, Math.min(130, root.skyVfovTarget * Math.pow(1.12, -steps)))
