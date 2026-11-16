@@ -489,7 +489,7 @@ the camera round to the equator to see it in full.
 The colours are a false-colour impression. The real flow around Sgr A* emits
 mostly in radio and infrared and is far too faint to see by eye; visible
 light does not reach us through the dust at all. The gas motion is also
-sped up 30 times, so an orbit at the innermost stable radius takes about 17
+sped up 30 times, so an orbit at the innermost stable radius takes about 16
 seconds on screen rather than its real 8.2 minutes (at a/M = 0.94; half an
 hour is the figure for a hole without spin). Where both sides of the torus lie on one
 ray (the photon ring) the hue is the mean shift's, not the mix.

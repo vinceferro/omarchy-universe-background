@@ -3803,7 +3803,7 @@ Item {
                 camFwd = root.gxFwd
                 camRight = root.gxRight
                 camUp = root.gxUp
-                flowTime = root.shaderTime * 30 / 42.3
+                flowTime = root.shaderTime * 30 / Fall.RS_C   // 30 times life, in Rs/c (lib/fall.js: 40.88 s at 4.15 million Suns, the mass the labels are worked out with)
               }
             }
             Connections {
