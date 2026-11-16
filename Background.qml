@@ -19,6 +19,8 @@ import "lib/text.js" as Tx
 import "lib/drag.js" as Dr
 import "lib/quality.js" as Q
 import "lib/layout.js" as Lay
+import "lib/dial.js" as Dial
+import "lib/sun.js" as Sun
 
 Item {
   id: root
@@ -160,7 +162,11 @@ Item {
   property real presLabel: 0                      // the zones: names, markers and beacons (8 s),
   property real presCard: 0                       //   the place card, by its words,
   property real presHints: 0                      //   the key hints,
-  property real presCaption: 0                    //   the mode caption
+  property real presCaption: 0                    //   the mode caption,
+  property real presDial: 0                       //   the cockpit's words (the readout line, the gap, landmarks),
+  property real presSys: 0                        //   its machine labels (with the dial's, or on a machine event)
+  property real presUnits: 0                      //   and its unit words (with the dial's, or after a view change)
+  property bool hudPointerIn: false               // the pointer is inside the HUD's disc (it brings the dial's words)
   function textMix(group, zone) {
     return (group === "names" ? gateNames : group === "guide" ? gateGuide : group === "cockpit" ? gateCockpit : 1)
          * (zone === "label" ? presLabel : zone === "card" ? presCard : zone === "hints" ? presHints : zone === "caption" ? presCaption : 1)
@@ -169,6 +175,8 @@ Item {
     gateNames = Tx.gate(textModel, "names"); gateGuide = Tx.gate(textModel, "guide"); gateCockpit = Tx.gate(textModel, "cockpit")
     presLabel = Tx.presence(textModel, "label"); presCard = Tx.presence(textModel, "card")
     presHints = Tx.presence(textModel, "hints"); presCaption = Tx.presence(textModel, "caption")
+    presDial = Tx.presence(textModel, "dial")
+    presSys = Math.max(presDial, Tx.presence(textModel, "sys")); presUnits = Math.max(presDial, Tx.presence(textModel, "units"))
   }
   function touchText() { Tx.touch(textModel) }
   // word: a level, "next", "prev", or "toggle" (the cockpit key). It ends a
@@ -2131,7 +2139,8 @@ Item {
     // words take after an interaction, then gone. A fall is scripted (nothing
     // steers, so nothing would touch the clock): it holds its own text up
     if (fallState) touchText()
-    Tx.step(textModel, dt, textShown, { label: 0, card: cardWords, hints: hintWords, caption: captionWords })
+    Tx.dwell(textModel, hudPointerIn && gateCockpit > 0.5, dt)
+    Tx.step(textModel, dt, textShown, { label: 0, card: cardWords, hints: hintWords, caption: captionWords, dial: Tx.DIAL_WORDS, sys: 0, units: 0 }, ["sys", "units"])
     readTextModel()
 
     mix.hover.g = hoverSystem && explore === "universe" ? 1 : 0
@@ -2367,6 +2376,7 @@ Item {
         }
       }
       labelState.beacons = words
+      dialStep(dt, now)
     }
 
     mix.exposure.g = emptyWorkspace && explore === "universe" ? 1.9 : 1
@@ -2389,7 +2399,7 @@ Item {
   // the gauges as of the last tick: under an idle cap the shader reads these,
   // or the 0.9 s easing above would redraw it at the display's rate
   property vector3d gauges: Qt.vector3d(0, 0, 0)
-  property var stats: ({ cpu: 0, cpuTemp: 0, gpu: 0, gpuWatts: 0, gpuTemp: 0, memUsed: 0, memTotal: 0 })
+  property var stats: ({ cpu: 0, cpuTemp: 0, gpu: 0, gpuKnown: false, gpuWatts: 0, gpuTemp: 0, memUsed: 0, memTotal: 0 })
   property var lastCpu: null
 
   Process {
@@ -2425,12 +2435,160 @@ Item {
     s.memTotal = kb("MemTotal:") / 1048576
     s.memUsed = s.memTotal - kb("MemAvailable:") / 1048576
     const g = (lines[3] || "").split(",").map(x => Number(x.trim()))
-    if (g.length === 3 && !g.some(isNaN)) { s.gpu = g[0] / 100; s.gpuWatts = g[1]; s.gpuTemp = g[2] }
+    s.gpuKnown = g.length === 3 && !g.some(isNaN)   // nvidia-smi answered: without it the GPU arc is a bare track
+    if (s.gpuKnown) { s.gpu = g[0] / 100; s.gpuWatts = g[1]; s.gpuTemp = g[2] }
     if (lines[4] && !isNaN(Number(lines[4]))) s.cpuTemp = Number(lines[4]) / 1000
     stats = s
+    hudTemp = Qt.vector2d(s.cpuTemp > 0 ? Dial.tempG(s.cpuTemp) : -1, s.gpuKnown && s.gpuTemp > 0 ? Dial.tempG(s.gpuTemp) : -1)
     cpu = s.cpu
     gpu = s.gpu
     mem = s.memTotal > 0 ? s.memUsed / s.memTotal : 0
+  }
+
+  // ---- the HUD's instrument (universe.frag hud(), lib/dial.js) ----
+  // One disc. Its inner zones (time, machine) look the same in every view;
+  // the flight zone (the range scale with its bugs, the primary dial with
+  // its needle, the gap window) is re-bound per view. The tick's nav
+  // producer says five times a second what the instrument should show
+  // (dialRun.want, see dialWant); dialStep eases the needle, the bugs and
+  // the diamond toward it every frame and cross-fades the flight zone over a
+  // view change. A scale with no honest value stays a bare track.
+  property real hudSway: 0                                        // the frame's rocking, radians
+  property vector4d hudTimeRing: Qt.vector4d(0, 0, -1, -1)
+  property vector2d hudTemp: Qt.vector2d(-1, -1)
+  property vector4d hudDial: Qt.vector4d(0, 0, 0, 0)
+  property vector4d hudDialMark: Qt.vector4d(-1, -1, -1, 0)
+  property vector4d hudDialAux: Qt.vector4d(-1, -1, 0, 0)
+  property vector4d hudRange: Qt.vector4d(0, 0, 0, 1)
+  property vector4d hudBug0: Qt.vector4d(0, 0, 0, -1)
+  property vector4d hudBug1: Qt.vector4d(0, 0, 0, -1)
+  property vector4d hudBug2: Qt.vector4d(0, 0, 0, -1)
+  property vector4d hudBug3: Qt.vector4d(0, 0, 0, -1)
+  property vector4d hudGap: Qt.vector4d(0, 0, 0, 1)
+  // the words that go with it (the hub's readout line, the unit words in
+  // the gap, the landmark labels outside the rim)
+  property string dialKey: "universe"
+  property string dialReadout: ""
+  property var dialUnits: ["", ""]                                // the range scale's unit, the dial's
+  property var dialLandmarks: []                                  // [{ g, text }], at most three
+  property real dialFade: 1                                       // the flight zone's cross-fade
+  // IPC `hudDemo <view>`: fixed, invented values on the instrument, so every
+  // element can be looked at without flying there; the hub says DEMO
+  property string hudDemo: ""
+  readonly property var dialRun: ({ want: null, shown: null, needle: [0, 0], arc: 0, bugs: [-1, -1, -1, -1], gap: 0, fade: 1, pulse: [0, 0], side: [0, 0] })
+  // daylight at home today (lib/sun.js), found once a day
+  property var sunToday: ({ key: "", rise: -1, set: -1 })
+  function rgb3(c) {
+    if (typeof c === "string") { const n = parseInt(c.slice(1), 16); return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255] }
+    return [c.r, c.g, c.b]
+  }
+  // what the instrument shows: every view starts from this (a dormant dial,
+  // no range scale, an empty gap, the day ring) and fills in what it knows
+  function dialWant(key) {
+    return { key: key, mode: 0, g: 0, majors: 0, minor: 0, long: 0, red: [-1, -1], dash: -1, hair: [-1, -1], snap: false,
+             range: { mode: 0, n: 0, tape: 0 }, bugs: [null, null, null, null], gap: { mode: 0, v: 0, flag: 0, pitch: 1 },
+             time: null, readout: "", units: ["", ""], landmarks: [] }
+  }
+  // the Moon in the gap window: lit fraction and side (moonNow, from the tick)
+  property var moonNow: ({ lit: 0, waxing: true })
+  function gapMoon() { return { mode: 2, v: moonNow.lit, flag: moonNow.waxing ? 1 : -1, pitch: 1 } }
+  function hudDemoWant(name) {
+    const w = dialWant("demo-" + name), hi = hudHighlight
+    const KPC = 3261.56
+    if (name === "universe") w.gap = gapMoon()
+    else if (name === "flight") {
+      w.mode = 1; w.g = 0.7; w.majors = 4; w.minor = 2; w.readout = "70%"; w.units = ["", "THRUST"]
+    } else if (name === "system" || name === "year") {
+      w.mode = 2; w.g = Dial.detentG(name === "year" ? 5 : 3, 7); w.majors = 6; w.snap = true
+      w.range = { mode: 1, n: 5, tape: 0 }
+      w.bugs = [Object.assign(Dial.logG(1.0, 0.001, 100), { color: "#ffd27a" }), null, Object.assign(Dial.logG(0.00257, 0.001, 100), { color: "#cfd6e6" }), Object.assign(Dial.logG(0.52, 0.001, 100), { color: hi })]
+      w.gap = { mode: 2, v: 0.38, flag: 1, pitch: 1 }
+      if (name === "year") w.time = [1, 0.875, -1, -1]
+      w.readout = name === "year" ? "16 NOV 2027" : "> 0.520 AU"; w.units = ["AU", "RATE"]
+      w.landmarks = [{ g: 0, text: "LIVE" }, { g: 0.5, text: "DAY" }, { g: 1, text: "YEAR" }]
+    } else if (name === "galaxy" || name === "outside") {
+      const out = name === "outside"
+      w.mode = 1; w.g = out ? 0 : Dial.logG(5275 * 31557600, 1e5, 1e13).g; w.majors = 8; w.minor = 1; w.long = 3 + 1 / 16
+      w.range = { mode: 1, n: 7, tape: 0 }
+      w.bugs = [Object.assign(Dial.logG(out ? 2.5e7 : 1344, 1, 1e7), { color: "#ffd27a" }), Object.assign(Dial.logG(out ? 2.5e7 : 26000, 1, 1e7), { color: "#ffb070" }),
+                Object.assign(Dial.logG(out ? 1200 : 2.48e6, 1, 1e7), { color: "#fff0d8" }), Object.assign(Dial.logG(out ? 1500 : 420, 1, 1e7), { color: "#fff0d8" })]
+      const hgt = Dial.signedLogG(out ? 9000 : 85, 1, KPC)
+      w.gap = { mode: 1, v: hgt.g, flag: hgt.hollow ? 1 : 0, pitch: Dial.signedLogPitch(1, KPC) }
+      w.readout = out ? "> 1,200 LY" : "166G × C"; w.units = ["LY", "× C"]
+      w.landmarks = [{ g: 1 / 8, text: "1M" }, { g: 4 / 8, text: "1G" }, { g: 7 / 8, text: "1T" }]
+    } else if (name === "sky") {
+      w.mode = 3; w.g = 46 / 360
+      w.range = { mode: 2, n: 0, tape: 28 }
+      w.gap = { mode: 1, v: 18 / 90, flag: 0, pitch: 1 / 3 }
+      w.readout = "RA 5H35 +22"; w.units = ["l °", "FIELD"]
+    } else if (name === "fall" || name === "math") {
+      const math = name === "math", rp = 0.6706, rm = 0.3294, end = math ? -12 : rm
+      w.mode = 1; w.g = Dial.fallG(math ? -2.0 : 1.84, 6, end)
+      w.red = [Dial.fallG(rp, 6, end), Dial.fallG(rm, 6, end)]
+      w.hair = [Dial.fallG(1.5, 6, end), math ? Dial.fallG(0, 6, end) : -1]
+      if (math) w.dash = Dial.fallG(rm, 6, end)
+      w.time = [2, math ? 0.2 : 0.45, -1, -1]
+      w.readout = math ? "-2.00 RS" : "1.84 RS"; w.units = ["", "RS"]
+    }
+    return w
+  }
+  // one frame of the instrument; dt seconds, nowMs the wall clock
+  function dialStep(dt, nowMs) {
+    const run = dialRun
+    if (hudDemo !== "") { run.want = hudDemoWant(hudDemo); Tx.touchZone(textModel, "dial", 1) }
+    if (!run.want) run.want = dialWant(explore)
+    const w = run.want
+    if (!run.shown) run.shown = w
+    // a view change: the old scales fade out and the needle falls to its pin, then the new ones come
+    const changing = w.key !== run.shown.key
+    if (changing) {
+      run.fade = Math.max(0, run.fade - dt / 0.2)
+      if (run.fade === 0) { run.shown = w; run.bugs = [-1, -1, -1, -1]; run.gap = w.gap.v; run.arc = 0; run.side = [0, 0]; Tx.touchZone(textModel, "units", Tx.UNITS_S) }
+    } else {
+      run.shown = w
+      run.fade = Math.min(1, run.fade + dt / 0.2)
+    }
+    const sh = run.shown
+    const goal = changing ? 0 : sh.g
+    run.needle = Dial.spring(run.needle[0], run.needle[1], goal, dt, sh.snap ? 40 : undefined)   // a detent snaps: 150 ms
+    run.arc = Dial.ease(run.arc, goal, dt)
+    run.gap = Dial.ease(run.gap, sh.gap.v, dt)
+    // a redline crossed: its tick pulses once, 600 ms
+    for (let i = 0; i < 2; i++) {
+      const side = sh.red[i] < 0 || sh.mode !== 1 ? 0 : run.needle[0] >= sh.red[i] ? 1 : -1
+      if (side !== 0 && run.side[i] !== 0 && side !== run.side[i]) run.pulse[i] = 1
+      else run.pulse[i] = Math.max(0, run.pulse[i] - dt / 0.6)
+      run.side[i] = side
+    }
+    const bugs = Dial.bugs(sh.bugs), codes = []
+    for (let i = 0; i < 4; i++) {
+      const b = bugs[i]
+      if (!b) { run.bugs[i] = -1; codes.push(Qt.vector4d(0, 0, 0, -1)); continue }
+      run.bugs[i] = run.bugs[i] < 0 ? b.g : Dial.ease(run.bugs[i], b.g, dt)
+      const c = rgb3(b.color || "#ffffff")
+      codes.push(Qt.vector4d(c[0], c[1], c[2], Dial.bugCode({ g: run.bugs[i], hollow: b.hollow, small: b.small })))
+    }
+    hudBug0 = codes[0]; hudBug1 = codes[1]; hudBug2 = codes[2]; hudBug3 = codes[3]
+    hudDial = Qt.vector4d(sh.mode, sh.mode === 3 ? run.arc : Math.max(0, run.needle[0]), sh.majors, sh.minor)
+    hudDialMark = Qt.vector4d(sh.red[0], sh.red[1], sh.dash, sh.long)
+    hudDialAux = Qt.vector4d(sh.hair[0], sh.hair[1], run.pulse[0], run.pulse[1])
+    hudRange = Qt.vector4d(sh.range.mode, sh.range.n, sh.range.tape, run.fade)
+    hudGap = Qt.vector4d(sh.gap.mode, sh.gap.mode === 1 ? run.gap : sh.gap.v, sh.gap.flag, sh.gap.pitch)
+    dialFade = run.fade
+    if (dialKey !== sh.key) dialKey = sh.key
+    if (dialReadout !== sh.readout) dialReadout = sh.readout
+    if (dialUnits[0] !== sh.units[0] || dialUnits[1] !== sh.units[1]) dialUnits = sh.units
+    if (dialLandmarks.length !== sh.landmarks.length || dialLandmarks.some((l, i) => l.text !== sh.landmarks[i].text || l.g !== sh.landmarks[i].g)) dialLandmarks = sh.landmarks
+    // the time ring: the day at home (the daylight arc, now), unless the view has its own
+    const d = new Date(nowMs)
+    const key = d.getFullYear() + "-" + d.getMonth() + "-" + d.getDate()
+    if (sunToday.key !== key) {
+      const st = Sun.sunTimes(d, homeLat, homeLon)
+      sunToday = { key: key, rise: st.polar === "none" ? -1 : st.rise, set: st.polar === "all" ? 1.01 : st.set }
+    }
+    hudTimeRing = sh.time ? Qt.vector4d(sh.time[0], sh.time[1], sh.time[2], sh.time[3]) : Qt.vector4d(0, Sun.dayFraction(d), sunToday.rise, sunToday.set)
+    // the frame rocks +-4 degrees on a 13-minute sine (its own clock: the shader's wraps at 600 s)
+    hudSway = Lay.SWAY_MAX * Math.sin(2 * Math.PI * ((nowMs / 1000) % 780) / 780)
   }
 
   // The HUD's second colour: the accent hue turned like the shader's highlight.
@@ -2730,6 +2888,16 @@ Item {
     // a tour's keys in the rail: "KEY=what it does; KEY=..."; "" ends it
     function tourKeys(rows: string): void {
       root.setTourKeys(rows)
+    }
+
+    // the instrument with fixed, invented values, to look at every element
+    // without flying there: universe, flight, system, year (a time-lapse),
+    // galaxy, outside (bugs pinned hollow, the diamond off its scale), sky,
+    // fall, math; "" or off returns to the live values. The hub says DEMO
+    function hudDemo(view: string): void {
+      const v = String(view).trim().toLowerCase()
+      root.hudDemo = ["universe", "flight", "system", "year", "galaxy", "outside", "sky", "fall", "math"].indexOf(v) >= 0 ? v : ""
+      root.touchText()
     }
 
     // draw the zones over the scene, to check them by eye
@@ -3073,6 +3241,18 @@ Item {
               property real gpu: root.idleFps < Q.IDLE_FULL ? root.gauges.y : root.gpu
               property real mem: root.idleFps < Q.IDLE_FULL ? root.gauges.z : root.mem
               property real secs: (root.now.getSeconds() + root.now.getMilliseconds() / 1000) / 60
+              property real hudSway: root.hudSway
+              property vector4d timeRing: root.hudTimeRing
+              property vector2d hudTemp: root.hudTemp
+              property vector4d dial: root.hudDial
+              property vector4d dialMark: root.hudDialMark
+              property vector4d dialAux: root.hudDialAux
+              property vector4d range: root.hudRange
+              property vector4d bug0: root.hudBug0
+              property vector4d bug1: root.hudBug1
+              property vector4d bug2: root.hudBug2
+              property vector4d bug3: root.hudBug3
+              property vector4d gapWin: root.hudGap
               property vector2d pan: root.pan
               property real exposure: root.exposure
               property real boot: root.bootLevel
@@ -4188,6 +4368,7 @@ Item {
           }
         }
         onPositionChanged: function(mouse) {
+          root.hudPointerIn = Math.hypot(mouse.x - panel.hudCx, mouse.y - panel.hudCy) < panel.hud.R
           if (root.explore !== "universe") root.touchText()
           const pt = root.toP(mouse.x, mouse.y, width, height)
           if (root.explore === "galaxy" && !pressed) {
@@ -4286,6 +4467,7 @@ Item {
         onExited: {
           root.viewTarget = Qt.vector2d(0, 0)
           root.hoverSystem = false
+          root.hudPointerIn = false
           root.gxPointer = null
         }
         onClicked: function(mouse) {

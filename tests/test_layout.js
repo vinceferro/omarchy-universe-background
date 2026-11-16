@@ -155,6 +155,18 @@ for (const [name, lay] of [["box (s 1)", BOX], ["laptop (s 0.727)", LAP], ["port
   check(name + ": the hub's type sizes are the tokens (display, label, micro)", hb.clock.px === t.display && hb.date.px === t.label && hb.readout.px === t.micro)
 }
 
+// 5c. the instrument's radii are the shader's (pass universe.frag as the second argument)
+if (process.argv[3]) {
+  const frag = fs.readFileSync(process.argv[3], "utf8"), D = {}
+  for (const mm of frag.matchAll(/^const float D_(\w+) = ([0-9.]+);/gm)) D[mm[1]] = Number(mm[2])
+  const need = ["SECONDS", "DAY0", "DAY1", "CPU", "GPU", "MEM", "RANGE", "RANGE_TICK", "BUG_TIP", "BUG_BASE", "NEEDLE0", "TICK0", "TICK_MINOR", "TICK_MAJOR", "TICK_LONG", "RIM", "GAP0", "GAP1", "GAP_W"]
+  const off = Object.keys(D).filter(k => L.DIAL[k] !== D[k])
+  check("DIAL: every radius universe.frag draws at is the one layout.js gives QML (" + Object.keys(D).length + " constants)", need.every(k => D[k] !== undefined) && off.length === 0, off.join(" ") || undefined)
+  check("the shader still cuts the HUD off at RING, and gauges still sweep 270 degrees from 7:30", /if \(r > 0\.25\) return vec3\(0\.0\);/.test(frag) && L.RING === 0.25 && /fract\(ang01 - 0\.625\)/.test(frag) && /fract\(angS - 0\.625\) \/ 0\.75/.test(frag) && L.SWEEP0 === 0.625 * 360 && L.SWEEP === 0.75 * 360)
+  const order = ["SECONDS", "DAY0", "DAY1", "GAP0", "CPU", "GPU", "MEM", "RANGE", "BUG_TIP", "RANGE_TICK", "GAP1", "BUG_BASE", "NEEDLE0", "TICK0", "TICK_MINOR", "TICK_MAJOR", "TICK_LONG", "RIM"]
+  check("the zones keep their order from the centre out: time, machine, flight, and all inside the beacons' ring", order.every((k, i) => i === 0 || L.DIAL[order[i - 1]] < L.DIAL[k]) && L.DIAL.HUB < L.DIAL.SECONDS && L.DIAL.RIM === L.BRACKET && L.BRACKET < L.BEACON && L.BEACON < L.RING)
+} else console.log("skip universe.frag not given: the DIAL constants are not compared with the shader")
+
 // 6. tokens: nothing under 10 px, the box's sizes as they were
 check("laptop: no text under 10 px", [LAP.tok.micro, LAP.tok.label, LAP.tok.body, LAP.tok.title].join() === "10,11,12,13")
 check("box: 16, 18, 23, 24 px", [BOX.tok.micro, BOX.tok.label, BOX.tok.body, BOX.tok.title].join() === "16,18,23,24")
