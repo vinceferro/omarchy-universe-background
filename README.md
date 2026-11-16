@@ -89,7 +89,7 @@ scene. `T` cycles it while exploring (`Shift+T` goes back):
 |---|---|
 | `off` | the scene, nothing else |
 | `names` | what you are looking at: place and planet names, markers, the chosen place's name and facts, a caption's title |
-| `full` | names, plus the guide (the place's blurb, caption detail, the key hints) and the cockpit (the HUD's rings, clock, readouts and beacons) |
+| `full` | names, plus the guide (the place's blurb, caption detail, the key hints) and the cockpit (the HUD: its rings, clock, words and beacons, see [The HUD](#the-hud)) |
 
 `H` (and Super+Alt+J, which also works in the universe view) switches the
 cockpit: between `full` and the last level below it. The level is remembered
@@ -102,21 +102,85 @@ words, 40 s at most. So a name goes after 8 s, a place's card after about
 25, the key list after about 30, and a view left parked puts no standing text
 on the OLED; any key brings it back (for a screenshot outside film mode,
 press one first). A fall into the black hole holds its own text up until it
-ends. The one standing exception is the cockpit's rings, clock and readouts,
-which stay while the level is `full`: they are dim and drift.
+ends. The one standing exception is the cockpit's rings, clock and date,
+which stay while the level is `full`: they are dim and drift. Every other
+word on the HUD comes and goes like the rest.
 
 Where text goes is computed from the screen (`lib/layout.js`). Nothing leaves
 the safe rect: the screen less the bar (Hyprland's reserved bands), a camera
 notch (the platform's `display-cutouts.json`, across the whole width, bar or
 no bar) and a margin. Inside it the chosen place's card stands on the key
 hints in one column at the bottom left, the mode caption stands at the bottom
-centre, and the HUD is sized and placed by the aspect: right of centre with
-its readouts beside it on a wide screen, smaller and in the top right corner
-with the readouts under it on a narrow one. Scene names go to the right of
+centre, and the HUD is one disc, sized and placed by the aspect: right of
+centre on a wide screen (as far right as a beacon's name beside its rim
+allows), smaller and in the top right corner on a narrow one. It owns a
+radius, never a rect, so nothing reflows at any aspect and the scene keeps
+the rest of the screen. Scene names go to the right of
 their thing, else to the left, else their words hide (the dot stays): clear
 of the bar and notch, the card, the caption, the HUD and each other. The
 chosen or hovered thing always shows its name, and the HUD dims while that
 thing is inside its ring.
+
+### The HUD
+
+One radial instrument: no column of readouts beside it, so the universe keeps
+the stage. Its rings are ordered by meaning from the centre out, and that
+order is the same in every view:
+
+| Zone | What | Reads |
+|---|---|---|
+| time | the hub | the clock and the date; one readout line under them (the needle's exact figure) while you are doing something |
+| time | seconds ring | a short arc gliding round once a minute |
+| time | day ring | 24 hours, noon at the top: the dim thick arc is daylight at home (`homeLat`, `homeLon`), the bright caret is now |
+| machine | CPU arc, GPU arc | load along a 270-degree sweep, with a notch on each arc's outer edge for its temperature (30 to 100 C along the same sweep, a dim mark at 90) |
+| machine | memory dots | used of total |
+| flight | range scale | how far the named things are, on a log scale: one triangle (a bug) per beacon, in the beacon's colour. Off the scale it is hollow, pinned at that end |
+| flight | primary dial | the one quantity the view controls, as a needle; it rests dim on a stop pin at 7:30 when there is nothing to show |
+| flight | gap window (6 o'clock) | one signed quantity as a diamond on a dotted scale, or the Moon as it is lit now |
+| world | beacons on the rim | which way the named things lie, on or off screen (hollow: behind you) |
+
+The beacon and the bug are a pair: the beacon says which way, the bug of the
+same colour how far. Only the flight zone changes with the view:
+
+| View | Dial | Range scale | Gap window |
+|---|---|---|---|
+| Universe | a bare track | none | the Moon |
+| Flight | throttle, 0 to 100% (the star layers have no physical unit, so never a speed) | none | none |
+| Solar system | the time rate on seven detents, `LIVE` to a year a second | AU, 0.001 to 100: the Sun, Earth, the Moon, the chase target, from the pinned body | the Moon, beside Earth or the Moon |
+| Milky Way | speed as a multiple of light, 10^5 to 10^13 (long ticks at a million, a billion, a trillion) | light years, 1 to 10^7: the Sun, the centre, the target (or Andromeda), the nearest place | height over the disk plane: a dot a decade (10, 100, 1000 ly), hollow beyond a kiloparsec |
+| Sky | the field of view as an arc of its true angle | galactic longitude on a tape, the heading under the mark at the top, zero in magenta | galactic latitude, a dot every 30 degrees |
+| Falling into Sgr A* | the radius in Schwarzschild radii on one signed-log scale from the start to the end, a hairline at the photon orbit, magenta redlines at the two horizons | none | none |
+
+Two views borrow the day ring: while the system view time-lapses it is a
+year ring (twelve month ticks, the caret at the simulated day of the year),
+and during a fall it drains with the proper time left while the hub counts
+that time down (the wall clock is in the bar). In mathematics mode the dial's
+rim is dashed beyond the inner horizon and r = 0 has a mark: the scale goes
+on, the physics does not.
+
+A scale with no honest value is a bare track: a parked view has no needle, a
+free camera has no distances, a machine without `nvidia-smi` has no GPU
+figure. The fall has no speed scale, because the speed `lib/fall.js` knows
+is dr/dtau, which nobody measures locally (it passes c inside the horizon).
+
+At rest the only words are the clock and the date. The rest (the readout
+line, `CPU` / `GPU` / `MEM` and the unit words in the gap, the labels of the
+dial's long ticks just outside the rim on a wide screen, the beacons' names)
+come up with any interaction, when the pointer rests inside the disc, or
+for a few seconds at an event (another place is now the nearest, the disk
+plane crossed, a horizon crossed, a flight arrived; the machine labels alone
+when the CPU stays over 85%, the GPU passes 80 C or memory 90%), then fade.
+The facts that describe a body (distances, light time, orbit, day) are on
+the pinned body's card at the bottom left.
+
+For the OLED: everything is at the cockpit's low brightness, the disc drifts
+and leans toward the pointer, the whole frame rocks 4 degrees either way on
+a 13-minute sine (scale and pointer turn together, so readings do not
+change), static parts are hairlines, and the bright parts are the ones that
+move with data or time. A small disc drops detail rather than crowd it:
+minor ticks that would sit under 4 px apart, watts and gigabytes, the
+landmark labels; under scale 0.65 the temperature notches and all but the
+six-hour ticks.
 
 ### Universe (the default)
 
@@ -193,7 +257,7 @@ with the orbital plane tilted 61 degrees to the direction of travel.
 
 | Key | Action |
 |---|---|
-| `-` `=` | slow the Sun down (1/2 ... 1/200) so the coils show; the HUD says by how much |
+| `-` `=` | slow the Sun down (1/2 ... 1/200) so the coils show; the caption says by how much |
 | `I` | show / hide the 2-year trails |
 | `V` | look back from just ahead of the Sun along its path (again: the side view) |
 | drag / arrows | swing / tilt the camera |
@@ -253,7 +317,7 @@ angular size, north up. Near the Sun the model blends into the real sky.
 The time-lapse turns the disk around Sagittarius A* at the Sun's angular
 speed, one lap in about 203 million years, with the Sun bobbing through the
 plane. It is simplified: the whole disk turns as one, whereas real disks
-shear, and the HUD says so.
+shear, and the caption says so.
 
 ### Sagittarius A*
 
@@ -338,7 +402,8 @@ not the fall's (a tour's, IPC `caption`) keeps the band, and in film mode the
 fall says nothing: the script has the words. The timing and the words live
 in `lib/fall.js` (`tau`, `light`, `caption`, `CAPTIONS`).
 
-The HUD names the phase and counts the proper time left; `status`
+The HUD's hub counts the proper time left, its dial shows the radius
+against the horizons, and the caption's detail line names the phase; `status`
 reports both; the maths has its own checks in `tests/test_fall.js` and
 `tests/test_kerr.js`.
 
@@ -359,7 +424,7 @@ r = -a with 1 + M/a > E^2, so a from-rest fall turns back inside the inner
 horizon at r = a^2/r0 = 0.037 Rs and is thrown out into a new positive-r
 universe instead; reaching r < 0 needs E >= sqrt(1 + M/a) = 1.44, and the
 mode starts with E = 1.5, an impossible shove of 0.75 c down the axis. The
-HUD, the card and `status` all say so.
+caption, the card and `status` all say so.
 
 **What you see below you.** The dark toward the centre, the shadow from
 outside and the whole lower half of the sky once inside, is not quite black:
@@ -471,8 +536,9 @@ Everything is reachable through the shell's IPC, `omarchy-shell background <func
 | `film <true/false>` | film mode for recording: the level `off` for as long as it is on, reached over 1.5 s, so only the caption shows; the saved level is untouched (film itself is not remembered) |
 | `caption <title> <body>` | a quiet lower-third caption that fades in, replacing the last one; `caption "" ""` fades it out. It shows at every level; outside film mode the cockpit, the key column or the mode caption steps aside while it touches them |
 | `tourKeys <rows>` | a tour's own keys in the bottom-left column, in place of the view's hints and the place card: `"SPACE=next; B=back; ESC=leave"`; `tourKeys ""` ends it. They show at `names` and `full`, not at `off` or in film mode |
-| `textReport` | prints, as JSON: the level, a hold, what is showing right now, and every screen's zones in logical pixels (safe rect, rail, caption slot, story band, the HUD's centre, scale, arrangement and reach) |
-| `textDebug <true/false>` | outlines those zones over the scene, with a circle that must lie on the HUD's outer bracket |
+| `textReport` | prints, as JSON: the level, a hold, what is showing right now, and every screen's zones in logical pixels (safe rect, rail, caption slot, story band, the HUD's centre, scale, radius and reach) |
+| `textDebug <true/false>` | outlines those zones over the scene, with a circle that must lie on the HUD's rim |
+| `hudDemo <view>` | the HUD's instrument with fixed, invented values, to look at every element without flying there: `universe`, `flight`, `system`, `year`, `galaxy`, `outside`, `sky`, `fall`, `math`; `hudDemo off` returns to the live values. The hub's date line says `DEMO` while it is on |
 | `status` | prints `<view> <fall phase or -> <radius in Rs, signed> <real/math>`, e.g. `galaxy outer-horizon 0.52 real`, for scripts; the phases are `falling`, `outer-horizon`, `inner-horizon`, `ring`, `other-universe`, `out`, `in` |
 | `quality <level>` | render quality: `auto` (default), `full`, `high`, `balanced`, `low`, or a render scale from 0.25 to 1; remembered across restarts (see [Adaptive quality](#adaptive-quality)) |
 | `qualityInfo` | prints what each screen runs at, e.g. `eDP-1 120 Hz: auto (apple): scale 0.50, 1728x1117, idle 30 fps` |
@@ -561,7 +627,10 @@ Measured on an RTX 3080 Ti driving 5120x2160 at 165 Hz:
 The soft sky layer re-renders about ten times a second at half resolution;
 the Milky Way volume renders at a third of the screen size and only when the
 camera moves. The HUD gauges read CPU, memory and (through `nvidia-smi`) GPU
-load every two seconds while the cockpit is visible.
+load every two seconds while the cockpit is visible. The HUD itself is one
+branch per ring in `universe.frag` (a pixel evaluates one zone), about 8% of
+a 5120x2160 screen: an estimated 0.05 ms a frame there, to be measured with
+`perf true` against the cockpit off.
 
 ### Adaptive quality
 
@@ -588,7 +657,7 @@ pixels, which is the size the shaders already measure stars and HUD lines in.
 Below scale 1 the full pass renders into a texture and is stretched smoothly
 over the screen; the nebula and the Milky Way volume (the half- and
 third-size layers) shrink with it, the black hole's tracer keeps its size,
-and the clock, readouts, labels and markers (QML text on top) stay at device
+and the clock, the HUD's words, labels and markers (QML text on top) stay at device
 resolution. The full pass is recreated whenever it changes between direct
 and textured. Below one texel per logical pixel the shaders' `resolution`
 shrinks too, so stars grow instead of flickering. The idle cap only holds
@@ -714,22 +783,33 @@ Local Group's geometry, hand-off and photometry (`lib/localgroup.js`, and the
 dwarf texture against the table) with `node tests/test_localgroup.js
 lib/localgroup.js`; the text level, its groups, the idle clock and the hold
 by words (`lib/text.js`) with `node tests/test_text.js lib/text.js`; the
-zones, the HUD plan, beacon labels, markers and the label pass
-(`lib/layout.js`, on a 5120x2160 and a notched 1728x1117 screen among others)
-with `node tests/test_layout.js lib/layout.js`; the render scale, GPU probe,
+zones, the HUD's disc, the words in its gap and hub, beacon labels, markers
+and the label pass (`lib/layout.js`, on a 5120x2160 and a notched 1728x1117
+screen among others; with the shader given, its ring radii against
+`DIAL`) with `node tests/test_layout.js lib/layout.js universe.frag`; the
+HUD instrument's scales, bugs, needle spring, events and figures
+(`lib/dial.js`) with `node tests/test_dial.js lib/dial.js`; sunrise, sunset
+and the Moon's lit side (`lib/sun.js`) with `node tests/test_sun.js
+lib/sun.js`; the render scale, GPU probe,
 idle pacing and frame meter (`lib/quality.js`) with `node
 tests/test_quality.js lib/quality.js`.
 
 The text's timing is in `lib/text.js` (`HOLD_S`, `WORDS_PER_S`, `HOLD_MAX_S`,
-the fades) and its geometry in `lib/layout.js`: the margins, the HUD's drift
-budget and where the readouts go (`WIDE`), and `tokens()`, every type size as
-a fraction of the screen height with a floor (nothing under 10 px).
+the fades, and the HUD's own: `DIAL_WORDS`, `EVENT_S`, `DWELL_S`) and its
+geometry in `lib/layout.js`: the margins, the HUD's drift budget, where the
+disc goes (`WIDE`, `PAD_WIDE`, `AX_MAX`), its ring radii (`DIAL`, which
+`universe.frag` repeats as `D_*` constants) and `tokens()`, every type size
+as a fraction of the screen height with a floor (nothing under 10 px). The
+instrument's scales are in the nav producer in `Background.qml` (search
+`dialWant`), their maths in `lib/dial.js`.
 
 ## Notes
 
 - The fragment shaders read `qt_TexCoord0` (the default vertex shader's output
   name); renaming it causes name-mismatch linkage bugs on some drivers.
-- The GPU gauge in the HUD uses `nvidia-smi`; on other GPUs it stays at zero.
+- The GPU gauge in the HUD uses `nvidia-smi`; on other GPUs it is a bare
+  track with no figure and no temperature notch. The CPU's temperature notch
+  needs a `coretemp` hwmon.
 - The text level is remembered as one word in
   `~/.local/state/universe-background/text-level`. Until that file exists the
   older `hud-hidden` flag beside it decides the level at startup (present:

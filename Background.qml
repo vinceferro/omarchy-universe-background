@@ -144,12 +144,12 @@ Item {
   // Every element belongs to a group the level shows or not:
   //   names    place and planet names, markers, the card's head, a caption's title
   //   guide    the card's text, caption detail, the key hints (full only)
-  //   cockpit  the HUD's rings, clock, readouts and beacons (full only)
+  //   cockpit  the HUD's rings, clock, words and beacons (full only)
   // and to a zone that comes up with any interaction (a key, the pointer, a
   // flight) and fades once its words have had time to be read, so a parked
   // view puts no standing text on the OLED: opacity = textMix(group, zone).
-  // Only the cockpit's rings, clock and readouts stand while the level is
-  // full: they are dim and drift. `omarchy-shell background hud <level>` sets
+  // Only the cockpit's rings, clock and date stand while the level is
+  // full: they are dim and drift; its other words are the zone `dial`. `omarchy-shell background hud <level>` sets
   // the cockpit's brightness until the shell restarts.
   property string textLevel: ""                   // "" until the state file is read: nothing shows
   property string textLower: "names"              // the last level below full: where the cockpit key returns to
@@ -1323,7 +1323,7 @@ Item {
   readonly property var cardPlace: gxSel >= 0 ? place(gxSel) : null
   readonly property var cardView: gxView >= 0 ? gxViews[gxView] : null   // a named viewpoint
   // In the system view the card is the pinned body's (sysCard, from the nav
-  // producer): the facts that describe the body, which were readout rows
+  // producer): the facts that describe the body
   property var sysCard: null
   property string fallDetail: ""          // the fall's line under the Milky Way caption's title (from the nav producer)
   readonly property bool sysCardOn: explore === "system" && !galactic && !!sysCard
@@ -1584,8 +1584,8 @@ Item {
              all: cover.concat(disc ? [disc] : [], disc ? labelState.beacons : [], storyNow > 0 ? [Lay.storyRect(l, storyNow)] : []) }
   }
   // IPC `textDebug true`: the plan drawn over the scene (safe rect, rail,
-  // caption slot, story band, the readouts' rect, and a circle that must lie
-  // on the rings' outer bracket at any render scale)
+  // caption slot, story band, the HUD's reach, and a circle that must lie
+  // on the instrument's rim at any render scale)
   property bool textDebug: false
 
   // frameDt: the FrameAnimation's own clock (monotonic, sub-millisecond); the
@@ -2127,7 +2127,7 @@ Item {
       const sel = gxSel >= 0 ? gxSel : gxSel === -1 ? gxSunIndex : -1
       const L0 = lay0, tok0 = L0.tok, zones = labelZones()
       const toX = x => L0.W / 2 + x * L0.H, toY = y => (y + 0.5) * L0.H
-      // a dot under the bar or notch, the card, the caption or the readouts
+      // a dot under the bar or notch, the card or the caption
       // hides (and cannot be clicked); inside the ring it stays: thin lines
       for (const pt of pts) {
         if (pt.dot && (toY(pt.y) < L0.safe.y0 || zones.cover.some(k => Lay.pointIn(toX(pt.x), toY(pt.y), k)))) pt.dot = false
@@ -3094,9 +3094,9 @@ Item {
       // and its zones and type sizes (lib/layout.js)
       readonly property var lay: root.layOf(modelData)
       readonly property var tok: lay.tok
-      // its HUD, in pixels: radius, arrangement and the readouts' rect at the
-      // anchor, and the centre where it is now. The drift moves every frame,
-      // so it comes in as two numbers and nothing is built for it.
+      // its HUD, in pixels: the disc at its anchor, and the centre where it
+      // is now. The drift moves every frame, so it comes in as two numbers
+      // and nothing is built for it.
       readonly property var hud: Lay.hudAt(lay, null)
       readonly property real hudCx: Lay.hudCx(lay, root.hudDrift.x)
       readonly property real hudCy: Lay.hudCy(lay, root.hudDrift.y)
@@ -4337,7 +4337,7 @@ Item {
         Rectangle { color: "transparent"; border.width: 1; border.color: "#ffd27a"; x: panel.lay.story.x; y: panel.lay.story.y; width: panel.lay.story.w; height: Math.max(filmCaption.height, panel.lay.H * 0.14) }
         // the HUD's whole reach as it drifts, then where it is now
         Rectangle { color: "transparent"; border.width: 1; border.color: "#406080"; x: zoneDebug.ext.x; y: zoneDebug.ext.y; width: zoneDebug.ext.w; height: zoneDebug.ext.h }
-        // the rings' outer bracket (0.232 of the HUD's unit)
+        // the instrument's rim (0.232 of the HUD's unit)
         Rectangle {
           readonly property real r: panel.hud.R * Lay.BRACKET / Lay.RING
           color: "transparent"; border.width: 1; border.color: "#ff3060"
