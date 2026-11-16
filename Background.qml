@@ -3061,37 +3061,6 @@ Item {
                   }
                 }
               }
-
-              // what each key does in the current mode, one per row: the
-              // visor's edge (bottom left), clear of the view
-              Column {
-                visible: opacity > 0
-                opacity: Math.min(0.75, root.hudBrightness * 1.8) * 0.9 * root.textMix("guide", "hints")
-                x: Math.round(readout.unit * 0.03)
-                y: panel.height - height - Math.round(readout.unit * 0.03)
-                spacing: Math.round(readout.unit * 0.003)
-
-                Repeater {
-                  model: root.controlHints
-                  Row {
-                    required property var modelData
-                    Text {
-                      width: readout.rowSize * 11
-                      text: modelData[0]
-                      color: Color.accent
-                      font.family: Style.resolvedFontFamily
-                      font.pixelSize: Math.round(readout.rowSize * 0.85)
-                      font.letterSpacing: 1
-                    }
-                    Text {
-                      text: modelData[1]
-                      color: Color.foreground
-                      font.family: Style.resolvedFontFamily
-                      font.pixelSize: Math.round(readout.rowSize * 0.85)
-                    }
-                  }
-                }
-              }
             }
           }
         }
@@ -3424,39 +3393,52 @@ Item {
           }
         }
 
-        // caption, bottom centre, in the HUD's voice
+        // caption, in the caption slot, in the HUD's voice
         Column {
           opacity: 1 - toast.opacity
-          anchors.horizontalCenter: parent.horizontalCenter
-          y: Math.round(panel.height * 0.86)
-          spacing: Math.round(panel.height * 0.004)
+          x: panel.lay.caption.x
+          width: panel.lay.caption.w
+          y: panel.lay.caption.bottom - height
+          spacing: panel.tok.row
           Text {
-            anchors.horizontalCenter: parent.horizontalCenter
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            elide: Text.ElideRight
             opacity: root.textMix("names", "caption")
             text: "GALACTIC FRAME"
             color: Color.accent
             font.family: Style.resolvedFontFamily
-            font.pixelSize: Math.round(panel.height * 0.009)
-            font.letterSpacing: 6
+            font.pixelSize: panel.tok.label
+            font.letterSpacing: panel.tok.label * panel.tok.track.title
           }
           Text {
-            anchors.horizontalCenter: parent.horizontalCenter
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+            maximumLineCount: 2
+            elide: Text.ElideRight
+            visible: opacity > 0
             opacity: root.textMix("guide", "caption")
             text: "THE SUN CARRIES THE PLANETS AT 249 KM/S  ·  THEIR PLANE TILTED 61° TO THE PATH"
             color: Qt.alpha(Color.foreground, 0.65)
             font.family: Style.resolvedFontFamily
-            font.pixelSize: Math.round(panel.height * 0.0075)
-            font.letterSpacing: 2
+            font.pixelSize: panel.tok.micro
+            font.letterSpacing: panel.tok.micro * panel.tok.track.normal
           }
           Text {
-            anchors.horizontalCenter: parent.horizontalCenter
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+            maximumLineCount: 2
+            elide: Text.ElideRight
+            visible: opacity > 0
             opacity: root.textMix("guide", "caption")
             text: (root.galSlow === 1 ? "TRUE SPEED" : "SUN SLOWED TO 1/" + root.galSlow + "  ·  EXAGGERATED")
                   + (root.guides ? "  ·  TRAILS " + root.galTrailYears + " YEARS" : "  ·  I SHOWS THE PATHS") + "  ·  TRUE SIZES: THE PLANETS ARE POINTS"
             color: root.galSlow === 1 ? Qt.alpha(Color.foreground, 0.45) : Qt.alpha("#ffd27a", 0.8)
             font.family: Style.resolvedFontFamily
-            font.pixelSize: Math.round(panel.height * 0.0075)
-            font.letterSpacing: 2
+            font.pixelSize: panel.tok.micro
+            font.letterSpacing: panel.tok.micro * panel.tok.track.normal
           }
         }
       }
@@ -3465,31 +3447,39 @@ Item {
       Column {
         visible: root.liveBackground && root.skyMix > 0.01
         opacity: root.skyMix * (1 - toast.opacity)
-        anchors.horizontalCenter: parent.horizontalCenter
-        y: Math.round(panel.height * 0.90)
-        spacing: Math.round(panel.height * 0.004)
+        x: panel.lay.caption.x
+        width: panel.lay.caption.w
+        y: panel.lay.caption.bottom - height
+        spacing: panel.tok.row
         readonly property var v: root.skyViews[root.skyView]
         Text {
-          anchors.horizontalCenter: parent.horizontalCenter
+          width: parent.width
+          horizontalAlignment: Text.AlignHCenter
+          elide: Text.ElideRight
           opacity: root.textMix("names", "caption")
           text: (root.skyStaticMix > 0.5 ? parent.v.name : "THE SKY FROM EARTH") + "  ·  l " + ((root.skyL % 360 + 360) % 360).toFixed(1) + "°  b " + root.skyB.toFixed(1) + "°  ·  " + root.skyVfov.toFixed(0) + "° FIELD"
           color: Color.accent
           font.family: Style.resolvedFontFamily
-          font.pixelSize: Math.round(panel.height * 0.009)
-          font.letterSpacing: 4
+          font.pixelSize: panel.tok.label
+          font.letterSpacing: panel.tok.label * panel.tok.track.wide
         }
         Text {
-          anchors.horizontalCenter: parent.horizontalCenter
+          width: parent.width
+          horizontalAlignment: Text.AlignHCenter
+          wrapMode: Text.WordWrap
+          maximumLineCount: 3
+          elide: Text.ElideRight
+          visible: opacity > 0
           opacity: root.textMix("guide", "caption")
           text: (root.skyStaticMix > 0.5 ? parent.v.note + "  ·  " : "") + "NASA SVS DEEP STAR MAPS 2020  ·  ESA/GAIA/DPAC"
           color: Qt.alpha(Color.foreground, 0.45)
           font.family: Style.resolvedFontFamily
-          font.pixelSize: Math.round(panel.height * 0.0075)
-          font.letterSpacing: 2
+          font.pixelSize: panel.tok.micro
+          font.letterSpacing: panel.tok.micro * panel.tok.track.normal
         }
       }
 
-      // ---- Milky Way view: place markers, the chosen place's card, the clock ----
+      // ---- Milky Way view: place markers and the caption (the chosen place's card is in the rail) ----
       Item {
         id: gxOverlay
         width: panel.width
@@ -3535,72 +3525,39 @@ Item {
           }
         }
 
-        // the chosen place: what it is, how far, how big, and how old its light is
-        Column {
-          x: Math.round(panel.width * 0.03)
-          y: Math.round(panel.height * 0.80)
-          spacing: Math.round(panel.height * 0.005)
-          width: Math.round(panel.width * 0.3)
-          visible: root.cardShown
-          Text {
-            opacity: root.textMix("names", "card")
-            text: root.cardTitle
-            color: Color.accent
-            font.family: Style.resolvedFontFamily
-            font.pixelSize: Math.round(panel.height * 0.011)
-            font.letterSpacing: 4
-          }
-          Text {
-            opacity: root.textMix("names", "card")
-            text: root.cardSub
-            color: Qt.alpha(Color.foreground, 0.6)
-            font.family: Style.resolvedFontFamily
-            font.pixelSize: Math.round(panel.height * 0.0075)
-            font.letterSpacing: 2
-          }
-          Text {
-            visible: !!root.cardPlace
-            opacity: root.textMix("names", "card")
-            text: root.cardFacts
-            color: Color.foreground
-            font.family: Style.resolvedFontFamily
-            font.pixelSize: Math.round(panel.height * 0.0085)
-          }
-          Text {
-            width: parent.width
-            wrapMode: Text.WordWrap
-            opacity: root.textMix("guide", "card")
-            text: root.cardBlurb
-            color: Qt.alpha(Color.foreground, 0.7)
-            font.family: Style.resolvedFontFamily
-            font.pixelSize: Math.round(panel.height * 0.0085)
-          }
-        }
-
+        // caption, in the caption slot
         Column {
           opacity: 1 - toast.opacity
-          anchors.horizontalCenter: parent.horizontalCenter
-          y: Math.round(panel.height * 0.90)
-          spacing: Math.round(panel.height * 0.004)
+          x: panel.lay.caption.x
+          width: panel.lay.caption.w
+          y: panel.lay.caption.bottom - height
+          spacing: panel.tok.row
           Text {
-            anchors.horizontalCenter: parent.horizontalCenter
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            elide: Text.ElideRight
             opacity: root.textMix("names", "caption")
             text: "MILKY WAY  ·  ABOUT 100,000 LY ACROSS  ·  TRUE SCALE"
             color: Color.accent
             font.family: Style.resolvedFontFamily
-            font.pixelSize: Math.round(panel.height * 0.009)
-            font.letterSpacing: 6
+            font.pixelSize: panel.tok.label
+            font.letterSpacing: panel.tok.label * panel.tok.track.title
           }
           Text {
-            anchors.horizontalCenter: parent.horizontalCenter
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+            maximumLineCount: 3
+            elide: Text.ElideRight
+            visible: opacity > 0
             opacity: root.textMix("guide", "caption")
             text: Math.abs(root.gxMyr) < 0.0005 && root.gxRateIndex === 0 ? "NOW  ·  [ ] TO WATCH IT TURN"
                   : (root.gxMyr >= 0 ? "+" : "") + root.gxMyr.toFixed(root.gxMyr < 10 ? 2 : 1) + " MILLION YEARS  ·  " + root.gxRateNames[root.gxRateIndex]
                     + "  ·  " + (root.gxMyr * root.sunOmega * 180 / Math.PI % 360).toFixed(0) + "° AROUND THE CENTRE  ·  SIMPLIFIED: THE DISK TURNS AS ONE"
             color: root.gxRateIndex > 0 ? Qt.alpha("#ffd27a", 0.8) : Qt.alpha(Color.foreground, 0.45)
             font.family: Style.resolvedFontFamily
-            font.pixelSize: Math.round(panel.height * 0.0075)
-            font.letterSpacing: 2
+            font.pixelSize: panel.tok.micro
+            font.letterSpacing: panel.tok.micro * panel.tok.track.normal
           }
         }
       }
@@ -3621,6 +3578,102 @@ Item {
           font.family: Style.resolvedFontFamily
           font.pixelSize: Math.round(panel.height * 0.0085)
           font.letterSpacing: 2
+        }
+      }
+
+      // ---- the rail: the chosen place's card over the key hints ----
+      // One column at the bottom left, standing on the safe rect's bottom
+      // and growing upward, so the card and the hints cannot share a corner.
+      // A part that is not showing takes no room: the rest stands lower.
+      Column {
+        id: rail
+        visible: root.liveBackground
+        x: panel.lay.rail.x
+        width: panel.lay.rail.w
+        y: panel.lay.rail.bottom - height
+        spacing: panel.tok.gap * 2
+
+        // the chosen place: what it is, how far, how big, and how old its light is
+        Column {
+          id: card
+          width: parent.width
+          spacing: panel.tok.row
+          visible: root.cardShown && root.galaxyMix > 0.01 && root.gateNames > 0 && root.presCard > 0
+          opacity: root.galaxyMix * (1 - root.fallFade)
+          Text {
+            width: parent.width
+            wrapMode: Text.WordWrap
+            opacity: root.textMix("names", "card")
+            text: root.cardTitle
+            color: Color.accent
+            font.family: Style.resolvedFontFamily
+            font.pixelSize: panel.tok.title
+            font.letterSpacing: panel.tok.title * panel.tok.track.wide
+          }
+          Text {
+            width: parent.width
+            wrapMode: Text.WordWrap
+            opacity: root.textMix("names", "card")
+            text: root.cardSub
+            color: Qt.alpha(Color.foreground, 0.6)
+            font.family: Style.resolvedFontFamily
+            font.pixelSize: panel.tok.micro
+            font.letterSpacing: panel.tok.micro * panel.tok.track.normal
+          }
+          Text {
+            width: parent.width
+            wrapMode: Text.WordWrap
+            visible: !!root.cardPlace
+            opacity: root.textMix("names", "card")
+            text: root.cardFacts
+            color: Color.foreground
+            font.family: Style.resolvedFontFamily
+            font.pixelSize: panel.tok.label
+          }
+          Text {
+            width: parent.width
+            wrapMode: Text.WordWrap
+            maximumLineCount: 6
+            elide: Text.ElideRight
+            visible: opacity > 0
+            opacity: root.textMix("guide", "card")
+            text: root.cardBlurb
+            color: Qt.alpha(Color.foreground, 0.7)
+            font.family: Style.resolvedFontFamily
+            font.pixelSize: panel.tok.label
+          }
+        }
+
+        // what each key does in the current mode, one per row
+        Column {
+          id: hints
+          width: parent.width
+          spacing: Math.max(1, panel.tok.row - 2)
+          readonly property real keyW: Math.round(panel.tok.label * 13.5)
+          visible: opacity > 0 && root.controlHints.length > 0
+          opacity: Math.min(0.75, root.hudBrightness * 1.8) * 0.9 * root.textMix("guide", "hints")
+          Repeater {
+            model: root.controlHints
+            Row {
+              required property var modelData
+              Text {
+                width: hints.keyW
+                text: modelData[0]
+                color: Color.accent
+                font.family: Style.resolvedFontFamily
+                font.pixelSize: panel.tok.label
+                font.letterSpacing: panel.tok.label * panel.tok.track.tight
+              }
+              Text {
+                width: hints.width - hints.keyW
+                wrapMode: Text.WordWrap
+                text: modelData[1]
+                color: Color.foreground
+                font.family: Style.resolvedFontFamily
+                font.pixelSize: panel.tok.label
+              }
+            }
+          }
         }
       }
 
