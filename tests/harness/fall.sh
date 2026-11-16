@@ -25,4 +25,4 @@ cp "$H/main.qml" "$RUN/run/main.qml"
 cd "$RUN/run"
 QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 QML_IMPORT_PATH="$RUN/stub" \
   timeout 200 qmlscene6 -I "$RUN/stub" main.qml $math > "$RUN/log" 2>&1 || true
-node "$H/fall_check.js" "$RUN/log" $math
+node "$H/fall_check.js" "$RUN/log" $math --gpu "$gpu"

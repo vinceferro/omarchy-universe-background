@@ -147,12 +147,13 @@ check("ISCO chi = 0.94: 8.8308 M retrograde", Math.abs(K.isco(A94, -1) / M - 8.8
       const vv = x[2] === 6 ? v : [v[0], -Math.abs(v[2]), v[1]]
       const pr = K.pixelRay(x, A94, 1, u, vv)
       const t = K.traceRay(x, pr.k, A94, 1, pr.E, { rOut: 10, noTail: true })
-      if (t.out !== "sky" || t.steps > 60) continue
+      if (t.out !== "sky" || t.steps > 40) continue
       const me = K.ksMetric(t.x, A94, 1)
       worstK = Math.max(worstK, Math.abs(K.carterK(me, A94, t.k, pr.E, t.Lz).K - K.carterK(m, A94, pr.k, pr.E, pr.Lz).K) / K.carterK(m, A94, pr.k, pr.E, pr.Lz).K)
     }
   }
-  check("Carter's K conserved along traced rays (relative; the Delta form loses ~300x to cancellation at 10 Rs)", worstK < 1e-3, worstK.toExponential(2))
+  // (the march's step is 0.18 of the distance to r = 0.3; at the 0.12 it had, this was under 1e-3)
+  check("Carter's K conserved along traced rays (relative; the Delta form loses ~300x to cancellation at 10 Rs)", worstK < 3e-3, worstK.toExponential(2))
 }
 
 // 6. a = 0 regression: the KS march against the exact Schwarzschild integral
@@ -227,7 +228,7 @@ function verlet(x0, v0) {
   check("a = 0: captured / escaped agrees with b < B_CRIT on every ray", badClass === 0, badClass)
   check("a = 0: escape direction within 0.1 deg of the exact Schwarzschild integral (" + n + " rays)", worstExact < 0.1, worstExact.toFixed(4) + " deg at " + worstAt)
   check("a = 0, hovering at 20 Rs: within 1 deg of the old Verlet tracer (its flat start is what changed)", worstVerlet < 1, worstVerlet.toFixed(4) + " deg")
-  // from far away (3000 Rs; the march starts at the camera, 33 long steps to
+  // from far away (3000 Rs; the march starts at the camera, 20 long steps to
   // 60 Rs): the total deflection against the exact 2 int du/sqrt(P) - pi; the
   // old tracer, started at the R_OUT entry with the flat direction as hole.frag
   // did, is reported too (its start ignored the tilt of the coordinate
@@ -306,7 +307,7 @@ function verlet(x0, v0) {
       const t = K.traceRay(c.x, pr.k, a, c.sheet, pr.E, { camInside: !!c.inside })
       if (t.out === "lost") continue          // a stalled or ring-struck state is not a geodesic's end
       n++
-      const tol = t.steps > 60 ? 1e-3 : 3e-5  // winding rays near the photon orbits amplify the step error
+      const tol = t.steps > 40 ? 3e-3 : 1e-4  // winding rays near the photon orbits amplify the step error
       worstL = Math.max(worstL, Math.abs(t.Lz - pr.Lz) / Math.max(Math.abs(pr.Lz), 1) / tol * 1e-6)
       const me = K.ksMetric(t.x, a, t.sheet), k4 = [-pr.E, t.k[0], t.k[1], t.k[2]]
       const lk = -k4[0] * (-1) * 0 + (pr.E + me.l[0] * t.k[0] + me.l[1] * t.k[1] + me.l[2] * t.k[2])
@@ -314,7 +315,7 @@ function verlet(x0, v0) {
       worstN = Math.max(worstN, Math.abs(H) / (pr.E * pr.E) / tol * 1e-6)
     }
   }
-  check("L_z conserved along " + n + " escaped rays (3e-5, 1e-3 for winding ones)", worstL < 1e-6, (worstL * 1e6).toExponential(2) + " of the tolerance")
+  check("L_z conserved along " + n + " escaped rays (1e-4, 3e-3 for winding ones)", worstL < 1e-6, (worstL * 1e6).toExponential(2) + " of the tolerance")
   check("the null condition holds at the end of every escaped trace", worstN < 1e-6, (worstN * 1e6).toExponential(2) + " of the tolerance")
 }
 
@@ -466,7 +467,7 @@ function verlet(x0, v0) {
     const pr = K.pixelRay(xi, a, 1, ui, [Math.sin(ang), 0, Math.cos(ang)])
     const t = K.traceRay(xi, pr.k, a, 1, pr.E, { camInside: true })
     if (pr.E <= 0 && t.out === "sky") okE = false
-    if (pr.E > 0 && (t.out === "lost") && t.steps >= 180) okE = false   // E > 0 rays never stall at r+
+    if (pr.E > 0 && (t.out === "lost") && t.steps >= 150) okE = false   // E > 0 rays never stall at r+
     nE++
   }
   check("between the horizons: E <= 0 never reaches the sky; E > 0 never stalls (" + nE + " rays)", okE)

@@ -92,6 +92,11 @@ layout(std140, binding = 0) uniform buf {
     float gxCamSheet; // +1; -1 once the falling camera is through the disk, on the r < 0 sheet (math mode)
     vec2 holeRes;    // the hole tracer's layer size, px
     float gxFallClose; // 0..1 over the last seconds before the inner horizon: its light closing in
+    vec3 holeFwd;    // the camera basis the tracer's layer was drawn from (this frame's, or a few frames older)
+    vec3 holeRight;
+    vec3 holeUp;
+    float holeOver;  // the layer's field of view over the screen's (hole.frag's `over`)
+    float gxHoleExp; // the hole's picture's exposure: 1 hovering; the falling eye's adaptation (lib/fall.js)
 };
 
 // NASA maps, equirectangular: Blue Marble (day), Black Marble (night lights),
@@ -932,7 +937,7 @@ vec3 hotspotLook(vec3 rd, float t) {
 // ---- Sagittarius A*, up close ------------------------------------------------
 // A Kerr black hole of 4.3 million Suns at the origin, spin a/M = gxSpin / M
 // about gxSpinAxis (0.94, the EHT 2022 best-bet model; uncertain). hole.frag
-// traces every pixel's ray at a third of the resolution and hands over where
+// traces every pixel's ray at a half or a third of the resolution and hands over where
 // it left (a bend vector), the gas's light and its shift. Here, at full
 // resolution, the same camera frame gives each look direction its constants
 // of motion (E, L_z, Carter's K) in Kerr-Schild coordinates, and the radial
@@ -1008,9 +1013,10 @@ float radialClass(float E, float Lz, float Kc, float a, float rCam, bool climbin
     if (abs(qa) < 1e-9 * (abs(qb) + abs(qc))) {
         if (qb != 0.0) { float r = -qc / qb; if (r > lo && r < hi) m = min(m, ((E * E * r * r * r * r + c2 * r * r + c1 * r + c0) / (E * E * r * r * r * r))); }
     } else if (disc >= 0.0) {
-        float sq = sqrt(disc);
+        // (the roots without cancellation: q = -(b + sign(b) sqrt(disc)) / 2, then q/a and c/q)
+        float q = -0.5 * (qb + (qb < 0.0 ? -1.0 : 1.0) * sqrt(disc));
         for (int i = 0; i < 2; i++) {
-            float r = (-qb + (i == 0 ? sq : -sq)) / (2.0 * qa);
+            float r = i == 0 ? q / qa : (q != 0.0 ? qc / q : -1.0);
             if (r > lo && r < hi) m = min(m, (E * E * r * r * r * r + c2 * r * r + c1 * r + c0) / (E * E * r * r * r * r));
         }
     }
@@ -1040,36 +1046,66 @@ vec2 bendEncode(vec3 rd, vec3 n1, vec3 n2, vec3 d) {
 }
 // what kind of ray the tracer wrote: 0 sky, 1 dark, 2 the other universe, 3 none
 int holeKind(vec4 t) { return t.a < 0.0 ? 1 : t.b < 0.0 ? 2 : t.a == 0.0 ? 3 : 0; }
-// the tracer at uv: bilinear where its four texels are of one kind, the
-// nearest texel otherwise, so a sky direction is never blended with a
-// sentinel or a glow. Bend vectors are blended as directions where they
-// differ by more than BEND_BLEND: the encoding folds at alpha = 180 degrees
-// (a ray turned 184 degrees is written as 176 on the other side), so two
-// neighbours like (-176, 0) and (+179, 0), 5 degrees apart as directions,
-// would average to an undeflected ray and show the sky unbent along a thin
-// contour. From the equator at spin that fold lies well outside the shadow
-// (a bend of 180 degrees is reached at xs ~ 0.1), in plain view.
+// The tracer at uv, blended over its four texels, but only over those of one
+// kind: a sky direction is never mixed with a sentinel or a glow, and a
+// texel on the wrong side of an edge is left out instead of showing as a
+// block. Which kind: the nearest texel's, unless the caller knows its side
+// of the shadow's edge from the closed form (side 1: the dark, 0: the sky,
+// -1: unknown); then that side's texels are read wherever the four hold any.
+// Bend vectors are blended as directions where they differ by more than
+// BEND_BLEND: the encoding folds at alpha = 180 degrees (a ray turned 184
+// degrees is written as 176 on the other side), so two neighbours like
+// (-176, 0) and (+179, 0), 5 degrees apart as directions, would average to
+// an undeflected ray and show the sky unbent along a thin contour. From the
+// equator at spin that fold lies well outside the shadow (a bend of 180
+// degrees is reached at xs ~ 0.1), in plain view.
 const float BEND_BLEND = 0.5;
-vec4 holeRead(vec2 uv, vec3 rd, vec3 n1, vec3 n2) {
-    vec2 st = uv * holeRes - 0.5;
+vec4 holeRead(vec2 uv, vec3 rd, vec3 n1, vec3 n2, int side) {
+    vec2 st = clamp(uv, vec2(0.0), vec2(1.0)) * holeRes - 0.5;
     vec2 i0 = floor(st), fr = st - i0;
-    vec4 t00 = texture(holeTex, (i0 + 0.5) / holeRes);
-    vec4 t10 = texture(holeTex, (i0 + vec2(1.5, 0.5)) / holeRes);
-    vec4 t01 = texture(holeTex, (i0 + vec2(0.5, 1.5)) / holeRes);
-    vec4 t11 = texture(holeTex, (i0 + 1.5) / holeRes);
-    vec4 nearest = fr.x < 0.5 ? (fr.y < 0.5 ? t00 : t01) : (fr.y < 0.5 ? t10 : t11);
-    int k = holeKind(t00);
-    if (holeKind(t10) != k || holeKind(t01) != k || holeKind(t11) != k) return nearest;
-    vec4 m = mix(mix(t00, t10, fr.x), mix(t01, t11, fr.x), fr.y);
-    if (k == 1 || k == 3) return m;
-    float spread = max(max(distance(t00.rg, t10.rg), distance(t00.rg, t01.rg)), distance(t00.rg, t11.rg));
-    if (spread < BEND_BLEND) return m;
-    vec3 d = mix(mix(bendDecode(rd, n1, n2, t00.rg), bendDecode(rd, n1, n2, t10.rg), fr.x),
-                 mix(bendDecode(rd, n1, n2, t01.rg), bendDecode(rd, n1, n2, t11.rg), fr.x), fr.y);
+    vec4 t0 = texture(holeTex, (i0 + 0.5) / holeRes);
+    vec4 t1 = texture(holeTex, (i0 + vec2(1.5, 0.5)) / holeRes);
+    vec4 t2 = texture(holeTex, (i0 + vec2(0.5, 1.5)) / holeRes);
+    vec4 t3 = texture(holeTex, (i0 + 1.5) / holeRes);
+    int k0 = holeKind(t0), k1 = holeKind(t1), k2 = holeKind(t2), k3 = holeKind(t3);
+    float w0 = (1.0 - fr.x) * (1.0 - fr.y), w1 = fr.x * (1.0 - fr.y), w2 = (1.0 - fr.x) * fr.y, w3 = fr.x * fr.y;
+    int k = fr.x < 0.5 ? (fr.y < 0.5 ? k0 : k2) : (fr.y < 0.5 ? k1 : k3);
+    if (side == 1) { if (k0 == 1 || k1 == 1 || k2 == 1 || k3 == 1) k = 1; }
+    else if (side == 0 && k == 1) {
+        float best = -1.0;
+        if (k0 != 1 && w0 > best) { best = w0; k = k0; }
+        if (k1 != 1 && w1 > best) { best = w1; k = k1; }
+        if (k2 != 1 && w2 > best) { best = w2; k = k2; }
+        if (k3 != 1 && w3 > best) { best = w3; k = k3; }
+    }
+    // the texels of that kind: their weights, the heaviest one, their spread
+    w0 = k0 == k ? w0 : -1.0; w1 = k1 == k ? w1 : -1.0; w2 = k2 == k ? w2 : -1.0; w3 = k3 == k ? w3 : -1.0;
+    vec4 top = w0 >= max(w1, max(w2, w3)) ? t0 : w1 >= max(w2, w3) ? t1 : w2 >= w3 ? t2 : t3;
+    float spread = max(max(w0 < 0.0 ? 0.0 : distance(top.rg, t0.rg), w1 < 0.0 ? 0.0 : distance(top.rg, t1.rg)),
+                       max(w2 < 0.0 ? 0.0 : distance(top.rg, t2.rg), w3 < 0.0 ? 0.0 : distance(top.rg, t3.rg)));
+    w0 = max(w0, 0.0); w1 = max(w1, 0.0); w2 = max(w2, 0.0); w3 = max(w3, 0.0);
+    float ws = w0 + w1 + w2 + w3;
+    if (ws < 1e-5) return top;
+    vec4 m = (t0 * w0 + t1 * w1 + t2 * w2 + t3 * w3) / ws;
+    if (k == 1 || k == 3 || spread < BEND_BLEND) return m;
+    vec3 d = (bendDecode(rd, n1, n2, t0.rg) * w0 + bendDecode(rd, n1, n2, t1.rg) * w1
+            + bendDecode(rd, n1, n2, t2.rg) * w2 + bendDecode(rd, n1, n2, t3.rg) * w3) / ws;
     float dl = length(d);
-    if (dl < 0.2) return nearest;                  // directions all over the sphere: no mean to speak of
+    if (dl < 0.2) return top;                      // directions all over the sphere: no mean to speak of
     m.rg = bendEncode(rd, n1, n2, d / dl);
     return m;
+}
+// Where the tracer's layer holds the direction d. The layer is read by
+// direction, not by this pixel's place on screen: it was drawn from the
+// camera basis hole.frag had when it last ran (holeFwd, holeRight, holeUp),
+// and the bend vector it holds is written about the look direction itself,
+// in a basis that depends on the direction and the hole alone. So however
+// the view has turned since, each direction finds its own ray: a turning
+// view does not wait for the tracer. The layer's field is holeOver times the
+// screen's, a margin for what a turn brings in at the edge.
+vec2 holeUV(vec3 d, float fz) {
+    vec2 pp = vec2(dot(d, holeRight), -dot(d, holeUp)) / fz;
+    return pp / (vec2(resolution.x / resolution.y, 1.0) * holeOver) + 0.5;
 }
 
 // what the sky holds in direction d: our Galaxy's stars, far galaxies
@@ -1122,13 +1158,14 @@ vec3 gasTint(float g) {
 // in the camera's frame, the edge, the tracer read from the sky's side of it,
 // the sky where the ray left (ours, or the other universe's), the gas's light
 // and the photon ring on the edge. camPos in Rs, rCam signed (sheet).
-vec3 holePixel(vec3 rd, vec2 uv, vec3 camPos, float sheet, bool falling) {
+vec3 holePixel(vec3 rd, vec3 camPos, float sheet, bool falling) {
     float a = gxSpin;
     float rPlus = HM + sqrt(max(HM * HM - a * a, 0.0)), rMinus = HM - sqrt(max(HM * HM - a * a, 0.0));
     // the hole's frame: the spin axis along z
-    vec3 e1 = normalize(cross(gxSpinAxis, abs(gxSpinAxis.x) < 0.9 ? vec3(1, 0, 0) : vec3(0, 1, 0)));
-    vec3 e2 = cross(gxSpinAxis, e1);
-    mat3 W2K = transpose(mat3(e1, e2, gxSpinAxis));
+    vec3 ax = normalize(gxSpinAxis);              // unit to the last bit, as in hole.frag
+    vec3 e1 = normalize(cross(ax, abs(ax.x) < 0.9 ? vec3(1, 0, 0) : vec3(0, 1, 0)));
+    vec3 e2 = cross(ax, e1);
+    mat3 W2K = transpose(mat3(e1, e2, ax));
     vec3 x = W2K * camPos, v = W2K * rd;
     KSL m = ksLite(x, a, sheet);
     float rCam = m.r;
@@ -1159,21 +1196,23 @@ vec3 holePixel(vec3 rd, vec2 uv, vec3 camPos, float sheet, bool falling) {
     if (rCam > rPlus) xs = radialClass(E, Lz, Kc, a, rCam, rdot > 0.0, rPlus);
     else if (rCam > rMinus) xs = radialClass(E, Lz, Kc, a, rPlus, true, rPlus);
     else xs = 1.0;
-    // on screen, the sky lies away from the hole's position (with the hole
-    // behind us the projection flips)
+    // in the tracer's layer, the sky lies away from the hole's position (with
+    // the hole behind that camera the projection flips)
     vec3 toHole = -camPos;
-    float fz = dot(normalize(toHole), gxFwd);
+    vec2 uv = holeUV(rd, max(dot(rd, holeFwd), 1e-4));
+    float fz = dot(normalize(toHole), holeFwd);
     fz = abs(fz) < 1e-6 ? 1e-6 : fz;
-    vec2 cuv = vec2(dot(normalize(toHole), gxRight), -dot(normalize(toHole), gxUp)) / fz / vec2(resolution.x / resolution.y, 1.0) + 0.5;
+    vec2 cuv = holeUV(normalize(toHole), fz);
     vec2 outward = normalize(uv - cuv + 1e-9) * sign(fz);
     vec2 texel = 1.0 / holeRes;
-    // the tracer runs at a third of the resolution; the edge is known exactly
-    // here, so near it the tracer is read only from the same side: a crisp
-    // rim at full resolution, no bleeding
+    // the tracer runs at a half or a third of the resolution; the edge is
+    // known exactly here, so near it the tracer is read only from the same
+    // side: a crisp rim at full resolution, no bleeding
     float nudge = (xs <= 0.0 ? -2.0 : 2.0) * (1.0 - smoothstep(0.0, 0.15, abs(xs)));
+    int side = rCam > rMinus && sheet > 0.0 ? (xs <= 0.0 ? 1 : 0) : -1;
     vec3 n1, n2;
     bendBasis(toHole, rd, n1, n2);
-    vec4 traced = holeRead(uv + outward * texel * nudge, rd, n1, n2);
+    vec4 traced = holeRead(uv + outward * texel * nudge, rd, n1, n2, side);
     int kind = holeKind(traced);
     float g = 1.0 / max(E, 1e-3);                // the sky's shift, seen over emitted
     vec3 col = vec3(0.0);
@@ -1205,26 +1244,39 @@ vec3 holePixel(vec3 rd, vec2 uv, vec3 camPos, float sheet, bool falling) {
         col = shifted(gxSceneAlong(d), g);
     }
     // the hot gas's light (see-through), tinted by its mean shift; a dark ray
-    // carries the infall's glow instead, already shifted sample by sample
-    if (kind == 0) col += gasTint(traced.a) * max(traced.b, 0.0);
+    // carries the infall's glow instead, already shifted sample by sample.
+    // (The gas only on the sky's side of the edge: a sky texel read from
+    // inside the shadow is the tracer running behind a moving camera.)
+    if (kind == 0 && xs > 0.0) col += gasTint(traced.a) * max(traced.b, 0.0);
     else if (kind == 1) col += max(traced.rgb, 0.0);
     // the photon ring: the gas's light, wrapped once more around the hole,
     // squeezed into a thin line on the shadow's edge (drawn at full resolution)
     if (xs > 0.0 && rCam > rMinus) {
-        vec4 rimT = holeRead(uv + outward * texel * 3.0, rd, n1, n2);
+        vec4 rimT = holeRead(uv + outward * texel * 3.0, rd, n1, n2, 0);
         vec3 rim = holeKind(rimT) == 0 ? gasTint(rimT.a) * max(rimT.b, 0.0) : vec3(0.0);
         col += (rim * 0.9 + vec3(0.02, 0.012, 0.006)) * exp(-xs / 0.006);
     }
+    // Exposure, and a shoulder instead of a clip. Falling, the sky ahead is
+    // shifted blue and the gas ahead is boosted (g^3 and g^3.5: hundreds of
+    // times at the mathematics mode's 0.75 c), more than any eye or camera
+    // would take in at one setting: gxHoleExp is the adaptation (fall.js,
+    // 1 while hovering). What is still brighter than HOLE_KNEE rolls off
+    // toward 1 with its colour kept, so a boosted region reads as bright and
+    // blue, not as a white sheet. Below the knee nothing changes.
+    col *= gxHoleExp;
+    const float HOLE_KNEE = 0.6;
+    float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
+    if (lum > HOLE_KNEE) col *= (HOLE_KNEE + (1.0 - HOLE_KNEE) * (1.0 - exp(-(lum - HOLE_KNEE) / (1.0 - HOLE_KNEE)))) / lum;
     return col;
 }
 
 // returns the lensed colour, or a negative red channel when the hole is too
 // far away to matter
-vec3 blackHole(vec3 rd, vec2 uv) {
-    if (gxFallE > 0.0) return holePixel(rd, uv, gxCam / RS_KPC, gxCamSheet, true);
+vec3 blackHole(vec3 rd) {
+    if (gxFallE > 0.0) return holePixel(rd, gxCam / RS_KPC, gxCamSheet, true);
     vec3 toBH = -gxCam;
     if (length(gxCam) > 2e-4 || dot(toBH, rd) <= 0.0) return vec3(-1.0);
-    return holePixel(rd, uv, gxCam / RS_KPC, 1.0, false);
+    return holePixel(rd, gxCam / RS_KPC, 1.0, false);
 }
 
 void main() {
@@ -1251,7 +1303,7 @@ void main() {
         vec3 rd = normalize(gxFwd + gxRight * p.x - gxUp * p.y);
         vec4 g = texture(galaxyTex, uv);
         vec3 gc = g.rgb + g.a * gxSky(rd) + hotspotLook(rd, t) * (0.35 + 0.65 * g.a);
-        vec3 hole = blackHole(rd, uv);
+        vec3 hole = blackHole(rd);
         if (hole.r >= 0.0) gc = hole;
         if (gxFallClose > 0.0) {
             // The inner horizon's light (realistic fall, the last seconds

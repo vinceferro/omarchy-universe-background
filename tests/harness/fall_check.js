@@ -44,7 +44,31 @@ if (fall.length >= 40) {
   const turned = Math.max(...hp.map(r => Math.hypot(r.hole.camFwd[0] - hp[0].hole.camFwd[0], r.hole.camFwd[1] - hp[0].hole.camFwd[1], r.hole.camFwd[2] - hp[0].hole.camFwd[2])))
   check("the tracer's view direction turns during the fall", turned > 0.5, turned.toFixed(2))
   check("the tracer is near the hole and in the fall's frame throughout", hp.every(r => r.hole.near && r.hole.fallE > 0 && r.hole.w > 100))
+  const gpu = process.argv.includes("--gpu") ? process.argv[process.argv.indexOf("--gpu") + 1] : "nvidia"
+  const size = gpu === "nvidia" ? [2560, 1080] : [1707, 720]
+  check("the tracer's layer on " + gpu + " (5120x2160): " + size.join("x"), hp.every(r => r.hole.w === size[0] && r.hole.h === size[1]), hp[0].hole.w + "x" + hp[0].hole.h)
   check("the tracer's gas clock runs", new Set(hp.map(r => r.hole.flowTime.toFixed(2))).size > 0.5 * hp.length)
+  // 4. the view: the frame's energy, the script, the exposure, the landmark ahead
+  if (fall[0].s !== undefined) {
+    const at = t => fall.reduce((b, r) => Math.abs(r.s - t) < Math.abs(b.s - t) ? r : b)
+    const deg = r => r.tilt * 180 / Math.PI
+    check("the script looks down at the hole first, back up at 14.5 s, at the rim through the horizon",
+          deg(at(2)) < 5 && deg(at(14.5)) > 135 && deg(at(24)) > 12 && deg(at(24)) < 45, [2, 14.5, 24].map(t => deg(at(t)).toFixed(0)).join(", ") + " deg from straight down")
+    check("the exposure starts at 1, opens for the dim sky behind and closes for the boosted rim", Math.abs(fall[0].exp - 1) < 0.2 && at(15).exp > 1.3 && at(24).exp < 0.2,
+          [fall[0], at(15), at(24)].map(r => r.exp.toFixed(3)).join(", "))
+    check("the exposure stays in its range and eases (never more than 2.6x between rows a quarter second apart)", fall.every(r => r.exp >= 0.0039 && r.exp <= 6.01) && fall.every((r, i) => i === 0 || Math.max(r.exp / fall[i - 1].exp, fall[i - 1].exp / r.exp) < 2.6))
+    check("the landmark ahead: the outer horizon, then the inner one" + (math ? ", the disk, the end" : ""), at(10).next.what === "outer-horizon" && at(26).next.what === "inner-horizon"
+          && (!math || (at(40).next.what === "disk" && fall[fall.length - 1].next.what === "end")) && at(10).next.left > at(20).next.left && at(20).next.left > 0)
+    check("the frame's energy: " + (math ? "from rest to 1.5 over the first 3 s" : "the fall's own, 0.913"), math ? fall[0].E < 1.2 && at(4).E === 1.5 && fall.every((r, i) => i === 0 || r.E >= fall[i - 1].E) : fall.every(r => Math.abs(r.E - 0.9136) < 2e-3),
+          fall[0].E.toFixed(3) + " -> " + at(4).E.toFixed(3))
+    check("the tracer hears the same energy and carries the layer's margin", hp.every(r => Math.abs(r.hole.fallE - r.E) < 1e-6 && r.hole.over === 1.04))
+    const ahead = r => (r.hud || []).find(l => l.indexOf("AHEAD: ") === 0) || ""
+    check("the HUD's row for the landmark ahead: distance in km and time on our clock", /^AHEAD: OUTER HORIZON  ·  [\d.]+ MILLION KM BELOW  ·  IN \d+ MIN \d+ S ON OUR CLOCK$/.test(ahead(at(8)))
+          && /^AHEAD: INNER HORIZON  ·  [\d.,]+ (MILLION )?KM BELOW  ·  IN [\d.]+ S ON OUR CLOCK$/.test(ahead(at(27))), ahead(at(8)) + " | " + ahead(at(27)))
+    check("the story captions: looking back, the event horizon" + (math ? ", the ring, the other universe" : ", between the horizons, the inner horizon"),
+          (math ? ["Looking back", "Event horizon", "Inner horizon", "Through the ring", "The other universe"] : ["Looking back", "Event horizon", "Between the horizons", "Inner horizon"]).every(t => fall.some(r => r.caption === t)),
+          [...new Set(fall.map(r => r.caption))].join(" | "))
+  }
   if (math) check("the tracer changes sheet with the camera", hp.some(r => r.hole.camSheet === -1) && hp.every(r => r.hole.camSheet === r.sheet || Math.abs(r.fallR) < 0.05))
 }
 console.log(fails ? fails + " FAILED" : "all passed")

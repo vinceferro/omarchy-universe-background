@@ -11,7 +11,7 @@ lib/kerr.js (double precision) cannot stand in for: the stray texels inside the 
   camPos= camFwd= camRight= camUp=   the camera, Rs and unit vectors (default: parked on the pole at
              6.07 Rs looking at the hole, where the fall starts)
   fallE=     0 hovering; the falling observer's energy otherwise (0.9134 from rest at 6 Rs, 1.5 mathematics mode)
-  spin= camSheet= flowTime= flash= aspect= spinAxis=   the other uniforms
+  spin= camSheet= flowTime= flash= aspect= spinAxis= over=   the other uniforms (over: the layer's margin, 1 here, 1.04 in the shell)
   format=16f|32f   the layer's format (the shell's is 16f)
   flipfc=1   gl_FragCoord.y running the other way (the first-step jitter's pattern differs by backend)
   time=N     also time N draws (ms each, glFinish after every one)
@@ -70,15 +70,15 @@ def main():
     if not ok.value: raise SystemExit("link failed")
     GL.glUseProgram(prog)
     # std140: mat4 0, qt_Opacity 64, resolution 72, shown 80, camPos 96, camFwd 112, camRight 128, camUp 144, aspect 156,
-    #         spinAxis 160, flowTime 172, fallE 176, spin 180, camSheet 184, flash 188
-    buf = bytearray(192)
+    #         spinAxis 160, flowTime 172, fallE 176, spin 180, camSheet 184, flash 188, over 192
+    buf = bytearray(208)
     def put(off, *v): struct.pack_into("<%df" % len(v), buf, off, *v)
     put(0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1); put(64, 1.0); put(72, W, H); put(80, 1.0)
-    put(96, *vec("camPos", [0, 5.265, -3.025])); put(112, *vec("camFwd", [0, -0.86603, 0.5])); put(128, *vec("camRight", [-1, 0, 0])); put(144, *vec("camUp", [0, 0.5, 0.86603]))
-    put(156, float(kv.get("aspect", 5120 / 2160))); put(160, *vec("spinAxis", [0, -0.8660, 0.5])); put(172, float(kv.get("flowTime", 14)))
-    put(176, float(kv.get("fallE", 1.5))); put(180, float(kv.get("spin", 0.47))); put(184, float(kv.get("camSheet", 1))); put(188, float(kv.get("flash", 1)))
+    put(96, *vec("camPos", [0, 5.25677, -3.035])); put(112, *vec("camFwd", [0, -0.8660254, 0.5])); put(128, *vec("camRight", [-1, 0, 0])); put(144, *vec("camUp", [0, 0.5, 0.86603]))
+    put(156, float(kv.get("aspect", 5120 / 2160))); put(160, *vec("spinAxis", [0, -0.8660254, 0.5])); put(172, float(kv.get("flowTime", 14)))
+    put(176, float(kv.get("fallE", 1.5))); put(180, float(kv.get("spin", 0.47))); put(184, float(kv.get("camSheet", 1))); put(188, float(kv.get("flash", 1))); put(192, float(kv.get("over", 1)))
     ubo = C.c_uint(0); GL.glGenBuffers(1, C.byref(ubo)); GL.glBindBuffer(0x8A11, ubo)
-    GL.glBufferData(0x8A11, C.c_ssize_t(192), (C.c_char * 192).from_buffer(buf), 0x88E4); GL.glBindBufferBase(0x8A11, 0, ubo)
+    GL.glBufferData(0x8A11, C.c_ssize_t(208), (C.c_char * 208).from_buffer(buf), 0x88E4); GL.glBindBufferBase(0x8A11, 0, ubo)
     tex = C.c_uint(0); GL.glGenTextures(1, C.byref(tex)); GL.glBindTexture(0x0DE1, tex)
     fmt = 0x881A if kv.get("format", "16f") == "16f" else 0x8814   # RGBA16F as the layer, or RGBA32F
     GL.glTexStorage2D(0x0DE1, 1, fmt, W, H)

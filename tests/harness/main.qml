@@ -24,12 +24,12 @@ Window {
     const h = hole
     const row = { t: (Date.now() - t0) / 1000, status: ipc.status(), phase: bg.fallPhase, fallR: bg.fallR, left: bg.fallLeft, camRs: v(bg.gxCamRs), fwd: v(bg.gxFwd),
                   sheet: bg.gxCamSheet, E: bg.gxFallE, close: bg.fallClose, fade: bg.fallFade, caption: bg.captionTitle, falling: !!bg.fallState }
-    for (const k of win.extra) if (bg[k] !== undefined) row[k] = bg[k]
-    if (h) row.hole = { near: h.near, w: h.width, h: h.height, camPos: v(h.camPos), camFwd: v(h.camFwd), camSheet: h.camSheet, flowTime: h.flowTime, fallE: h.fallE }
+    row.up = v(bg.gxUp); row.exp = bg.gxHoleExp
+    if (bg.fallState) { row.s = bg.fallState.s; row.tilt = bg.fallState.tilt; row.next = bg.fallState.next }
+    row.hud = (bg.navRows || []).map(r => r.label + ": " + r.value)
+    if (h) row.hole = { near: h.near, w: h.width, h: h.height, camPos: v(h.camPos), camFwd: v(h.camFwd), camSheet: h.camSheet, flowTime: h.flowTime, fallE: h.fallE, over: h.over }
     console.log("ROW " + JSON.stringify(row))
   }
-  // root properties logged when they exist (so the driver also runs older trees)
-  property var extra: ["gxViewE", "fallExposure", "fallHorizonKm", "fallTilt"]
   Component.onCompleted: {
     for (const r of bg.resources) if (r && r.target === "background") ipc = r
     bg.displayedBackground = "/x/y-live.webp"
