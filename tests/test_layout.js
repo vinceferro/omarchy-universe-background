@@ -1,7 +1,7 @@
 // checks for layout.js, the zones the wallpaper's text lives in (run with node; strips the QML pragma)
 const fs = require("fs")
 const src = fs.readFileSync(process.argv[2], "utf8").replace(".pragma library", "")
-const L = new Function(src + "\nreturn { EDGE, TOP_GAP, RING, BRACKET, BEACON, DRIFT_X, DRIFT_Y, WIDE, tokens, textW, plan, toPx, hudAt, hudExtent, railRect, captionRect, storyRect, intersects, inSafe, pointIn, hits, beaconLabel, clampMarker, labelBoxAt, placeLabels, parseCutouts, cutoutTop };")()
+const L = new Function(src + "\nreturn { EDGE, TOP_GAP, RING, BRACKET, BEACON, DRIFT_X, DRIFT_Y, WIDE, tokens, textW, plan, toPx, hudCx, hudCy, hudAt, hudExtent, railRect, captionRect, storyRect, intersects, inSafe, pointIn, hits, beaconLabel, clampMarker, labelBoxAt, placeLabels, parseCutouts, cutoutTop };")()
 let fails = 0
 function check(name, ok, info) { console.log((ok ? "ok   " : "FAIL ") + name + (info !== undefined ? "  " + info : "")); if (!ok) fails++ }
 const near = (a, b, tol) => Math.abs(a - b) <= (tol === undefined ? 1 : tol)
@@ -214,6 +214,17 @@ check("its side is taken: it moves over, once", r1.show && r1.side === 1 && side
 check("only left, in the open: left", (() => { const r = L.placeLabels([one(800, 500, { only: -1 })], [], LAP.safe, { a: 1 })[0]; return r.show && r.side === -1 })())
 check("only left, left taken: hidden, not right", !L.placeLabels([one(800, 500, { only: -1 })], [{ x: 690, y: 490, w: 50, h: 20 }], LAP.safe, {})[0].show)
 check("only right, right taken, remembered left: hidden", !L.placeLabels([one(800, 500, { only: 1 })], blockR, LAP.safe, { a: -1 })[0].show)
+// the centre alone, as the bindings take it: the same place hudAt gives, and the readouts move with it
+{
+  let off = 0
+  for (const lay of [BOX, LAP]) for (const d of [[0, 0], [0.1, -0.08], [-0.037, 0.052]]) {
+    const h = L.hudAt(lay, d), h0 = L.hudAt(lay, null), c = L.toPx(lay, lay.hud.ax + d[0] * lay.hud.s, lay.hud.ay + d[1] * lay.hud.s)
+    const cx = L.hudCx(lay, d[0]), cy = L.hudCy(lay, d[1])
+    off = Math.max(off, Math.abs(cx - h.cx), Math.abs(cy - h.cy), Math.abs(cx - c[0]), Math.abs(cy - c[1]),
+                   Math.abs(h0.stats.x + cx - h0.cx - h.stats.x), Math.abs(h0.stats.y + cy - h0.cy - h.stats.y))
+  }
+  check("hudCx / hudCy: hudAt's centre, and the readouts' rect is the anchor's moved by the same", off < 1e-9, off)
+}
 // a scene name next to the HUD: the ring and the readouts are obstacles like any other
 const byRing = L.placeLabels([{ id: "p", x: hL.cx - hL.R - 30, y: hL.cy, r: 10, w: 120, h: 14, pin: false }], OBST, LAP.safe, {})[0]
 check("a planet just left of the ring: its name goes left, off the rings", byRing.show && byRing.side === -1)

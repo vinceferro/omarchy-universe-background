@@ -1520,6 +1520,11 @@ Item {
   property var galLabels: []        // galactic view: the heading's words, then the planets: shown, side
   // the HUD steps back (to 0.3) while the chosen or hovered thing is inside its ring, so its name reads
   property real cockpitYield: 1
+  // a pass's answers reach the label bindings only when one of them changed
+  function labelsDiffer(was, now) {
+    const ks = Object.keys(now)
+    return Object.keys(was).length !== ks.length || ks.some(k => !was[k] || was[k].show !== now[k].show || was[k].side !== now[k].side)
+  }
   function labelZones() {
     const l = lay0, keep = []
     if (railNow > 0) keep.push(Lay.railRect(l, railNow))
@@ -2120,7 +2125,7 @@ Item {
     // (which crowd together when zoomed out). In the galactic view its own
     // names take the pass: the heading's words, then the planets.
     {
-      const L0 = lay0, tk = L0.tok, zones = labelZones()
+      const L0 = lay0, tk = L0.tok
       const toX = x => L0.W / 2 + x * L0.H, toY = y => (y + 0.5) * L0.H
       const pts = disp.map(b => { const pr = sysCam.project(b); return { x: pr.x, y: pr.y, r: b[3] * pr.scale, front: pr.front, show: false, side: 1 } })
       const mk = {}
@@ -2132,7 +2137,13 @@ Item {
       }
       markerPts = mk
       const items = [], put = []   // put: where each item's answer goes
-      if (galMix > 0.5) {
+      // no name of these shows outside the system and galactic views (the
+      // universe view, the galaxy, the sky): no pass, and nothing to place
+      const zones = sys > 0.5 || galMix > 0.5 ? labelZones() : null
+      if (!zones) {
+        if (galLabels.length > 0) galLabels = []
+        if (labelsDiffer(markerLabels, {})) markerLabels = ({})
+      } else if (galMix > 0.5) {
         const gl = galNow.map(() => ({ show: false, side: 1 }))
         const s0 = galNow[0]
         if (s0 && s0.z > 0.004) {
@@ -2151,8 +2162,8 @@ Item {
         }
         const res = Lay.placeLabels(items, zones.all, L0.safe, labelState.sides)
         res.forEach((r, n) => { put[n].show = r.show; put[n].side = r.side })
-        galLabels = gl
-        markerLabels = ({})
+        if (labelsDiffer(galLabels, gl)) galLabels = gl
+        if (labelsDiffer(markerLabels, {})) markerLabels = ({})
       } else {
         const ml = {}
         const planet = k => {
@@ -2174,7 +2185,7 @@ Item {
         if (named) for (let k = 5; k >= 0; k--) if (k !== follow - 1) planet(k)
         const res = Lay.placeLabels(items, zones.all, L0.safe, labelState.sides)
         res.forEach((r, n) => { put[n].show = r.show; put[n].side = r.side })
-        markerLabels = ml
+        if (labelsDiffer(markerLabels, ml)) markerLabels = ml
         if (zones.disc && explore === "system" && follow >= 1 && follow <= 6 && pts[follow - 1].front
             && Math.hypot(toX(pts[follow - 1].x) - zones.disc.cx, toY(pts[follow - 1].y) - zones.disc.cy) < zones.disc.r) subjectInRing = true
       }
@@ -2754,8 +2765,12 @@ Item {
       // and its zones and type sizes (lib/layout.js)
       readonly property var lay: root.layOf(modelData)
       readonly property var tok: lay.tok
-      // its HUD where it is now: centre, radius and the readouts' rect, in pixels
-      readonly property var hud: Lay.hudAt(lay, [root.hudDrift.x, root.hudDrift.y])
+      // its HUD, in pixels: radius, arrangement and the readouts' rect at the
+      // anchor, and the centre where it is now. The drift moves every frame,
+      // so it comes in as two numbers and nothing is built for it.
+      readonly property var hud: Lay.hudAt(lay, null)
+      readonly property real hudCx: Lay.hudCx(lay, root.hudDrift.x)
+      readonly property real hudCy: Lay.hudCy(lay, root.hudDrift.y)
       // the first screen tells the label pass how tall its zones stand
       readonly property bool first: Quickshell.screens.length > 0 && Quickshell.screens[0].name === modelData.name
       property real statsH: 0   // the readouts' height (set from inside the live layer)
@@ -3014,7 +3029,7 @@ Item {
               property color accent: Color.accent
               property real hudLevel: root.hudLevel * panel.cockpitStep
               property vector2d view: root.view
-              property vector2d hudCenter: Qt.vector2d((panel.hud.cx - panel.lay.W / 2) / panel.lay.H, panel.hud.cy / panel.lay.H - 0.5)
+              property vector2d hudCenter: Qt.vector2d((panel.hudCx - panel.lay.W / 2) / panel.lay.H, panel.hudCy / panel.lay.H - 0.5)
               property real hudScale: panel.lay.hud.s
               property real flight: root.flight
               property real cpu: root.idleFps < Q.IDLE_FULL ? root.gauges.x : root.cpu
@@ -3100,8 +3115,8 @@ Item {
               readonly property real hudOpacity: Math.min(0.75, root.hudLevel * 1.8) * panel.cockpitStep
               readonly property real unit: panel.height
               readonly property real s: panel.lay.hud.s
-              readonly property real cx: panel.hud.cx
-              readonly property real cy: panel.hud.cy
+              readonly property real cx: panel.hudCx
+              readonly property real cy: panel.hudCy
               readonly property real rowSize: panel.tok.body
               // the text joins the rings' draw-in over its last 40%
               readonly property real bootIn: Math.max(0, Math.min(1, (root.bootLevel - 0.6) / 0.4))
@@ -3174,13 +3189,13 @@ Item {
               // and it never grows past what the plan leaves it
               Item {
                 id: statsBox
-                readonly property var at: panel.hud.stats
+                readonly property var at: panel.hud.stats   // at the anchor; it moves with the centre
                 readonly property var rect: ({ x: x, y: y, w: width, h: height })   // as it stands now
                 Binding { target: panel; property: "statsH"; value: statsBox.visible ? statsBox.height : 0 }
                 visible: root.hudLevel > 0
                 opacity: readout.hudOpacity * readout.bootIn
-                x: at.x
-                y: panel.hud.arr === "beside" ? readout.cy - height / 2 : at.y
+                x: at.x + readout.cx - panel.hud.cx
+                y: panel.hud.arr === "beside" ? readout.cy - height / 2 : at.y + readout.cy - panel.hud.cy
                 width: at.w
                 height: Math.min(statsColumn.height, at.h)
                 clip: statsColumn.height > at.h
@@ -3963,12 +3978,12 @@ Item {
         // the HUD's whole reach as it drifts, then where it is now
         Rectangle { color: "transparent"; border.width: 1; border.color: "#406080"; x: zoneDebug.ext.ring.x; y: zoneDebug.ext.ring.y; width: zoneDebug.ext.ring.w; height: zoneDebug.ext.ring.h }
         Rectangle { color: "transparent"; border.width: 1; border.color: "#406080"; x: zoneDebug.ext.stats.x; y: zoneDebug.ext.stats.y; width: zoneDebug.ext.stats.w; height: zoneDebug.ext.stats.h }
-        Rectangle { color: "transparent"; border.width: 1; border.color: "#ff3060"; x: panel.hud.stats.x; y: panel.hud.stats.y; width: panel.hud.stats.w; height: panel.hud.stats.h }
+        Rectangle { color: "transparent"; border.width: 1; border.color: "#ff3060"; x: panel.hud.stats.x + panel.hudCx - panel.hud.cx; y: panel.hud.stats.y + panel.hudCy - panel.hud.cy; width: panel.hud.stats.w; height: panel.hud.stats.h }
         // the rings' outer bracket (0.232 of the HUD's unit)
         Rectangle {
           readonly property real r: panel.hud.R * Lay.BRACKET / Lay.RING
           color: "transparent"; border.width: 1; border.color: "#ff3060"
-          x: panel.hud.cx - r; y: panel.hud.cy - r; width: 2 * r; height: 2 * r; radius: r
+          x: panel.hudCx - r; y: panel.hudCy - r; width: 2 * r; height: 2 * r; radius: r
         }
       }
 
