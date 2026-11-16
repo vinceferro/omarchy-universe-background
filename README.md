@@ -207,6 +207,89 @@ minor ticks that would sit under 4 px apart, watts and gigabytes, the
 landmark labels; under scale 0.65 the temperature notches and all but the
 six-hour ticks.
 
+### Anatomy
+
+`C` shows what the body in front is made of: thin lines where its parts
+are, each with a short name and a number. It works the same way in every
+view and for every body, from one table and one set of rules
+(`lib/anatomy.js`, `lib/anatomy-data.js`):
+
+| View | Subject |
+|---|---|
+| Solar system | the pinned body (the Sun when none is pinned) |
+| Milky Way | the chosen place; at the Sun's place or in free flight, the Galaxy itself |
+| Sky mode | the Milky Way, seen from inside |
+
+When none of the subject's parts suits the zoom, the record that holds it
+takes over: beside the Sun you see the Sun's layers, from 100,000 light-years
+the Galaxy's bar, the Sun's orbit and the Fermi bubbles, from further still
+the Local Group. Flight has no body, so nothing is drawn there.
+
+**How a line tells you what it is.** One legend for every body:
+
+| Line | Meaning |
+|---|---|
+| solid | measured |
+| dashed | a model |
+| dotted | mathematics only: drawn in mathematics mode (`K`), never otherwise |
+
+**The rules**, the same for every body:
+
+- A part is drawn when it spans between 24 px and 1.5 screen heights. Zoom
+  in or out and others take its place.
+- A part closer than 3 px to its neighbour is not drawn: its name and number
+  join the neighbour's label (Earth's crust beside the mantle).
+- Where the view exaggerates sizes against distances (the system overview),
+  only what is inside the body is drawn. Pin a planet, or use the chase
+  view, and its surroundings appear at true scale.
+- At most six labels show at once, the largest parts first.
+- Lines and labels stay inside the safe rect and out of the rail, the
+  caption, the HUD's disc and a story caption.
+
+**It uses what the text already has** ([Text](#text)). The lines show at
+every level, like the orbit lines; the names are `names`; the numbers are
+`full`. At `full`, turning it on says the body's headline in the story band
+and then tells the lines one by one, the largest first, each lit while its
+fact is up. Any key ends that walk. Pointing at a line says its fact. Lines
+and labels sit on the idle clock like every other text: they fade after
+their reading time and any key or pointer movement brings them back, so a
+parked view keeps nothing lit. A flight to a place, the fall and the way
+home fade the lines; they return on arrival. The setting is remembered
+across restarts.
+
+**Sagittarius A\*.** The dark shape is the shadow, drawn where the render
+itself puts its edge (`shadowOutline()` in `lib/kerr.js` uses the shader's
+own test). Seen from the side it is a D, 4.77 Rs wide: the flat edge, 1.32 Rs
+from the centre, is on the side the spin carries toward you, and the gas on
+that same side is the bright one because it is coming toward you. The label
+gives the factor for your viewpoint (about 8 times from the side), worked
+out as the shader adds up the gas's light. A faint circle shows the 5.20 Rs
+shadow the hole would have without spin, and a solid one the ring the Event
+Horizon Telescope measured. Inside the shadow are the event horizon (0.67
+Rs, about a third as wide as the shadow), the ergosphere, the photon shell
+and the inner edge of the gas. Seen down the spin axis the shadow is round
+and there is no brighter side. Every number is read from `lib/kerr.js` at
+the live spin.
+
+**Where the numbers come from.** `tools/anatomy-rows.json` holds every row as
+it was fact-checked, and `docs/anatomy-sources.md` says how each number was
+confirmed. `node tools/gen_anatomy.js` writes the table from them. A row
+whose place could not be fixed from a checked number (an orbit whose
+orientation is not sourced, a ring that must be fitted on a photo) keeps
+its words in the table and is not drawn: ten of the 126 today.
+
+**What this build cannot show yet.**
+
+- The five single stars (Betelgeuse, Vega, Sirius, Alpha Centauri, Polaris)
+  have rows, but the Milky Way view cannot come closer to a place than
+  0.2 pc, far too far to see a star's surface. `anatomyDemo` shows them.
+- The Sun's termination shock and heliopause need a view about 300 AU
+  tall at true scale. The chase view from the Sun stops at 14 AU, so today
+  it reaches the edge of the corona and no further.
+- Points on the nebula photos (the Trapezium, the Crab's pulsar) are placed
+  by their sky coordinates from SIMBAD. Whether each photo is centred
+  exactly on its place has not been checked by eye.
+
 ### Universe (the default)
 
 The pointer shifts each layer by its depth. Click or scroll up over the solar
@@ -405,8 +488,9 @@ the camera round to the equator to see it in full.
 The colours are a false-colour impression. The real flow around Sgr A* emits
 mostly in radio and infrared and is far too faint to see by eye; visible
 light does not reach us through the dust at all. The gas motion is also
-sped up 30 times so an orbit at the innermost stable radius takes about a
-minute rather than half an hour. Where both sides of the torus lie on one
+sped up 30 times, so an orbit at the innermost stable radius takes about 17
+seconds on screen rather than its real 8.2 minutes (at a/M = 0.94; half an
+hour is the figure for a hole without spin). Where both sides of the torus lie on one
 ray (the photon ring) the hue is the mean shift's, not the mix.
 
 **The fall.** `B` flies to the hole and `B` again down to 6 Rs on the spin
@@ -646,6 +730,9 @@ Everything is reachable through the shell's IPC, `omarchy-shell background <func
 | `hole` | the same step as `B`: to Sgr A*, down to 6 Rs, let go |
 | `fallLook <yaw> <pitch>` | falling into the hole: look this many degrees right and up from the scripted view, held until the next drag or arrow (for tests and filming) |
 | `mathMode <true/false>` | mathematics mode: the fall follows the extended Kerr solution through the inner horizon and the ring into the other universe (not physics); takes effect at the next fall |
+| `anatomy <on/off/toggle>` | the anatomy layer, the `C` key (see [Anatomy](#anatomy)); remembered across restarts |
+| `anatomyDemo <body> <span>` | any body's anatomy without flying there, for checks: a record's id (`sgrA`, `sun`, `earth`, `saturn`, `orion`, `milkyWay` ...; `anatomyReport` lists them) in a frame of its own, the body in the middle of the screen seen from 20 degrees above its equator, `span` of its units to the screen's height (0: twelve of its radii). No captions; `anatomyDemo "" 0` ends it |
+| `anatomyReport` | prints, as JSON: the setting, the subject, the record drawn and every row of it (tag, size, strokes, label and where it stands, in the first screen's pixels), what the drawing measured (the shadow's width, the bright side's factor), how many passes were worked out and their milliseconds, and the table's ids |
 | `sky` | Sky mode, at the last view |
 | `skyView <1-7>` | Sky mode at a named view |
 | `text <level>` | the text level: `off`, `names` or `full`; `next` and `prev` cycle it (the `T` key); `toggle` is `toggleHud`. Remembered across restarts (see [Text](#text)) |
@@ -985,7 +1072,11 @@ HUD instrument's scales, bugs, needle spring, events and figures
 and the Moon's lit side (`lib/sun.js`) with `node tests/test_sun.js
 lib/sun.js`; the render scale, GPU probe, still screens,
 idle pacing and frame meter (`lib/quality.js`) with `node
-tests/test_quality.js lib/quality.js`.
+tests/test_quality.js lib/quality.js`; the anatomy's table (every body has
+rows, every row a tag, a label, a fact and a source, words within their
+limits, a record for every place of the views), the hole's rows against
+`lib/kerr.js`, the shapes and the rules (`lib/anatomy.js`) with `node
+tests/test_anatomy.js lib/anatomy.js Background.qml`.
 
 The hole's tracer can be run by itself, off screen, on the GPU:
 `tools/hole_layer.py hole.frag fallE=0` draws `hole.frag`'s layer for one
@@ -1004,6 +1095,12 @@ takes the camera, the falling energy, the exposure, the layer's scale and
 format, and optionally another camera for the layer (`tPos=`, `tFwd=`: a
 tracer running behind), and prints how much of the picture is white. `time=N`
 on `hole_layer.py` times the layer's draw.
+
+`tests/harness/anatomy.sh` runs the anatomy layer the same headless way
+(about two minutes): the views one after another with the layer on, checked
+by `anatomy_check.js` for JavaScript errors, the subject of each view, the
+fade on a journey, the text levels, `K`, the walk through the story band and
+the room the lines and labels keep. It also prints what a pass costs.
 
 `tests/harness/fall.sh [--math] [--esc <s>] [--gpu <driver>]` runs a whole fall headless
 (`--esc 30`: Esc thirty screen seconds in, and the way home from there):
