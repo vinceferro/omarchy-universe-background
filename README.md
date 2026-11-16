@@ -76,8 +76,47 @@ which ships one. The one-liner above also disables the stock
 
 The explore views open only on an empty workspace, because they take the
 keyboard while they are on. Esc leaves a view; so does opening a window or a
-fullscreen app. `H` hides or shows the HUD in every view, and the HUD lists the
-keys of the current view in its corner.
+fullscreen app. `T` sets how much text is on the scene and `H` switches the
+cockpit in every view (see [Text](#text)); at the full level the keys of the
+current view are listed at the bottom left.
+
+### Text
+
+One setting, the text level, decides every word and line drawn over the
+scene. `T` cycles it while exploring (`Shift+T` goes back):
+
+| Level | Shows |
+|---|---|
+| `off` | the scene, nothing else |
+| `names` | what you are looking at: place and planet names, markers, the chosen place's name and facts, a caption's title |
+| `full` | names, plus the guide (the place's blurb, caption detail, the key hints) and the cockpit (the HUD's rings, clock, readouts and beacons) |
+
+`H` (and Super+Alt+J, which also works in the universe view) switches the
+cockpit: between `full` and the last level below it. The level is remembered
+across restarts. Changing it names the new level for a moment where the
+caption goes.
+
+Text comes up with any interaction (a key, the pointer, the wheel, a flight)
+and fades once it has had time to be read: 8 s, plus a second for every 3.5
+words, 40 s at most. So a name goes after 8 s, a place's card after about
+25, the key list after about 30, and a view left parked puts no standing text
+on the OLED; any key brings it back (for a screenshot outside film mode,
+press one first). A fall into the black hole holds its own text up until it
+ends. The one standing exception is the cockpit's rings, clock and readouts,
+which stay while the level is `full`: they are dim and drift.
+
+Where text goes is computed from the screen (`lib/layout.js`). Nothing leaves
+the safe rect: the screen less the bar (Hyprland's reserved bands), a camera
+notch (the platform's `display-cutouts.json`, across the whole width, bar or
+no bar) and a margin. Inside it the chosen place's card stands on the key
+hints in one column at the bottom left, the mode caption stands at the bottom
+centre, and the HUD is sized and placed by the aspect: right of centre with
+its readouts beside it on a wide screen, smaller and in the top right corner
+with the readouts under it on a narrow one. Scene names go to the right of
+their thing, else to the left, else their words hide (the dot stays): clear
+of the bar and notch, the card, the caption, the HUD and each other. The
+chosen or hovered thing always shows its name, and the HUD dims while that
+thing is inside its ring.
 
 ### Universe (the default)
 
@@ -119,7 +158,7 @@ past the overview's framing returns to the squeezed layout.
 | `G` | galactic motion: the Sun's path through space |
 | `X` | fly out to the Milky Way |
 | `I` | show / hide orbit lines (off by default) |
-| `L` | labels on / off (on, they show for 8 s after each interaction, then fade: nothing stands on the OLED) |
+| `T` / `Shift+T` | text level: off, names, full (see [Text](#text)) |
 | scroll / `Q` `E` | zoom about the point under the pointer, or about the pinned body (zooming all the way out returns to the universe) |
 | drag / arrows | orbit / tilt the camera about what it is looking at (half a screen height of drag is a right angle; a release coasts) |
 | right-drag (or Shift-drag) / `W` `A` `S` `D` | pan: the ecliptic sticks to the pointer and coasts on release (this unpins the body) |
@@ -203,7 +242,7 @@ angular size, north up. Near the Sun the model blends into the real sky.
 | `B` | the black hole at the centre; `B` again goes down to 6 Schwarzschild radii on its spin axis, and parked there `B` (or one more scroll in) lets go and falls in |
 | `K` | mathematics mode on / off: the fall follows the extended Kerr solution through the ring into the other universe (not physics; takes effect at the next fall) |
 | `V` | the Milky Way from Andromeda (scroll in to cross the gap along that line) |
-| `L` | labels on / off (on, they show for 8 s after each interaction, then fade) |
+| `T` / `Shift+T` | text level: off, names, full (see [Text](#text)) |
 | drag / arrows | orbit the camera (falling into the hole: look around) |
 | scroll / `Q` `E` | closer / farther |
 | `W` `A` `S` `D` | fly freely, level with the disk |
@@ -399,16 +438,20 @@ Everything is reachable through the shell's IPC, `omarchy-shell background <func
 | `galactic` | the galactic-motion view (opens the system view if needed) |
 | `milkyway` | the Milky Way view |
 | `fly <place>` | fly to a place by name prefix (`"Orion"`, `"Sagittarius A"`, `"Andromeda"`; `sun` for the Sun), or to a named viewpoint (`"Milky Way from Andromeda"`) |
-| `labels <true/false>` | the label layer (place markers and names, planet names): on, it shows for 8 s after each interaction and fades; off, it stays away (not remembered) |
 | `hole` | the same step as `B`: to Sgr A*, down to 6 Rs, let go |
 | `fallLook <yaw> <pitch>` | falling into the hole: look this many degrees right and up from the scripted view, held until the next drag or arrow (for tests and filming) |
 | `mathMode <true/false>` | mathematics mode: the fall follows the extended Kerr solution through the inner horizon and the ring into the other universe (not physics); takes effect at the next fall |
 | `sky` | Sky mode, at the last view |
 | `skyView <1-7>` | Sky mode at a named view |
-| `hud <0..1>` | HUD brightness until the shell restarts (default 0.38) |
-| `toggleHud` | hide / show the HUD; hidden is remembered across restarts |
-| `film <true/false>` | film mode for recording: the HUD, key hints, place labels, markers and mode captions fade out, the scene stays (not remembered) |
-| `caption <title> <body>` | a quiet lower-third caption that fades in, replacing the last one; `caption "" ""` fades it out |
+| `text <level>` | the text level: `off`, `names` or `full`; `next` and `prev` cycle it (the `T` key); `toggle` is `toggleHud`. Remembered across restarts (see [Text](#text)) |
+| `toggleHud` | the cockpit key: between `full` and the last level below it |
+| `textHold <level>` | a level for now (a film, a tour), shown instead of the saved one and never saved; `textHold ""` lets go of it, and so does any `T` or `H` |
+| `hud <0..1>` | cockpit brightness until the shell restarts (default 0.38) |
+| `film <true/false>` | film mode for recording: the level `off` for as long as it is on, reached over 1.5 s, so only the caption shows; the saved level is untouched (film itself is not remembered) |
+| `caption <title> <body>` | a quiet lower-third caption that fades in, replacing the last one; `caption "" ""` fades it out. It shows at every level; outside film mode the cockpit or the key column steps aside while it touches them |
+| `tourKeys <rows>` | a tour's own keys in the bottom-left column, in place of the view's hints and the place card: `"SPACE=next; B=back; ESC=leave"`; `tourKeys ""` ends it |
+| `textReport` | prints, as JSON: the level, a hold, what is showing right now, and every screen's zones in logical pixels (safe rect, rail, caption slot, story band, the HUD's centre, scale, arrangement and reach) |
+| `textDebug <true/false>` | outlines those zones over the scene, with a circle that must lie on the HUD's outer bracket |
 | `status` | prints `<view> <fall phase or -> <radius in Rs, signed> <real/math>`, e.g. `galaxy outer-horizon 0.52 real`, for scripts; the phases are `falling`, `outer-horizon`, `inner-horizon`, `ring`, `other-universe`, `out`, `in` |
 | `quality <level>` | render quality: `auto` (default), `full`, `high`, `balanced`, `low`, or a render scale from 0.25 to 1; remembered across restarts (see [Adaptive quality](#adaptive-quality)) |
 | `qualityInfo` | prints what each screen runs at, e.g. `eDP-1 120 Hz: auto (apple): scale 0.50, 1728x1117, idle 30 fps` |
@@ -496,7 +539,7 @@ Measured on an RTX 3080 Ti driving 5120x2160 at 165 Hz:
 The soft sky layer re-renders about ten times a second at half resolution;
 the Milky Way volume renders at a third of the screen size and only when the
 camera moves. The HUD gauges read CPU, memory and (through `nvidia-smi`) GPU
-load every two seconds while the HUD is visible.
+load every two seconds while the cockpit is visible.
 
 ### Adaptive quality
 
@@ -647,17 +690,29 @@ lib/kerr.js`; the dwarf galaxy
 table (`lib/dwarfs.js`) with `node tests/test_dwarfs.js lib/dwarfs.js`; the
 Local Group's geometry, hand-off and photometry (`lib/localgroup.js`, and the
 dwarf texture against the table) with `node tests/test_localgroup.js
-lib/localgroup.js`; the label layer's timer (`lib/labels.js`) with `node
-tests/test_labels.js lib/labels.js`; the render scale, GPU probe, idle
-pacing and frame meter (`lib/quality.js`) with `node tests/test_quality.js
-lib/quality.js`.
+lib/localgroup.js`; the text level, its groups, the idle clock and the hold
+by words (`lib/text.js`) with `node tests/test_text.js lib/text.js`; the
+zones, the HUD plan, beacon labels, markers and the label pass
+(`lib/layout.js`, on a 5120x2160 and a notched 1728x1117 screen among others)
+with `node tests/test_layout.js lib/layout.js`; the render scale, GPU probe,
+idle pacing and frame meter (`lib/quality.js`) with `node
+tests/test_quality.js lib/quality.js`.
+
+The text's timing is in `lib/text.js` (`HOLD_S`, `WORDS_PER_S`, `HOLD_MAX_S`,
+the fades) and its geometry in `lib/layout.js`: the margins, the HUD's drift
+budget and where the readouts go (`WIDE`), and `tokens()`, every type size as
+a fraction of the screen height with a floor (nothing under 10 px).
 
 ## Notes
 
 - The fragment shaders read `qt_TexCoord0` (the default vertex shader's output
   name); renaming it causes name-mismatch linkage bugs on some drivers.
 - The GPU gauge in the HUD uses `nvidia-smi`; on other GPUs it stays at zero.
-- A hidden HUD is remembered in `~/.local/state/universe-background/hud-hidden`.
+- The text level is remembered as one word in
+  `~/.local/state/universe-background/text-level`. Until that file exists the
+  older `hud-hidden` flag beside it decides the level at startup (present:
+  `names`, absent: `full`), so each machine starts showing what it showed; it
+  is only read, never written.
 - A chosen quality level is remembered in `~/.local/state/universe-background/quality`.
 
 ## License
