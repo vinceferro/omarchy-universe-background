@@ -169,7 +169,7 @@ Item {
   property bool hudPointerIn: false               // the pointer is inside the HUD's disc (it brings the dial's words)
   function textMix(group, zone) {
     return (group === "names" ? gateNames : group === "guide" ? gateGuide : group === "cockpit" ? gateCockpit : 1)
-         * (zone === "label" ? presLabel : zone === "card" ? presCard : zone === "hints" ? presHints : zone === "caption" ? presCaption : 1)
+         * (zone === "label" ? presLabel * nameYield : zone === "card" ? presCard : zone === "hints" ? presHints : zone === "caption" ? presCaption : 1)
   }
   function readTextModel() {
     gateNames = Tx.gate(textModel, "names"); gateGuide = Tx.gate(textModel, "guide"); gateCockpit = Tx.gate(textModel, "cockpit")
@@ -196,10 +196,19 @@ Item {
   // table and one set of rules for every body. It describes the view's one
   // subject (anatSubject): the pinned body, the chosen place, or the view's
   // own object (the Sun in the system view, the Milky Way in its own view
-  // and in Sky mode); when none of the subject's rows suits the zoom, the
-  // record that holds it takes over (the Sun's place: its Galaxy, then the
-  // Local Group). It is a setting like the text level: one word in a state
-  // file, named in the story band when it changes.
+  // and in Sky mode). It is a setting like the text level: one word in a
+  // state file, named in the story band when it changes.
+  //
+  // Where it is drawn follows from one rule (Anat.choose), for every body:
+  // with a line 18% of the screen's height or more it is drawn on the body
+  // itself, in the view's own projection (anatStage); smaller, it is drawn
+  // in the lens (anatGlass): the HUD's disc shows it through a telescope
+  // from the same eye, to scale, the HUD's readouts dimmed, a leader from
+  // the rim to where the body is. The two cross-fade (anatLens), and the
+  // size has to fall to 15% to go back. The lens magnifies up to ten
+  // million times; where that does not reach the subject, the record that
+  // holds it answers by the same rule (the Sun from the Galaxy's home: its
+  // Galaxy, then the Local Group).
   //
   // It joins what the text already has, with no rule of its own: the lines
   // are a drawing (shown at every level, like the orbit lines), the names
@@ -207,24 +216,40 @@ Item {
   // clock (`anat`), so a parked view keeps nothing lit; the headline and the
   // facts go to the story band at `full` (turning it on walks the lines
   // once, the largest first, each lit while its fact is up; any key ends the
-  // walk; pointing at a line says its fact); the label pass keeps lines and
-  // labels inside the safe rect and out of the rail, the caption, the HUD's
-  // disc and a story caption; mathematics rows show with K only; a journey
-  // (a flight to a place, the fall, the way home) fades the lines and they
-  // return on arrival.
+  // walk; pointing at a line says its fact); the scene's names step back
+  // while it is up (nameYield); lines keep inside the safe rect and out of
+  // the rail, the caption, the HUD's disc and a story caption, and the
+  // labels stand in one column beside the drawing; mathematics rows show
+  // with K only; a journey (a flight to a place, the fall, the way home)
+  // fades the lines and they return on arrival.
+  //
+  // What it costs: nothing while it is off, faded or away. While it is up a
+  // drawing is worked out again only when its view moved by a pixel or what
+  // it shows changed (anatKeep), at most a fifth of the time while the view
+  // moves and once exactly when it has rested; the HUD's drift moves the
+  // lens as one item and the stage's room in steps of 8 px.
   property bool anatomy: false
   readonly property string anatFile: stateHome + "/universe-background/anatomy"
-  property string anatDemo: ""                    // IPC anatomyDemo: a record in a frame of its own, for checks
-  property real anatDemoSpan: 0                   //   how many of its units fill the screen's height (0: twelve of its radii)
   property real anatMix: 0                        // eased 0..1: on, with a subject, parked
+  property real anatLens: 0                       // eased 0..1: on the body (0), in the lens (1)
   property real presAnat: 0                       // its zone on the idle clock
-  property var anatOut: null                      // what is drawn (Anat.compose), in the first screen's pixels
+  property var anatOut: null                      // the drawing that answers the choice in force (Anat.compose)
+  property var anatStage: null                    // what is drawn on the body, in the first screen's pixels
+  property var anatGlass: null                    // what is drawn in the lens, in the lens's own pixels (anatLensD(lay0) across)
+  property var anatAim: null                      // the lens's subject on the first screen: [x, y, radius], or null out of sight
   property int anatWords: 0                       // the words of its labels, for the clock
   property string anatLit: ""                     // the row being told
   property var anatPointer: null                  // the pointer, in the first screen's pixels
-  readonly property var anatRun: ({ key: "", calm: "", still: true, said: "", subject: "", walk: null, hover: "", c: null, readoutUntil: 0, passes: 0, ms: 0, at: 0, last: 0 })
+  function anatSlot() { return { key: "", probe: null, movedAt: 0, still: true, at: 0, last: 0, sel: null } }
+  readonly property var anatRun: ({ sel: null, stage: anatSlot(), glass: anatSlot(), blank: ({}), said: "", subject: "", walk: null, hover: "", c: null, readoutUntil: 0, passes: 0, ms: 0 })
   readonly property real anatLevel: Math.min(0.75, hudBrightness * 1.8)   // the lines' brightness: the hints'
+  // the scene's names while the anatomy is up: one rule for every view
+  readonly property real nameYield: 1 - 0.8 * anatMix * presAnat
+  // the HUD's readouts while its disc is the lens
+  readonly property real lensYield: 1 - 0.85 * anatMix * presAnat * anatLens
   readonly property var anatHint: ["C", "anatomy: show / hide what it is made of"]
+  // the lens on a screen: the dial's rim
+  function anatLensD(l) { return 2 * Lay.DIAL.RIM * l.hud.s * l.H }
   function setAnatomy(word) {
     const w = String(word || "").trim().toLowerCase()
     const to = w === "on" ? true : w === "off" ? false : w === "toggle" ? !anatomy : null
@@ -246,9 +271,25 @@ Item {
     command: ["cat", root.anatFile]
     stdout: StdioCollector { onStreamFinished: if (String(text || "").trim() === "on") root.anatomy = true }
   }
+  // IPC anatomyDemo: go to a body of the table and turn its anatomy on (the
+  // rule above then draws it on the body or in the lens, as for any visit)
+  function anatGo(id) {
+    const rec = Anat.byId(String(id || "").trim())
+    if (!rec || !emptyWorkspace) return
+    if (rec.sys !== undefined) {
+      if (explore !== "system") enterSystem()
+      focusBody(rec.sys)
+    } else {
+      if (explore !== "galaxy") enterGalaxy()
+      let i = -1
+      if (rec.place !== undefined) i = placeIndex(rec.place)
+      else if (rec.dwarf) { for (let j = hotspots.length + 1; j <= hotspots.length + dwarfPlaces.length && i < 0; j++) if (Anat.byPlace(place(j).name, true) === rec) i = j }
+      gxFlyTo(i)                                  // the Milky Way and the Local Group: from home
+    }
+    setAnatomy("on")
+  }
   // the view's one subject, as a record of the table (null: this view has none)
   function anatSubject() {
-    if (anatDemo !== "") return Anat.byId(anatDemo)
     if (explore === "system") return Anat.bySys(follow >= 0 && !galactic ? follow : 0)
     if (explore === "galaxy") return gxSel >= 0 ? Anat.byPlace(place(gxSel).name, !!place(gxSel).dwarf) : Anat.byAt(gxSel === -1 ? "sun" : "centre")
     if (explore === "sky") return Anat.byAt("centre")
@@ -256,7 +297,6 @@ Item {
   }
   // parked: no journey under way (zooming and orbiting are not journeys)
   function anatParked() {
-    if (anatDemo !== "") return true
     if (explore === "system") return !sysCam.flying()
     if (explore === "galaxy") return !fallState && !gxReturn && gxVoyage.remain < 0.03 * gxVoyage.dist()
     return explore === "sky"
@@ -276,20 +316,18 @@ Item {
   // live values read; null when the record has no place in this view.
   function anatFrame(rec) {
     const c = { a: holeSpin, rsKpc: rsKpc, unitS: rec.unitKm / 299792.458, place: ({}), t: gxMyr }
-    const demo = anatDemo !== "" && rec.id === anatDemo
-    if (anatDemo !== "" && !demo) return null
     let f = null
-    if (rec.sys !== undefined && (explore === "system" || (demo && explore !== "galaxy" && explore !== "sky") || (demo && rec.at === undefined))) {
+    if (rec.sys !== undefined && explore === "system") {
       // the system view: display units, the body as it is drawn
-      const i = rec.sys, P = demo ? [0, 0, 0] : bodyP(i), R = demo ? 1 : bodyR(i), b = sysCam.b, pl = Math.hypot(P[0], P[1], P[2])
-      if (!demo && !b) return null
+      const i = rec.sys, P = bodyP(i), R = bodyR(i), b = sysCam.b, pl = Math.hypot(P[0], P[1], P[2])
+      if (!b) return null
       f = { C: P, k: R / rec.radius, basis: Anat.basisOf(rec.axis && rec.axis.v ? rec.axis.v : [0, 1, 0]),
-            cam: demo ? null : { C: b.C, right: b.right, up: b.up, fwd: b.fwd, focal: b.focal, o: b.o },
-            sunDir: demo ? [1, 0, 0] : pl > 0 ? [-P[0] / pl, -P[1] / pl, -P[2] / pl] : null,
-            oneScale: demo || (sysCam.sigma.x > 0.999 && !galactic), resolve: () => null }
-    } else if (explore === "galaxy" || explore === "sky" || demo) {
+            cam: { C: b.C, right: b.right, up: b.up, fwd: b.fwd, focal: b.focal, o: b.o },
+            sunDir: pl > 0 ? [-P[0] / pl, -P[1] / pl, -P[2] / pl] : null,
+            oneScale: sysCam.sigma.x > 0.999 && !galactic, resolve: () => null }
+    } else if (explore === "galaxy" || explore === "sky") {
       // the Milky Way view and Sky mode: kiloparsecs
-      const sky = explore === "sky" && !demo
+      const sky = explore === "sky"
       if (sky && !rec.sky) return null
       let C = null, pl = null
       if (rec.place !== undefined) { const i = placeIndex(rec.place); if (i < 0) return null; C = hotspotPos(i); pl = place(i) }
@@ -306,8 +344,8 @@ Item {
                   : ax && ax.disk === "m31" ? Anat.basisOf(m31Disk.normal, m31Disk.major)
                   : Anat.basisOf(ax && ax.v ? ax.v : [0, 0, 1])
       f = { C: C, k: rec.kpcPerUnit ? rec.kpcPerUnit(c) : rec.unitKm / 3.0856776e16, basis: basis,
-            cam: demo ? null : sky ? { C: sunPosAt(0), right: [skyRight.x, skyRight.y, skyRight.z], up: [skyUp.x, skyUp.y, skyUp.z], fwd: [skyFwd.x, skyFwd.y, skyFwd.z], focal: skyFocal(), o: [0, 0] }
-                 : { C: gxCam, right: [gxRight.x, gxRight.y, gxRight.z], up: [gxUp.x, gxUp.y, gxUp.z], fwd: [gxFwd.x, gxFwd.y, gxFwd.z], focal: 1, o: [0, 0] },
+            cam: sky ? { C: sunPosAt(0), right: [skyRight.x, skyRight.y, skyRight.z], up: [skyUp.x, skyUp.y, skyUp.z], fwd: [skyFwd.x, skyFwd.y, skyFwd.z], focal: skyFocal(), o: [0, 0] }
+                     : { C: gxCam, right: [gxRight.x, gxRight.y, gxRight.z], up: [gxUp.x, gxUp.y, gxUp.z], fwd: [gxFwd.x, gxFwd.y, gxFwd.z], focal: 1, o: [0, 0] },
             sunDir: null, oneScale: true,
             resolve: spec => {
               if (spec === "sun") return sun
@@ -317,55 +355,120 @@ Item {
               return spec.ra !== undefined && pl ? anatSkyPoint(C, pl, spec.ra, spec.dec) : null
             } }
     }
-    if (!f) return null
-    if (demo) f.cam = Anat.demoCam(f, anatDemoSpan > 0 ? anatDemoSpan : 12 * (typeof rec.radius === "function" ? rec.radius(c) || 1 : rec.radius))
-    return { frame: f, c: c }
+    return f ? { frame: f, c: c } : null
   }
-  // One pass a tick (after the label passes: it takes the room they left).
+  // The stage's room: what the lines are cut at and what the labels' column
+  // keeps out of. Nothing in it follows a frame: the HUD's disc is taken in
+  // steps of 8 px (it drifts under 3 px a second), the rail and a story
+  // caption in steps of 16; the column avoids all the HUD can sweep.
+  function anatRoom() {
+    const l = lay0, obs = [], avoid = []
+    if (railNow > 0) obs.push(Lay.railRect(l, Math.ceil(railNow / 16) * 16))
+    if (captionUp) obs.push(Lay.captionRect(l, l.caption.maxH))
+    if (storyNow > 0) obs.push(Lay.storyRect(l, Math.ceil(storyNow / 16) * 16))
+    if (gateCockpit > 0.01) {
+      const h = Lay.hudAt(l, [hudDrift.x, hudDrift.y])
+      obs.push({ cx: Math.round(h.cx / 8) * 8, cy: Math.round(h.cy / 8) * 8, r: h.R + 8 })
+      avoid.push(Lay.hudExtent(l))
+    }
+    return { obstacles: obs, avoid: avoid, key: obs.map(o => o.r !== undefined ? o.cx + "," + o.cy + "," + Math.round(o.r) : Math.round(o.x) + "," + Math.round(o.y) + "," + Math.round(o.w) + "," + Math.round(o.h)).join(";") }
+  }
+  // One drawing kept in step with its view (S: its slot, cur: what is up,
+  // sel: what it is to be, or null). It is worked out again when its view
+  // moved by a pixel (Anat.probe) or what it shows changed: at most a fifth
+  // of the time while the view moves, so a line is a few frames behind at
+  // worst, and once more when the view has rested for 150 ms (what takes
+  // long, the hole's exact shadow and the gas's light, waits for that).
+  function anatKeep(S, cur, sel, frameOf, env, lensE, now) {
+    const rec = sel ? Anat.byId(sel.id) : null, f = rec ? frameOf(rec) : null
+    if (!f) { S.key = ""; S.probe = null; S.sel = null; S.still = true; return null }
+    const e = sel.lens ? lensE : env
+    const key = sel.id + "|" + e.key + "|" + f.c.a
+    const p = Anat.probe(sel.lens ? Anat.lensFrame(rec, f.frame, f.c, mathMode) : f.frame, f.c, e)
+    if (Anat.probeMoved(S.probe, p, 0.75)) S.movedAt = now
+    const moved = S.movedAt === now, rest = now - S.movedAt >= 150
+    S.sel = sel
+    if (!(key !== S.key || moved || (rest && !S.still))) return cur
+    if (!(rest || S.key === "" || now - S.at >= 5 * S.last)) return cur
+    env.still = rest; lensE.still = rest
+    const t0 = Date.now()
+    const out = Anat.draw(sel, frameOf, env, lensE)
+    S.key = key; S.probe = p; S.still = rest
+    S.at = Date.now(); S.last = S.at - t0
+    anatRun.passes++; anatRun.ms += S.last        // what the passes cost (IPC anatomyReport)
+    return out
+  }
+  // is a drawing still to be brought up to date? (the tick keeps running until it is)
+  function anatBusy() { return mix.lens.moving() || (anatRun.stage.sel && !anatRun.stage.still) || (anatRun.glass.sel && !anatRun.glass.still) }
+  // Once a tick (after the label passes).
   function anatStep(dt, now) {
     const R = anatRun
-    const rec = (anatomy || anatDemo !== "") && liveBackground ? anatSubject() : null
-    mix.anat.g = rec && anatParked() ? 1 : 0
+    const rec = anatomy && liveBackground ? anatSubject() : null
+    const parked = rec && anatParked() ? 1 : 0
+    if (parked && mix.anat.g === 0) Tx.touchZone(textModel, "anat")   // an arrival brings the lines back, like a key
+    mix.anat.g = parked
     const m = mix.anat.step(dt)
     if (m !== anatMix) anatMix = m
     if (!rec || (m === 0 && mix.anat.g === 0)) {
-      if (anatOut) { anatOut = null; anatWords = 0; R.key = "" }
+      if (anatOut || anatStage || anatGlass) { anatOut = null; anatStage = null; anatGlass = null; anatWords = 0; R.stage = anatSlot(); R.glass = anatSlot(); R.sel = null }
+      if (anatAim) anatAim = null
       if (anatLit !== "") anatLit = ""
       if (!rec) { R.said = ""; R.subject = "" }
       return
     }
     // faded on the idle clock: nothing is worked out until something brings the text back
-    if (presAnat === 0 && anatOut && !anatRun.walk) return
-    // the drawing: redone when the view, the room or the row being told changed
-    const L0 = lay0, zones = labelZones()
+    if (presAnat === 0 && R.sel && !R.walk) return
+    // leaving on a journey: the last of the fade keeps the drawing it has
+    if (mix.anat.g === 0 && m < 0.1) return
+    const L0 = lay0, room = anatRoom(), mode = (mathMode ? "K" : "") + "|" + anatLit
     const frames = {}, frameOf = r => frames[r.id] !== undefined ? frames[r.id] : (frames[r.id] = anatFrame(r))
-    let key = (mathMode ? "K" : "") + anatLit + "|" + zones.all.map(o => o.r !== undefined ? Math.round(o.cx / 2) + "," + Math.round(o.cy / 2) + "," + Math.round(o.r) : Math.round(o.x) + "," + Math.round(o.y) + "," + Math.round(o.w) + "," + Math.round(o.h)).join(";")
-    let calm = ""
-    for (const r of Anat.chain(rec)) { const f = frameOf(r); if (f) { key += "|" + Anat.frameKey(r, f.frame, f.c); calm += "|" + Anat.frameKey(r, f.frame, f.c, 3) } }
-    // still: the camera rests (or only creeps the last thousandth in)
-    const still = calm === R.calm
-    R.calm = calm
-    // while the view moves the pass takes at most a third of the time (a line is then a frame behind at worst)
-    if ((key !== R.key || still !== R.still) && (still || now - R.at >= 3 * R.last)) {
-      R.still = still
-      R.key = key
-      const t0 = Date.now()
-      const out = Anat.composeChain(rec, frameOf, null, { W: L0.W, H: L0.H, safe: L0.safe, obstacles: zones.all, tok: L0.tok, sides: labelState.sides, math: mathMode, lit: anatLit,
-                                                         still: R.still, textW: (t, small) => textW(t, small ? L0.tok.micro : L0.tok.label) })
-      R.c = out ? frameOf(Anat.byId(out.id)).c : null
-      R.at = Date.now(); R.last = R.at - t0
-      R.passes++; R.ms += R.last                // what the pass costs (IPC anatomyReport)
+    const D = anatLensD(L0), h0 = Lay.hudAt(L0, [0, 0])
+    const env = { W: L0.W, H: L0.H, lensD: D, safe: L0.safe, obstacles: room.obstacles, avoid: room.avoid, key: "S|" + room.key + "|" + mode, math: mathMode, lit: anatLit, still: true,
+                  tok: { name: L0.tok.anat, num: L0.tok.anatNum, gap: L0.tok.gap, row: L0.tok.row }, textW: anatTextW }
+    // the choice: on the body or in the lens (a few multiplications a row)
+    // (a drawing that came out empty, its lines all cut away, stands aside for two seconds)
+    const first = !R.sel, skip = {}
+    for (const k in R.blank) { if (R.blank[k] > now) skip[k] = true; else delete R.blank[k] }
+    const sel = Anat.choose(rec, frameOf, env, R.sel, skip)
+    R.sel = sel
+    mix.lens.g = sel && sel.lens ? 1 : 0
+    if (first || m < 0.02) mix.lens.set(mix.lens.g)
+    const lens = mix.lens.step(dt)
+    if (lens !== anatLens) anatLens = lens
+    // the lens's own screen, and where its subject is on the real one
+    const shown = sel && sel.lens ? Anat.byId(sel.id) : null, f0 = shown ? frameOf(shown) : null
+    let aim = null
+    if (f0) {
+      const P = Anat.project(f0.frame.cam, f0.frame.C, env), v = [f0.frame.C[0] - f0.frame.cam.C[0], f0.frame.C[1] - f0.frame.cam.C[1], f0.frame.C[2] - f0.frame.cam.C[2]]
+      const rad = (typeof shown.radius === "function" ? shown.radius(f0.c) || 0 : shown.radius) * f0.frame.k * f0.frame.cam.focal / (Math.hypot(v[0], v[1], v[2]) || 1) * L0.H
+      if (P && P[0] > 0 && P[0] < L0.W && P[1] > 0 && P[1] < L0.H) aim = [P[0], P[1], rad]
+    }
+    if (!aim ? !!anatAim : !anatAim || Math.hypot(aim[0] - anatAim[0], aim[1] - anatAim[1]) > 0.5 || Math.abs(aim[2] - anatAim[2]) > 0.5) anatAim = aim
+    const to = aim ? [Math.round((aim[0] - h0.cx + D / 2) / 16) * 16, Math.round((aim[1] - h0.cy + D / 2) / 16) * 16] : null
+    const lensE = Anat.lensEnv(env, D, to)
+    lensE.key = "L|" + Math.round(D) + "|" + (to ? to.join(",") : "") + "|" + mode
+    // the drawings: the chosen one, and the one it replaces while that fades
+    const onStage = sel && !sel.lens ? sel : sel && lens < 0.99 ? R.stage.sel : null
+    const inLens = sel && sel.lens ? sel : sel && lens > 0.01 ? R.glass.sel : null
+    const st = anatKeep(R.stage, anatStage, onStage, frameOf, env, lensE, now)
+    if (st !== anatStage) anatStage = st
+    const gl = anatKeep(R.glass, anatGlass, inLens, frameOf, env, lensE, now)
+    if (gl !== anatGlass) anatGlass = gl
+    const out = sel ? (sel.lens ? gl : st) : null
+    if (sel && !out && (sel.lens ? R.glass : R.stage).key !== "") R.blank[sel.id + (sel.lens ? "|L" : "|S")] = now + 2000
+    if (out !== anatOut) {
       anatOut = out
       anatWords = Tx.words(Anat.wordsOf(out))
+      R.c = out ? frameOf(Anat.byId(out.id)).c : null
     }
-    const out = anatOut
+    const settled = sel ? (sel.lens ? R.glass.still : R.stage.still) : true
     // what it says, at `full`: the body's headline when the drawing becomes
-    // another body's (where no line of the subject or of what holds it suits
-    // the zoom, the subject's own, once: C always answers), and once after C
-    // the lines one by one, the largest first
-    const guide = Tx.shows(textShown, "guide") && !film && anatDemo === ""
+    // another body's (where no line of it can be drawn, the subject's own,
+    // once: C always answers), and once after C the lines one by one, the
+    // largest first
+    const guide = Tx.shows(textShown, "guide") && !film
     const named = out ? Anat.byId(out.id) : rec
-    if (m > 0.5 && R.still && (out ? out.id !== R.said : rec.id !== R.subject)) {
+    if (m > 0.5 && settled && (out ? out.id !== R.said : rec.id !== R.subject)) {
       R.said = named.id
       R.subject = rec.id
       R.readoutUntil = now + 4000
@@ -388,8 +491,10 @@ Item {
         else R.walk = null
       }
     } else if (!R.walk) {
-      // pointing at a line says its fact
-      const over = anatPointer && m > 0.5 && presAnat > 0.5 ? Anat.hit(out, anatPointer[0], anatPointer[1], 7) : ""
+      // pointing at a line says its fact (in the lens: in the lens's own pixels, where the disc is now)
+      let px = anatPointer
+      if (px && out.lens) { const h = Lay.hudAt(L0, [hudDrift.x, hudDrift.y]); px = [px[0] - h.cx + D / 2, px[1] - h.cy + D / 2] }
+      const over = px && m > 0.5 && presAnat > 0.5 ? Anat.hit(out, px[0], px[1], 7) : ""
       if (over !== R.hover) { R.hover = over; if (over !== "" && guide) say("anatomy", row(over).name, fact(over)) }
     }
     // lit: the row whose fact is up, else the one under the pointer
@@ -398,7 +503,7 @@ Item {
     if (lit !== anatLit) anatLit = lit
   }
   property real hudBrightness: 0.38
-  readonly property real hudLevel: hudBrightness * gateCockpit * cockpitYield
+  readonly property real hudLevel: hudBrightness * gateCockpit * cockpitYield * lensYield
 
   // The story band (lib/text.js): the one place the wallpaper says a
   // sentence, whoever says it: the fall's events ("fall"), the way home
@@ -470,6 +575,78 @@ Item {
     readonly property vector2d size: Qt.vector2d(width, height)
     fragmentShader: Qt.resolvedUrl("scrim.qsb")
   }
+  // The anatomy's one renderer, for a drawing on the body and for one in
+  // the lens (out: Anat.compose's answer; kx, ky: its pixels to this
+  // screen's): a stroke per row, solid, dashed or dotted by its tag (the
+  // renderer cuts the dashes), its crosses and arrowheads, its name and
+  // number in the column, and the leader from its line to them.
+  component AnatDrawing: Item {
+    id: draw
+    property var out: null
+    property var host: null
+    property var tok: null
+    property real kx: 1
+    property real ky: 1
+    readonly property var rows: out ? out.rows : []
+    Repeater {
+      model: draw.rows.length
+      Item {
+        id: arow
+        required property int index
+        readonly property var r: draw.rows[index] || null
+        readonly property bool lit: !!r && r.id === root.anatLit
+        readonly property color ink: Qt.alpha(lit ? root.hudHighlight : Color.foreground, root.anatLevel * (lit ? 1 : r && r.soft ? 0.5 : 0.8))
+        readonly property real wide: lit ? 1.8 : 1.2
+        readonly property bool named: !!r && r.lab.show
+        function pts(list) { return list.map(s => s.map(p => Qt.point(p[0] * draw.kx, p[1] * draw.ky))) }
+        Shape {
+          preferredRendererType: Shape.CurveRenderer
+          ShapePath {
+            strokeColor: arow.ink; strokeWidth: arow.wide; fillColor: "transparent"
+            capStyle: ShapePath.RoundCap; joinStyle: ShapePath.RoundJoin
+            strokeStyle: arow.r && arow.r.dash ? ShapePath.DashLine : ShapePath.SolidLine
+            dashPattern: arow.r && arow.r.dash ? [arow.r.dash[0] / arow.wide, arow.r.dash[1] / arow.wide] : [1, 0]
+            PathMultiline { paths: arow.r ? arow.pts(arow.r.segs) : [] }
+          }
+          ShapePath {
+            strokeColor: arow.ink; strokeWidth: arow.wide; fillColor: "transparent"
+            capStyle: ShapePath.RoundCap; joinStyle: ShapePath.RoundJoin
+            PathMultiline { paths: arow.r ? arow.pts(arow.r.marks) : [] }
+          }
+          ShapePath {
+            strokeColor: Qt.alpha(arow.lit ? root.hudHighlight : Color.foreground, root.anatLevel * 0.45 * root.gateNames); strokeWidth: 1; fillColor: "transparent"
+            capStyle: ShapePath.RoundCap
+            PathMultiline { paths: arow.named && arow.r.lead ? arow.pts([arow.r.lead]) : [] }
+          }
+        }
+        Row {
+          visible: arow.named
+          x: arow.r ? arow.r.lab.x * draw.kx : 0
+          y: arow.r ? (arow.r.lab.y + arow.r.lab.h / 2) * draw.ky - height / 2 : 0
+          spacing: draw.tok ? draw.tok.gap : 8
+          Words {
+            host: draw.host
+            opacity: root.gateNames
+            text: arow.r ? arow.r.text : ""
+            color: arow.lit ? root.hudHighlight : Qt.alpha(Color.foreground, 0.85)
+            font.family: Style.resolvedFontFamily
+            font.pixelSize: draw.tok ? draw.tok.anat : 14
+            font.letterSpacing: draw.tok ? draw.tok.anat * draw.tok.track.normal : 1.5
+          }
+          Words {
+            host: draw.host
+            anchors.baseline: parent.children[0].baseline
+            opacity: root.gateGuide
+            text: arow.r ? arow.r.num : ""
+            color: Qt.alpha(Color.foreground, 0.6)
+            font.family: Style.resolvedFontFamily
+            font.pixelSize: draw.tok ? draw.tok.anatNum : 12
+            font.letterSpacing: draw.tok ? draw.tok.anatNum * draw.tok.track.normal : 1.3
+          }
+        }
+      }
+    }
+  }
   // a line of text in the scene (a name, a marker's words, the HUD's): Text with its backing
   component Words: Text {
     id: words
@@ -490,6 +667,19 @@ Item {
     const k = (small ? "m" : "l") + text
     let w = textWidths.w[k]
     if (w === undefined) { w = fm.advanceWidth(text) + 6; textWidths.w[k] = w; textWidths.n++ }
+    return w
+  }
+  // the anatomy's words, at their own sizes (measured once a text: a pass measures nothing it has seen)
+  FontMetrics { id: fmAnat; font.family: Style.resolvedFontFamily; font.pixelSize: root.lay0.tok.anat; font.letterSpacing: root.lay0.tok.anat * root.lay0.tok.track.normal }
+  FontMetrics { id: fmAnatNum; font.family: Style.resolvedFontFamily; font.pixelSize: root.lay0.tok.anatNum; font.letterSpacing: root.lay0.tok.anatNum * root.lay0.tok.track.normal }
+  readonly property var anatWidths: ({ key: "", w: {}, n: 0 })
+  function anatTextW(text, small) {
+    const fm = small ? fmAnatNum : fmAnat, M = anatWidths
+    const key = fm.font.family + "|" + lay0.tok.anat + "|" + lay0.tok.anatNum
+    if (M.key !== key || M.n >= 500) { M.key = key; M.w = {}; M.n = 0 }
+    const k = (small ? "n" : "a") + text
+    let w = M.w[k]
+    if (w === undefined) { w = fm.advanceWidth(text) + 6; M.w[k] = w; M.n++ }
     return w
   }
   readonly property string galHeadingText: "247 KM/S  ·  TOWARD CYGNUS"
@@ -728,7 +918,8 @@ Item {
     yield: new Cam.Spring(1, Cam.W_MODE),      // the HUD steps back for a subject inside its ring
     exposure: new Cam.Spring(1, 1.3),          // the sky brightens slowly on an empty workspace
     fallFade: new Cam.Spring(0, 2.9),          // the fall's black, 2 s each way (0.98 at 2.0 s)
-    anat: new Cam.Spring(0, Cam.W_MODE)        // the anatomy's lines: away on a journey, back on arrival
+    anat: new Cam.Spring(0, Cam.W_MODE),       // the anatomy's lines: away on a journey, back on arrival
+    lens: new Cam.Spring(0, Cam.W_MODE)        //   and where they are drawn: on the body, in the lens
   })
 
   onAnimateChanged: if (!animate && !sleeping) explore = "universe"
@@ -2909,7 +3100,7 @@ Item {
     // anything still easing keeps the idle clock at its full rate (see idleFps)
     idleBusy = bootLevel < 1 || sys > 0 || galaxyMix > 0 || skyMix > 0 || navMix > 0 || galMix > 0 || fallFade > 0 || sysCam.flying()
       || mix.viewX.moving() || mix.viewY.moving() || mix.hover.moving() || mix.exposure.moving()
-      || mix.speed.moving() || mix.strafeX.moving() || mix.strafeY.moving() || textModel.moving || story.moving || mix.yield.moving() || mix.anat.moving() || (anatMix > 0 && (!anatRun.still || anatRun.key === ""))
+      || mix.speed.moving() || mix.strafeX.moving() || mix.strafeY.moving() || textModel.moving || story.moving || mix.yield.moving() || mix.anat.moving() || (anatMix > 0 && anatBusy())
     gauges = Qt.vector3d(cpu, gpu, mem)
   }
 
@@ -3395,30 +3586,33 @@ Item {
       root.setAnatomy(state)
     }
 
-    // any body's anatomy without flying there, for checks: a record's id
-    // (anatomyReport lists them) in a frame of its own, the body in the middle
-    // of the screen seen from 20 degrees above its equator, `span` of its
-    // units to the screen's height (0: twelve of its radii). No captions. ""
-    // or off ends it
-    function anatomyDemo(body: string, span: real): void {
-      const b = String(body).trim()
-      root.anatDemo = Anat.byId(b) ? b : ""
-      root.anatDemoSpan = span > 0 ? span : 0
-      root.anatRun.key = ""
-      root.touchText()
+    // go to a body of the table (a record's id: anatomyReport lists them)
+    // and turn its anatomy on: a planet or the Sun is pinned in the system
+    // view, a place of the Milky Way view is flown to, the Milky Way and the
+    // Local Group are shown from home. What is then drawn, and where, is
+    // the anatomy's one rule: on the body when it is large, else in the lens
+    function anatomyDemo(body: string): void {
+      root.anatGo(body)
     }
 
-    // as JSON: the setting, the subject, the record drawn and every row of it
-    // (tag, size and strokes in the first screen's pixels, its label and
-    // where it stands), how many passes were worked out and the milliseconds
-    // they took in all, and the table's ids
+    // as JSON: the setting, the subject, the record drawn and where (on the
+    // body or in the lens: `lens`, with the lens's centre and width and the
+    // subject's place on the first screen), every row of it (tag, size and
+    // strokes in the first screen's pixels, its label and where it stands),
+    // how many passes were worked out and the milliseconds they took in
+    // all, and the table's ids
     function anatomyReport(): string {
-      const o = root.anatOut, sub = root.anatSubject(), r2 = v => Math.round(v * 10) / 10
-      return JSON.stringify({ on: root.anatomy, demo: root.anatDemo, subject: sub ? sub.id : "", parked: root.anatParked(), mix: r2(root.anatMix), presence: r2(root.presAnat),
-        math: root.mathMode, drawn: o ? o.id : "", lit: root.anatLit, still: root.anatRun.still, measured: o && o.g ? o.g : null, passes: root.anatRun.passes, passMs: root.anatRun.ms,
-        rows: o ? o.rows.map(r => ({ id: r.id, tag: r.tag, size: Math.round(r.size), strokes: r.segs.length, text: r.text, num: r.num, folded: r.folded,
-          label: r.lab.show ? { x: Math.round(r.lab.x), y: Math.round(r.lab.y), w: Math.round(r.lab.w), h: Math.round(r.lab.h) } : null,
-          box: r.seen.length ? (() => { let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; for (const p of r.seen) { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]) } return [Math.round(x0), Math.round(y0), Math.round(x1), Math.round(y1)] })() : null })) : [],
+      const o = root.anatOut, sub = root.anatSubject(), r2 = v => Math.round(v * 10) / 10, R = root.anatRun, sel = R.sel
+      const D = root.anatLensD(root.lay0), h = Lay.hudAt(root.lay0, [root.hudDrift.x, root.hudDrift.y])
+      const ox = o && o.lens ? h.cx - D / 2 : 0, oy = o && o.lens ? h.cy - D / 2 : 0
+      return JSON.stringify({ on: root.anatomy, subject: sub ? sub.id : "", parked: root.anatParked(), mix: r2(root.anatMix), presence: r2(root.presAnat),
+        math: root.mathMode, drawn: o ? o.id : "", lens: !!(sel && sel.lens), lensMix: r2(root.anatLens), span: sel ? Math.round(sel.span) : 0,
+        glass: sel && sel.lens ? { cx: Math.round(h.cx), cy: Math.round(h.cy), d: Math.round(D), aim: root.anatAim ? root.anatAim.map(v => Math.round(v)) : null } : null,
+        lit: root.anatLit, still: sel ? (sel.lens ? R.glass.still : R.stage.still) : true, measured: o && o.g ? o.g : null, passes: R.passes, passMs: R.ms,
+        nameYield: r2(root.nameYield), hudYield: r2(root.lensYield),
+        rows: o ? o.rows.map(r => ({ id: r.id, tag: r.tag, size: Math.round(r.size), strokes: r.segs.length + r.marks.length, text: r.text, num: r.num, folded: r.folded,
+          label: r.lab.show ? { x: Math.round(r.lab.x + ox), y: Math.round(r.lab.y + oy), w: Math.round(r.lab.w), h: Math.round(r.lab.h), side: r.lab.side } : null,
+          box: r.seen.length ? (() => { let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; for (const p of r.seen) { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]) } return [Math.round(x0 + ox), Math.round(y0 + oy), Math.round(x1 + ox), Math.round(y1 + oy)] })() : null })) : [],
         records: Anat.records().map(b => b.id) })
     }
 
@@ -4572,68 +4766,52 @@ Item {
       }
 
       // ---- anatomy (lib/anatomy.js): the lines and the labels of the body in front ----
-      // One renderer for every body: a stroke per row (solid, dashed or
-      // dotted by its tag: the dashes come cut from the pass) and its name
-      // and number where the label pass put them. Nothing exists while it
-      // is off, faded on the idle clock or away on a journey.
+      // One renderer (AnatDrawing), two places: on the body, in the first
+      // screen's pixels, and in the lens, which is one item riding the
+      // HUD's disc (its drift moves it and redraws nothing). Nothing exists
+      // while the anatomy is off, faded on the idle clock or away on a
+      // journey.
       Loader {
         id: anatLayer
         anchors.fill: parent
-        active: panel.live && !!root.anatOut && root.anatMix * root.presAnat > 0.004
+        active: panel.live && !!root.anatStage && root.anatMix * root.presAnat * (1 - root.anatLens) > 0.004
+        sourceComponent: Component {
+          AnatDrawing {
+            out: root.anatStage
+            host: panel.under; tok: panel.tok
+            kx: panel.width / root.lay0.W; ky: panel.height / root.lay0.H
+            opacity: root.anatMix * root.presAnat * (1 - root.anatLens)
+          }
+        }
+      }
+      Loader {
+        id: anatGlassLayer
+        active: panel.live && !!root.anatGlass && root.anatMix * root.presAnat * root.anatLens > 0.004
         sourceComponent: Component {
           Item {
-            id: anat
-            readonly property var rows: root.anatOut ? root.anatOut.rows : []
-            // the pass works in the first screen's pixels
-            readonly property real kx: panel.width / root.lay0.W
-            readonly property real ky: panel.height / root.lay0.H
-            opacity: root.anatMix * root.presAnat
-            Repeater {
-              model: anat.rows.length
+            id: glass
+            readonly property real d: root.anatLensD(panel.lay)
+            readonly property real k: d / root.anatLensD(root.lay0)
+            x: panel.hudCx - d / 2; y: panel.hudCy - d / 2; width: d; height: d
+            opacity: root.anatMix * root.presAnat * root.anatLens
+            // the glass: the scene dimmed inside the rim, so the lines read as a drawing
+            Rectangle { anchors.fill: parent; radius: glass.d / 2; color: Qt.rgba(0, 0, 0, 0.6); border.width: 1.2; border.color: Qt.alpha(Color.foreground, root.anatLevel * 0.8) }
+            AnatDrawing { out: root.anatGlass; host: panel.under; tok: panel.tok; kx: glass.k; ky: glass.k }
+            // from the rim to the body itself, and a ring round it
+            Item {
+              id: aim
+              readonly property var a: root.anatAim
+              readonly property real ax: a ? a[0] * panel.width / root.lay0.W - glass.x : 0
+              readonly property real ay: a ? a[1] * panel.height / root.lay0.H - glass.y : 0
+              readonly property real len: Math.hypot(ax - glass.d / 2, ay - glass.d / 2)
+              readonly property real ring: a ? Math.max(a[2] * panel.height / root.lay0.H + 0.6 * panel.tok.gap, 1.2 * panel.tok.gap) : 0
+              visible: !!a && len > glass.d / 2 + ring + 4
               Item {
-                id: arow
-                required property int index
-                readonly property var r: anat.rows[index] || null
-                readonly property bool lit: !!r && r.id === root.anatLit
-                anchors.fill: parent
-                Shape {
-                  anchors.fill: parent
-                  preferredRendererType: Shape.CurveRenderer
-                  ShapePath {
-                    strokeColor: Qt.alpha(arow.lit ? root.hudHighlight : Color.foreground, root.anatLevel * (arow.lit ? 1 : arow.r && arow.r.soft ? 0.5 : 0.8))
-                    strokeWidth: arow.lit ? 1.8 : 1.2
-                    fillColor: "transparent"
-                    capStyle: ShapePath.RoundCap
-                    joinStyle: ShapePath.RoundJoin
-                    PathMultiline { paths: arow.r ? arow.r.segs.map(s => s.map(p => Qt.point(p[0] * anat.kx, p[1] * anat.ky))) : [] }
-                  }
-                }
-                Row {
-                  visible: !!arow.r && arow.r.lab.show
-                  x: arow.r ? arow.r.lab.x * anat.kx : 0
-                  y: arow.r ? (arow.r.lab.y + arow.r.lab.h / 2) * anat.ky - height / 2 : 0
-                  spacing: panel.tok.gap
-                  Words {
-                    host: panel.under
-                    opacity: root.gateNames
-                    text: arow.r ? arow.r.text : ""
-                    color: arow.lit ? root.hudHighlight : Qt.alpha(Color.foreground, 0.8)
-                    font.family: Style.resolvedFontFamily
-                    font.pixelSize: panel.tok.label
-                    font.letterSpacing: panel.tok.label * panel.tok.track.normal
-                  }
-                  Words {
-                    host: panel.under
-                    anchors.baseline: parent.children[0].baseline
-                    opacity: root.gateGuide
-                    text: arow.r ? arow.r.num : ""
-                    color: Qt.alpha(Color.foreground, 0.55)
-                    font.family: Style.resolvedFontFamily
-                    font.pixelSize: panel.tok.micro
-                    font.letterSpacing: panel.tok.micro * panel.tok.track.normal
-                  }
-                }
+                x: glass.d / 2; y: glass.d / 2
+                rotation: Math.atan2(aim.ay - glass.d / 2, aim.ax - glass.d / 2) * 180 / Math.PI
+                Rectangle { x: glass.d / 2; y: -0.6; width: Math.max(0, aim.len - glass.d / 2 - aim.ring); height: 1.2; color: Qt.alpha(Color.foreground, root.anatLevel * 0.8); antialiasing: true }
               }
+              Rectangle { x: aim.ax - aim.ring; y: aim.ay - aim.ring; width: 2 * aim.ring; height: 2 * aim.ring; radius: aim.ring; color: "transparent"; border.width: 1.2; border.color: Qt.alpha(Color.foreground, root.anatLevel * 0.8); antialiasing: true }
             }
           }
         }

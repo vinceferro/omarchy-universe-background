@@ -15,13 +15,13 @@ for (const l of lines) {
   if (m && stage) sg[stage].push([+m[1], +m[2], +m[3], +m[4]])
 }
 const f = (v, d) => v.toFixed(d === undefined ? 2 : d)
-console.log("stage | s | frames/s | frames with a pass | pass ms (mean, max) | last pass at s | strokes, points, labels | scene graph, whole ms a frame: polish + sync + render (mean, longest)")
+console.log("stage | s | frames/s | frames with a pass | pass ms a frame | pass ms (mean, max) | last pass at s | strokes, points, labels | scene graph, whole ms a frame: polish + sync + render (mean, longest)")
 for (const name of Object.keys(cost)) {
   const c = cost[name], g = sg[name] || [], n = g.length || 1
   // the scene graph logs whole milliseconds: a frame under 1 ms reads 0
   const all = g.map(r => r[0] + r[1] + r[2])
   console.log([name, f(c.s, 1), f(c.frames / c.s, 0), c.passFrames + " of " + c.frames + " (" + f(100 * c.passFrames / Math.max(1, c.frames), 0) + "%)",
-               c.passes ? f(c.passMs / c.passes) + ", " + c.maxPass : "-", f(c.lastPassS, 1), c.strokes + ", " + c.points + ", " + c.labels + " (" + c.drawn + ", " + c.rows + " rows)",
+               f(c.passMs / Math.max(1, c.frames), 3), c.passes ? f(c.passMs / c.passes) + ", " + c.maxPass : "-", f(c.lastPassS, 1), c.strokes + ", " + c.points + ", " + c.labels + " (" + c.drawn + (c.where === "lens" ? " in the lens" : "") + ", " + c.rows + " rows)",
                f(all.reduce((x, y) => x + y, 0) / n) + ", " + Math.max(0, ...all)].join(" | "))
 }
 console.log("")
