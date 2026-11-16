@@ -186,7 +186,7 @@ Item {
     toastSerial++
   }
   property real hudBrightness: 0.38
-  readonly property real hudLevel: hudBrightness * gateCockpit
+  readonly property real hudLevel: hudBrightness * gateCockpit * cockpitYield
 
   // Film mode (IPC `film true`): for recording. It is the level `off` for as
   // long as it is on, reached over the same 1.5 s: the cockpit, key hints,
@@ -388,6 +388,7 @@ Item {
     hover: new Cam.Spring(0, Cam.W_MODE),
     sys: new Cam.Spring(0, Cam.W_MODE),        // overlays fade in with the system view
     chase: new Cam.Spring(0, Cam.W_MODE),      // labels give way to markers in the chase view
+    yield: new Cam.Spring(1, Cam.W_MODE),      // the HUD steps back for a subject inside its ring
     exposure: new Cam.Spring(1, 1.3),          // the sky brightens slowly on an empty workspace
     fallFade: new Cam.Spring(0, 2.9)           // the fall's black, 2 s each way (0.98 at 2.0 s)
   })
@@ -1326,43 +1327,16 @@ Item {
     const m = markerPts[kind] || { x: 0, y: 0, r: 0, dist: 0 }
     return { x: (m.x / aspect + 0.5) * w, y: (m.y + 0.5) * h, r: m.r * h, dist: m.dist }
   }
-  // Labels never sit on top of each other. Planet names give way to the
-  // pinned body, then to the outer planets (the inner ones crowd together when
-  // zoomed out); marker labels move down a row until they are clear.
-  function labelBox(x, y, text, px) {
-    return { x: x, y: y, w: text.length * (px * 0.62 + 2) + 6, h: px * 1.5 }
-  }
-  function boxesOverlap(a, b) {
-    return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
-  }
-  function markerWanted(kind, w, h) {
+  // A marker is wanted when its body is outside the safe rect (a dot on the
+  // edge points at it) or too small to see. lay: the screen's plan
+  function markerWanted(kind, lay) {
     if (!root.liveBackground || root.sys < 0.5 || root.galMix > 0.5) return false
-    const pr = markerProj(kind, w, h)
-    const m = 70
-    const off = pr.x < m || pr.x > w - m || pr.y < m || pr.y > h - m
+    const pr = markerProj(kind, lay.W, lay.H)
+    const off = Lay.clampMarker(pr.x, pr.y, lay.safe, []).off
     const inChase = chaseMix > 0.5
     if (kind === "moon") return follow !== 7 || inChase ? (off || pr.r < 10) : off
     if (kind === "earth") return follow !== 3 && (inChase ? (off || pr.r < 10) : off)
     return inChase && (off || pr.r < 14) // sun
-  }
-  // y of a marker's label: below its body, pushed down past earlier labels
-  function markerLabelY(kind, w, h) {
-    const px = Math.round(h * 0.0085)
-    const m = 70
-    const placed = []
-    for (const k of ["sun", "earth", "moon"]) {
-      if (!markerWanted(k, w, h)) { if (k === kind) return 0; continue }
-      const pr = markerProj(k, w, h)
-      const cx = Math.max(m, Math.min(w - m, pr.x)), cy = Math.max(m, Math.min(h - m, pr.y))
-      const up = cy > h - m - 1
-      const text = markerLabel(k)
-      const b = labelBox(Math.min(cx + 16, w - text.length * (px * 0.62 + 2) - 8), cy - px * 0.75 + (up ? -18 : 18), text, px)
-      let tries = 0
-      while (tries++ < 6 && placed.some(o => boxesOverlap(o, b))) b.y += up ? -b.h : b.h
-      placed.push(b)
-      if (k === kind) return b.y
-    }
-    return 0
   }
   function markerLabel(kind) {
     var fmt = function(n) { return Math.round(n).toLocaleString(Qt.locale("en_US"), "f", 0) }
@@ -1502,6 +1476,35 @@ Item {
   // centre on a wide screen, the top right corner on a narrow one) and adds
   // this, times the scale, to it; the rings and the text read that one place.
   property vector2d hudDrift: Qt.vector2d(0, 0)
+  // The label pass (lib/layout.js placeLabels) runs once a tick for the view
+  // in front, on the first screen (the camera works in its aspect): every
+  // scene name goes right of its thing, else left, else hides, clear of the
+  // bar and notch, the rail, the caption, the HUD's ring, readouts and
+  // beacon words, a story caption, and every name placed before it. The
+  // first screen's panel says how tall its zones stand right now.
+  property real railNow: 0
+  property real statsNow: 0
+  property real storyNow: 0
+  readonly property bool captionUp: captionWords > 0 && presCaption * gateNames > 0.01
+  readonly property var labelState: ({ sides: {}, beacons: [] })   // the side each name had; the beacon words' boxes
+  property var markerLabels: ({})   // moon / earth / sun: label shown, side
+  property var galLabels: []        // galactic view: the heading's words, then the planets: shown, side
+  // the HUD steps back (to 0.3) while the chosen or hovered thing is inside its ring, so its name reads
+  property real cockpitYield: 1
+  function labelZones() {
+    const l = lay0, keep = []
+    if (railNow > 0) keep.push(Lay.railRect(l, railNow))
+    if (captionUp) keep.push(Lay.captionRect(l, l.caption.maxH))
+    const cover = keep.slice()   // where a dot hides too: the rail, the caption, the readouts
+    let disc = null
+    if (gateCockpit > 0.01) {
+      const h = Lay.hudAt(l, [hudDrift.x, hudDrift.y])
+      disc = { cx: h.cx, cy: h.cy, r: h.R }
+      if (statsNow > 0) cover.push({ x: h.stats.x, y: h.arr === "beside" ? h.cy - statsNow / 2 : h.stats.y, w: h.stats.w, h: statsNow })
+    }
+    return { keep: keep, cover: cover, disc: disc,
+             all: cover.concat(disc ? [disc] : [], disc ? labelState.beacons : [], storyNow > 0 ? [Lay.storyRect(l, storyNow)] : []) }
+  }
   // IPC `textDebug true`: the plan drawn over the scene (safe rect, rail,
   // caption slot, story band, the readouts' rect, and a circle that must lie
   // on the rings' outer bracket at any render scale)
@@ -1514,6 +1517,7 @@ Item {
     const now = Date.now()
     const dt = Math.min(0.1, frameDt !== undefined ? frameDt : (now - lastTick) / 1000)
     lastTick = now
+    let subjectInRing = false   // the chosen or hovered thing is inside the HUD's ring (set by the label pass)
     shaderTime = ((now - shaderEpoch) / 1000) % 600
     if (idleFps < Q.IDLE_FULL && !navigating && now - lastNebulaAt >= 90) { nebulaTime = shaderTime; lastNebulaAt = now }
 
@@ -1992,11 +1996,11 @@ Item {
         gxPhoto = Qt.vector4d(0, 0, 0, 0)
         gxResetFades()
       }
-      // labels: projected, and laid out so none overlap (chosen place first,
-      // then the Sun, then the biggest on screen). The hotspots always get
-      // their marker; a dwarf galaxy only when chosen, big enough on screen
-      // or under the pointer (dot), so the sky is not a field of dots
-      const H = 1000, Wd = H * aspect, px = 8.5
+      // labels: projected, and laid out by the one label pass (the chosen and
+      // the hovered place first, then the Sun, the hotspots by size, the
+      // dwarfs). The hotspots always get their marker; a dwarf galaxy only
+      // when chosen, big enough on screen or under the pointer (dot), so
+      // the sky is not a field of dots
       const pts = []
       const nAll = gxSunIndex + 1 + dwarfPlaces.length
       for (let i = 0; i < nAll; i++) {
@@ -2028,13 +2032,25 @@ Item {
       }
       if (hov !== gxHover) gxHover = hov
       const sel = gxSel >= 0 ? gxSel : gxSel === -1 ? gxSunIndex : -1
+      const L0 = lay0, tok0 = L0.tok, zones = labelZones()
+      const toX = x => L0.W / 2 + x * L0.H, toY = y => (y + 0.5) * L0.H
+      // a dot under the bar or notch, the card, the caption or the readouts
+      // hides (and cannot be clicked); inside the ring it stays: thin lines
+      for (const pt of pts) {
+        if (pt.dot && (toY(pt.y) < L0.safe.y0 || zones.cover.some(k => Lay.pointIn(toX(pt.x), toY(pt.y), k)))) pt.dot = false
+      }
+      const isDwarf = i => i !== gxSunIndex && !!place(i).dwarf
       const order = pts.map((_, i) => i).filter(i => pts[i].dot)
-        .sort((a, b) => (b === sel) - (a === sel) || (b === hov) - (a === hov) || (b === gxSunIndex) - (a === gxSunIndex) || pts[b].apparent - pts[a].apparent)
-      const placed = []
-      for (const i of order) {
-        const name = i === gxSunIndex ? "SUN · YOU ARE HERE" : place(i).name
-        const bx = labelBox((pts[i].x / aspect + 0.5) * Wd + 10, (pts[i].y + 0.5) * H - px * 0.75, name.toUpperCase(), px)
-        if (placed.every(o => !boxesOverlap(o, bx))) { placed.push(bx); pts[i].show = true }
+        .sort((a, b) => (b === sel) - (a === sel) || (b === hov) - (a === hov) || (b === gxSunIndex) - (a === gxSunIndex)
+                        || isDwarf(a) - isDwarf(b) || pts[b].apparent - pts[a].apparent)
+      const res = Lay.placeLabels(order.map(i => {
+        const name = i === gxSunIndex ? "SUN  ·  YOU ARE HERE" : place(i).name
+        return { id: "g" + i, x: toX(pts[i].x), y: toY(pts[i].y), r: tok0.gap, w: Lay.textW(name.length, tok0.label, tok0.track.normal), h: tok0.label * 1.5,
+                 pin: i === sel || i === hov }
+      }), zones.all, L0.safe, labelState.sides)
+      order.forEach((i, n) => { pts[i].show = res[n].show; pts[i].side = res[n].side })
+      if (zones.disc) for (const i of [sel, hov]) {
+        if (i >= 0 && pts[i] && pts[i].front && Math.hypot(toX(pts[i].x) - zones.disc.cx, toY(pts[i].y) - zones.disc.cy) < zones.disc.r) subjectInRing = true
       }
       gxScreen = pts
     }
@@ -2068,22 +2084,15 @@ Item {
       principal = Qt.vector2d(cb.o[0], cb.o[1])
     }
 
-    // labels and markers, projected once per tick through the same camera.
-    // Planet names give way to the pinned body, then to the outer planets
-    // (the inner ones crowd together when zoomed out).
+    // labels and markers, projected once per tick through the same camera,
+    // and laid out by the one label pass: the pinned body first, then the
+    // Moon, Earth and Sun markers, then the outer planets before the inner
+    // (which crowd together when zoomed out). In the galactic view its own
+    // names take the pass: the heading's words, then the planets.
     {
-      const H = 1000, Wd = H * aspect, px = 8.5
-      const pts = disp.map(b => { const pr = sysCam.project(b); return { x: pr.x, y: pr.y, r: b[3] * pr.scale, front: pr.front, show: false } })
-      const order = []
-      if (follow >= 1 && follow <= 6) order.push(follow - 1)
-      for (let k = 5; k >= 0; k--) if (k !== follow - 1) order.push(k)
-      const placed = []
-      for (const k of order) {
-        if (!pts[k].front) continue
-        const bx = labelBox((pts[k].x / aspect + 0.5) * Wd + pts[k].r * H + 10, (pts[k].y + 0.5) * H - px * 0.75, planetInfo[k].name, px)
-        if (placed.every(o => !boxesOverlap(o, bx))) { placed.push(bx); pts[k].show = true }
-      }
-      sysScreen = pts
+      const L0 = lay0, tk = L0.tok, zones = labelZones()
+      const toX = x => L0.W / 2 + x * L0.H, toY = y => (y + 0.5) * L0.H
+      const pts = disp.map(b => { const pr = sysCam.project(b); return { x: pr.x, y: pr.y, r: b[3] * pr.scale, front: pr.front, show: false, side: 1 } })
       const mk = {}
       for (const [kind, P, R] of [["moon", moonD, moonD[3]], ["earth", disp[2], disp[2][3]], ["sun", [0, 0, 0], sunR]]) {
         const pr = sysCam.project(P)
@@ -2092,7 +2101,56 @@ Item {
         mk[kind] = { x: pr.x * k, y: pr.y * k, r: pr.front ? R * pr.scale : 0, dist: Cam.len(Cam.sub(P, cb.C)) }
       }
       markerPts = mk
+      const items = [], put = []   // put: where each item's answer goes
+      if (galMix > 0.5) {
+        const gl = galNow.map(() => ({ show: false, side: 1 }))
+        const s0 = galNow[0]
+        if (s0 && s0.z > 0.004) {
+          const reach = 0.06 * L0.H
+          items.push({ id: "gal-heading", x: toX(s0.x) + galHeading.x * reach, y: toY(s0.y) + galHeading.y * reach, r: tk.gap + tk.glyph * 0.3,
+                       w: Lay.textW(19, tk.micro, tk.track.normal), h: tk.micro * 1.5, pin: false })
+          put.push(gl[0])
+        }
+        for (let i = 1; i < galNow.length; i++) {
+          const b = galNow[i]
+          if (!(b.z > 0.004)) continue
+          items.push({ id: "gal-" + i, x: toX(b.x), y: toY(b.y), r: Math.max(4, b.r * L0.H * 2) / 2 + tk.gap,
+                       w: Lay.textW(planetInfo[i - 1].name.length, tk.micro, tk.track.normal), h: tk.micro * 1.5, pin: false })
+          put.push(gl[i])
+        }
+        const res = Lay.placeLabels(items, zones.all, L0.safe, labelState.sides)
+        res.forEach((r, n) => { put[n].show = r.show; put[n].side = r.side })
+        galLabels = gl
+        markerLabels = ({})
+      } else {
+        const ml = {}
+        const planet = k => {
+          if (!pts[k].front) return
+          items.push({ id: "p" + k, x: toX(pts[k].x), y: toY(pts[k].y), r: pts[k].r * L0.H + tk.gap,
+                       w: Lay.textW(planetInfo[k].name.length, tk.label, tk.track.normal), h: tk.label * 1.5, pin: k === follow - 1 })
+          put.push(pts[k])
+        }
+        const named = chaseMix < 0.5   // the chase view has markers only
+        if (named && follow >= 1 && follow <= 6) planet(follow - 1)
+        for (const kind of ["sun", "earth", "moon"]) {
+          ml[kind] = { show: false, side: 1 }
+          if (!markerWanted(kind, L0)) continue
+          const pr = markerProj(kind, L0.W, L0.H)
+          const at = Lay.clampMarker(pr.x, pr.y, L0.safe, zones.keep)
+          items.push({ id: "m-" + kind, x: at.x, y: at.y, r: tk.gap + 6, w: Lay.textW(markerLabel(kind).length, tk.label, tk.track.normal), h: tk.label * 1.5, pin: false })
+          put.push(ml[kind])
+        }
+        if (named) for (let k = 5; k >= 0; k--) if (k !== follow - 1) planet(k)
+        const res = Lay.placeLabels(items, zones.all, L0.safe, labelState.sides)
+        res.forEach((r, n) => { put[n].show = r.show; put[n].side = r.side })
+        markerLabels = ml
+        if (zones.disc && explore === "system" && follow >= 1 && follow <= 6 && pts[follow - 1].front
+            && Math.hypot(toX(pts[follow - 1].x) - zones.disc.cx, toY(pts[follow - 1].y) - zones.disc.cy) < zones.disc.r) subjectInRing = true
+      }
+      sysScreen = pts
     }
+    mix.yield.g = subjectInRing && gateNames * presLabel > 0.01 ? 0.3 : 1
+    cockpitYield = mix.yield.step(dt)
 
     // JARVIS: beacons every frame, telemetry 5 times a second
     {
@@ -2216,6 +2274,20 @@ Item {
       }
       navBeacons = nb
       if (rows !== null) navRows = rows
+      // where the beacons' words stand on the first screen (as the readout
+      // places them, from estimated widths): scene names keep clear of them
+      const words = []
+      if (gateCockpit > 0.01 && explore !== "universe") {
+        const h0 = Lay.hudAt(lay0, [hudDrift.x, hudDrift.y]), tk = lay0.tok
+        const st = { x: h0.stats.x, y: h0.arr === "beside" ? h0.cy - statsNow / 2 : h0.stats.y, w: h0.stats.w, h: statsNow }
+        for (const b of nb) {
+          if (!b) continue
+          const bw = Lay.textW((b.name + (b.dist ? "  " + b.dist : "")).length, tk.micro, tk.track.normal), bh = tk.micro * 1.4
+          const at = Lay.beaconLabel(b.ang, bw, bh, h0.cx, h0.cy, h0.R * Lay.BEACON / Lay.RING + tk.gap, lay0.safe, st, b.shift)
+          if (at.show) words.push({ x: at.x, y: at.y, w: bw, h: bh })
+        }
+      }
+      labelState.beacons = words
     }
 
     mix.exposure.g = emptyWorkspace && explore === "universe" ? 1.9 : 1
@@ -2224,7 +2296,7 @@ Item {
     // anything still easing keeps the idle clock at its full rate (see idleFps)
     idleBusy = bootLevel < 1 || sys > 0 || galaxyMix > 0 || skyMix > 0 || navMix > 0 || galMix > 0 || fallFade > 0 || sysCam.flying()
       || mix.viewX.moving() || mix.viewY.moving() || mix.hover.moving() || mix.exposure.moving()
-      || mix.speed.moving() || mix.strafeX.moving() || mix.strafeY.moving() || textModel.moving
+      || mix.speed.moving() || mix.strafeX.moving() || mix.strafeY.moving() || textModel.moving || mix.yield.moving()
     gauges = Qt.vector3d(cpu, gpu, mem)
   }
 
@@ -2648,6 +2720,12 @@ Item {
       readonly property var tok: lay.tok
       // its HUD where it is now: centre, radius and the readouts' rect, in pixels
       readonly property var hud: Lay.hudAt(lay, [root.hudDrift.x, root.hudDrift.y])
+      // the first screen tells the label pass how tall its zones stand
+      readonly property bool first: Quickshell.screens.length > 0 && Quickshell.screens[0].name === modelData.name
+      Binding { target: root; property: "railNow"; value: rail.visible ? rail.height : 0; when: panel.first }
+      Binding { target: root; property: "storyNow"; value: filmCaption.opacity > 0.01 ? filmCaption.height : 0; when: panel.first }
+      // where a marker may not sit: this screen's rail and caption as they stand
+      readonly property var keepRects: [Lay.railRect(lay, rail.visible ? rail.height : 0), Lay.captionRect(lay, root.captionUp ? lay.caption.maxH : 0)]
       readonly property var perfMeter: Q.perfCreate()
       Connections {
         target: base.Window.window
@@ -3043,6 +3121,7 @@ Item {
                 id: statsBox
                 readonly property var at: panel.hud.stats
                 readonly property var rect: ({ x: x, y: y, w: width, h: height })   // as it stands now
+                Binding { target: root; property: "statsNow"; value: statsBox.visible ? statsBox.height : 0; when: panel.first }
                 visible: root.hudLevel > 0
                 opacity: readout.hudOpacity * readout.bootIn
                 x: at.x
@@ -3191,15 +3270,16 @@ Item {
         text: "SOLAR SYSTEM  ·  CLICK TO EXPLORE"
         color: Color.accent
         font.family: Style.resolvedFontFamily
-        font.pixelSize: Math.round(panel.height * 0.0085)
-        font.letterSpacing: 3
+        font.pixelSize: panel.tok.label
+        font.letterSpacing: panel.tok.label * panel.tok.track.wide
       }
 
-      // Highlights for the Moon, Earth and the Sun: a bracket around the body
-      // when it is tiny on screen, or a dot on the screen edge pointing at it
-      // when it is off screen, with its name and distance. The Moon is marked in
-      // the system and chase views; Earth and the Sun in the chase view (and
-      // Earth when off screen in the system view).
+      // Highlights for the Moon, Earth and the Sun: a dot on the safe rect's
+      // edge pointing at the body when it is outside it, and its name and
+      // distance (beside the body itself when it is in view but tiny). The dot
+      // keeps out of the rail and the caption; the words come from the label
+      // pass. The Moon is marked in the system and chase views; Earth and the
+      // Sun in the chase view (and Earth when off screen in the system view).
       Repeater {
        model: ["moon", "earth", "sun"]
        Item {
@@ -3208,13 +3288,12 @@ Item {
         readonly property string kind: modelData
         readonly property color tint: kind === "moon" ? Color.accent : kind === "earth" ? "#6ab7ff" : "#ffd27a"
         readonly property var proj: root.markerProj(kind, panel.width, panel.height)
-        readonly property real margin: 70
-        readonly property bool offscreen: proj.x < margin || proj.x > panel.width - margin
-                                          || proj.y < margin || proj.y > panel.height - margin
-        readonly property real cx: Math.max(margin, Math.min(panel.width - margin, proj.x))
-        readonly property real cy: Math.max(margin, Math.min(panel.height - margin, proj.y))
-        readonly property bool inChase: root.chaseMix > 0.5
-        readonly property bool wanted: root.markerWanted(kind, panel.width, panel.height)
+        readonly property var at: Lay.clampMarker(proj.x, proj.y, panel.lay.safe, panel.keepRects)
+        readonly property bool offscreen: at.off
+        readonly property real cx: at.x
+        readonly property real cy: at.y
+        readonly property bool wanted: root.markerWanted(kind, panel.lay)
+        readonly property var lab: root.markerLabels[kind] || ({ show: false, side: 1 })
         visible: wanted && opacity > 0
         opacity: Math.min(1, (root.sys - 0.5) * 2) * 0.85 * root.textMix("names", "label")
 
@@ -3222,7 +3301,7 @@ Item {
           visible: marker.offscreen
           x: marker.cx - width / 2
           y: marker.cy - height / 2
-          width: 10
+          width: Math.round(panel.tok.gap * 0.7)
           height: width
           radius: width / 2
           color: marker.tint
@@ -3232,22 +3311,22 @@ Item {
           x: marker.cx - width / 2
           y: marker.cy - height / 2
           rotation: Math.atan2(marker.proj.y - marker.cy, marker.proj.x - marker.cx) * 180 / Math.PI
-          transform: Translate { x: 14 }
+          transform: Translate { x: panel.tok.gap }
           text: "➤"
           color: marker.tint
-          font.pixelSize: Math.round(panel.height * 0.01)
+          font.pixelSize: panel.tok.body
         }
         Text {
-          x: Math.min(marker.cx + 16, panel.width - width - 8)
-          y: root.markerLabelY(marker.kind, panel.width, panel.height)
+          visible: marker.lab.show
+          x: marker.lab.side < 0 ? marker.cx - panel.tok.gap - 6 - width : marker.cx + panel.tok.gap + 6
+          y: marker.cy - height / 2
           text: root.markerLabel(marker.kind)
           color: Qt.alpha(Color.foreground, 0.6)
           font.family: Style.resolvedFontFamily
-          font.pixelSize: Math.round(panel.height * 0.0085)
-          font.letterSpacing: 2
+          font.pixelSize: panel.tok.label
+          font.letterSpacing: panel.tok.label * panel.tok.track.normal
         }
-      }
-
+       }
       }
 
       // ---- galactic view: real paths through space, drawn from the tick's points ----
@@ -3357,18 +3436,21 @@ Item {
             text: "›"
             opacity: root.textMix("names", "label")
             color: Qt.alpha("#ffd27a", 0.8)
-            font.pixelSize: Math.round(panel.height * 0.02)
+            font.pixelSize: panel.tok.glyph
           }
           Text {
             readonly property real reach: panel.height * 0.06
-            x: root.galHeading.x * reach + (root.galHeading.x >= 0 ? 18 : -width - 18)
+            readonly property var lab: root.galLabels[0] || ({ show: false, side: 1 })
+            readonly property real off: panel.tok.gap + panel.tok.glyph * 0.3
+            visible: lab.show
+            x: root.galHeading.x * reach + (lab.side < 0 ? -width - off : off)
             y: root.galHeading.y * reach - height / 2
             text: "249 KM/S  ·  CYGNUS"
             opacity: root.textMix("names", "label")
             color: Qt.alpha("#ffd27a", 0.7)
             font.family: Style.resolvedFontFamily
-            font.pixelSize: Math.round(panel.height * 0.0075)
-            font.letterSpacing: 2
+            font.pixelSize: panel.tok.micro
+            font.letterSpacing: panel.tok.micro * panel.tok.track.normal
           }
         }
 
@@ -3423,14 +3505,16 @@ Item {
               }
             }
             Text {
-              x: body.d / 2 + 10
+              readonly property var lab: root.galLabels[body.index + 1] || ({ show: false, side: 1 })
+              visible: lab.show
+              x: lab.side < 0 ? -body.d / 2 - panel.tok.gap - width : body.d / 2 + panel.tok.gap
               y: -height / 2
               text: root.planetInfo[body.index].name.toUpperCase()
               opacity: root.textMix("names", "label")
               color: Qt.alpha(Color.foreground, 0.55)
               font.family: Style.resolvedFontFamily
-              font.pixelSize: Math.round(panel.height * 0.0075)
-              font.letterSpacing: 2
+              font.pixelSize: panel.tok.micro
+              font.letterSpacing: panel.tok.micro * panel.tok.track.normal
             }
           }
         }
@@ -3556,13 +3640,13 @@ Item {
             }
             Text {
               visible: mark.pt.show
-              x: 10
+              x: mark.pt.side < 0 ? -width - panel.tok.gap : panel.tok.gap
               y: -height / 2
               text: (mark.isSun ? "SUN  ·  YOU ARE HERE" : mark.h.name.toUpperCase())
               color: mark.chosen ? root.hudHighlight : Qt.alpha(Color.foreground, mark.isSun ? 0.85 : 0.55)
               font.family: Style.resolvedFontFamily
-              font.pixelSize: Math.round(panel.height * 0.0085)
-              font.letterSpacing: 2
+              font.pixelSize: panel.tok.label
+              font.letterSpacing: panel.tok.label * panel.tok.track.normal
             }
           }
         }
@@ -3613,13 +3697,13 @@ Item {
           readonly property var pt: root.sysScreen[index] || ({ x: 0, y: 0, r: 0, show: false })
           visible: root.liveBackground && root.sys > 0.5 && root.chaseMix < 0.02 && root.galMix < 0.5 && pt.show && opacity > 0.01
           opacity: (root.sys - 0.5) * 1.4 * (1 - root.chaseMix) * root.textMix("names", "label")
-          x: (pt.x / root.aspect + 0.5) * panel.width + pt.r * panel.height + 10
+          x: (pt.x / root.aspect + 0.5) * panel.width + (pt.side < 0 ? -pt.r * panel.height - panel.tok.gap - width : pt.r * panel.height + panel.tok.gap)
           y: (pt.y + 0.5) * panel.height - height / 2
           text: modelData.name.toUpperCase()
           color: root.follow === index + 1 ? root.hudHighlight : Color.foreground
           font.family: Style.resolvedFontFamily
-          font.pixelSize: Math.round(panel.height * 0.0085)
-          font.letterSpacing: 2
+          font.pixelSize: panel.tok.label
+          font.letterSpacing: panel.tok.label * panel.tok.track.normal
         }
       }
 
