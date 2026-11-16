@@ -349,8 +349,7 @@ Item {
                rail: { x: Math.round(l.rail.x), w: Math.round(l.rail.w), bottom: Math.round(l.rail.bottom) },
                caption: { x: Math.round(l.caption.x), w: Math.round(l.caption.w), bottom: Math.round(l.caption.bottom) },
                story: { x: Math.round(l.story.x), y: Math.round(l.story.y), w: Math.round(l.story.w) },
-               hud: { arrangement: h.arr, scale: Math.round(h.s * 1000) / 1000, centre: [Math.round(h.cx), Math.round(h.cy)], radius: Math.round(h.R),
-                      ring: px(e.ring), stats: px(e.stats) } }
+               hud: { scale: Math.round(h.s * 1000) / 1000, centre: [Math.round(h.cx), Math.round(h.cy)], radius: Math.round(h.R), reach: px(e) } }
     }) })
   }
 
@@ -1554,6 +1553,8 @@ Item {
     const ks = Object.keys(now)
     return Object.keys(was).length !== ks.length || ks.some(k => !was[k] || was[k].show !== now[k].show || was[k].side !== now[k].side)
   }
+  // the readout column until the disc carries its words: under the disc, as wide
+  function statsShim(l, h) { return { x: h.cx - h.R, y: h.cy + h.R + 0.02 * l.H, w: 2 * h.R, h: Math.max(0, l.safe.y1 - (h.cy + h.R + 0.02 * l.H)) } }
   function labelZones() {
     const l = lay0, keep = []
     if (railNow > 0) keep.push(Lay.railRect(l, railNow))
@@ -1563,8 +1564,8 @@ Item {
     let disc = null
     if (gateCockpit > 0.01) {
       const h = Lay.hudAt(l, [hudDrift.x, hudDrift.y])
-      disc = { cx: h.cx, cy: h.cy, r: h.R }
-      if (statsNow > 0) cover.push({ x: h.stats.x, y: h.arr === "beside" ? h.cy - statsNow / 2 : h.stats.y, w: h.stats.w, h: statsNow })
+      disc = Lay.hudDisc(l, [hudDrift.x, hudDrift.y])
+      if (statsNow > 0) { const st = statsShim(l, h); cover.push({ x: st.x, y: st.y, w: st.w, h: statsNow }) }
     }
     return { keep: keep, cover: cover, disc: disc,
              all: cover.concat(disc ? [disc] : [], disc ? labelState.beacons : [], storyNow > 0 ? [Lay.storyRect(l, storyNow)] : []) }
@@ -2357,7 +2358,7 @@ Item {
       const words = []
       if (gateCockpit > 0.01 && explore !== "universe") {
         const h0 = Lay.hudAt(lay0, [hudDrift.x, hudDrift.y]), tk = lay0.tok
-        const st = { x: h0.stats.x, y: h0.arr === "beside" ? h0.cy - statsNow / 2 : h0.stats.y, w: h0.stats.w, h: statsNow }
+        const st0 = statsShim(lay0, h0), st = [{ x: st0.x, y: st0.y, w: st0.w, h: statsNow }]
         for (const b of nb) {
           if (!b) continue
           const bw = Lay.textW((b.name + (b.dist ? "  " + b.dist : "")).length, tk.micro, tk.track.normal), bh = tk.micro * 1.4
@@ -2820,8 +2821,8 @@ Item {
       // and so does the caption slot unless the story runs to many lines.
       readonly property bool storyUp: filmCaption.opacity > 0.01
       readonly property var storyBox: Lay.storyRect(lay, filmCaption.height)
-      readonly property var hudReach: Lay.hudExtent(lay, statsH)
-      property real cockpitStep: storyUp && (Lay.intersects(storyBox, hudReach.ring) || Lay.intersects(storyBox, hudReach.stats)) ? 0 : 1
+      readonly property var hudReach: Lay.hudExtent(lay)
+      property real cockpitStep: storyUp && Lay.intersects(storyBox, hudReach) ? 0 : 1
       Behavior on cockpitStep { NumberAnimation { duration: Tx.FADE_OUT_S * 1000; easing.type: Easing.InOutSine } }
       property real railStep: storyUp && Lay.intersects(storyBox, Lay.railRect(lay, rail.height)) ? 0 : 1
       Behavior on railStep { NumberAnimation { duration: Tx.FADE_OUT_S * 1000; easing.type: Easing.InOutSine } }
@@ -3208,7 +3209,7 @@ Item {
                     // leave the safe rect or touch the readouts the words hide and
                     // the triangle stays: the readout rows carry the same names
                     readonly property var at: Lay.beaconLabel(beacon.b ? beacon.b.ang : 0, width, height, readout.cx, readout.cy,
-                                                              beacon.ringR + panel.tok.gap, panel.lay.safe, statsBox.rect, beacon.b ? beacon.b.shift : 0)
+                                                              beacon.ringR + panel.tok.gap, panel.lay.safe, [statsBox.rect], beacon.b ? beacon.b.shift : 0)
                     visible: at.show
                     x: at.x - beacon.x
                     y: at.y - beacon.y
@@ -3226,13 +3227,13 @@ Item {
               // and it never grows past what the plan leaves it
               Item {
                 id: statsBox
-                readonly property var at: panel.hud.stats   // at the anchor; it moves with the centre
+                readonly property var at: root.statsShim(panel.lay, panel.hud)   // at the anchor; it moves with the centre
                 readonly property var rect: ({ x: x, y: y, w: width, h: height })   // as it stands now
                 Binding { target: panel; property: "statsH"; value: statsBox.visible ? statsBox.height : 0 }
                 visible: root.hudLevel > 0
                 opacity: readout.hudOpacity * readout.bootIn
                 x: at.x + readout.cx - panel.hud.cx
-                y: panel.hud.arr === "beside" ? readout.cy - height / 2 : at.y + readout.cy - panel.hud.cy
+                y: at.y + readout.cy - panel.hud.cy
                 width: at.w
                 height: Math.min(statsColumn.height, at.h)
                 clip: statsColumn.height > at.h
@@ -4013,9 +4014,7 @@ Item {
         Rectangle { color: "transparent"; border.width: 1; border.color: "#ff3060"; x: panel.lay.caption.x; y: panel.lay.caption.bottom - height; width: panel.lay.caption.w; height: panel.lay.caption.maxH }
         Rectangle { color: "transparent"; border.width: 1; border.color: "#ffd27a"; x: panel.lay.story.x; y: panel.lay.story.y; width: panel.lay.story.w; height: Math.max(filmCaption.height, panel.lay.H * 0.14) }
         // the HUD's whole reach as it drifts, then where it is now
-        Rectangle { color: "transparent"; border.width: 1; border.color: "#406080"; x: zoneDebug.ext.ring.x; y: zoneDebug.ext.ring.y; width: zoneDebug.ext.ring.w; height: zoneDebug.ext.ring.h }
-        Rectangle { color: "transparent"; border.width: 1; border.color: "#406080"; x: zoneDebug.ext.stats.x; y: zoneDebug.ext.stats.y; width: zoneDebug.ext.stats.w; height: zoneDebug.ext.stats.h }
-        Rectangle { color: "transparent"; border.width: 1; border.color: "#ff3060"; x: panel.hud.stats.x + panel.hudCx - panel.hud.cx; y: panel.hud.stats.y + panel.hudCy - panel.hud.cy; width: panel.hud.stats.w; height: panel.hud.stats.h }
+        Rectangle { color: "transparent"; border.width: 1; border.color: "#406080"; x: zoneDebug.ext.x; y: zoneDebug.ext.y; width: zoneDebug.ext.w; height: zoneDebug.ext.h }
         // the rings' outer bracket (0.232 of the HUD's unit)
         Rectangle {
           readonly property real r: panel.hud.R * Lay.BRACKET / Lay.RING
