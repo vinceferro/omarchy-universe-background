@@ -1697,6 +1697,14 @@ Item {
     moonFace = Qt.vector3d(-mg[0], -mg[1], -mg[2]).normalized()
     const earthR = planetInfo[2].r
     moonDistanceKm = Math.hypot(mg[0], mg[1], mg[2]) * auKm
+    {
+      // the Moon's phase for the HUD's gap window: the Sun-Earth-Moon angle,
+      // and waxing while the Moon is east of the Sun (ecliptic longitudes)
+      const sx = -real[2][0], sy = -real[2][1], sz = -real[2][2]
+      const c = (sx * mg[0] + sy * mg[1] + sz * mg[2]) / (Math.hypot(sx, sy, sz) * Math.hypot(mg[0], mg[1], mg[2]))
+      const ph = Sun.moonLit(c, Math.sin(Math.atan2(-mg[2], mg[0]) - Math.atan2(-sz, sx)) > 0)
+      if (Math.abs(ph.lit - moonNow.lit) > 0.002 || ph.waxing !== moonNow.waxing) moonNow = ph
+    }
     const trueDist = earthR * moonDistanceKm / 6371
     moonOrbit = 0.024 + (trueDist - 0.024) * tm
     const moonD = (() => {
@@ -2244,6 +2252,7 @@ Item {
     {
       const nb = [null, null, null, null]
       let rows = null
+      let want = null   // what the instrument should show (dialWant), on a refresh
       const refresh = now >= navNextAt
       if (refresh) navNextAt = now + 200
       if (explore === "system" && !galactic) {
@@ -2286,6 +2295,33 @@ Item {
             }
           } else rows.push({ label: "VIEW", value: "FREE  ·  PIN A BODY FOR ITS TELEMETRY" })
           rows.push({ label: "TIME", value: Qt.formatDateTime(new Date(simMs), "d MMM yyyy HH:mm").toUpperCase() + "  ·  " + simRateNames[simRateIndex] + (autoOrbit ? "  ·  AUTO ORBIT" : "") })
+          // the instrument: the time rate on seven detents; how far the Sun,
+          // Earth, the Moon and the chase target are from the pinned body
+          // (log AU; a free camera is nowhere, so no scale); the Moon's
+          // phase beside Earth; a year ring while the clock is not now
+          want = dialWant("system")
+          want.mode = 2; want.g = Dial.detentG(simRateIndex, simRates.length); want.majors = simRates.length - 1; want.snap = true
+          want.landmarks = [{ g: 0, text: "LIVE" }, { g: 0.5, text: "DAY" }, { g: 1, text: "YEAR" }]
+          const lapse = Math.abs(simMs - now) > 90000
+          if (lapse) want.time = [1, Sun.yearFraction(new Date(simMs)), -1, -1]
+          let targetAu = -1
+          if (at) {
+            const bugAt = (dAu, color) => Object.assign(Dial.logG(dAu, 0.001, 100), { color: color })
+            want.range = { mode: 1, n: 5, tape: 0 }
+            if (fi !== -1) want.bugs[0] = bugAt(d([0, 0, 0]), "#ffd27a")
+            if (fi !== 2) want.bugs[1] = bugAt(d(real[2]), "#6ab7ff")
+            if (fi === 2) want.bugs[2] = bugAt(moonDistanceKm / auKm, "#cfd6e6")
+            if (chasing) {
+              const tp = chaseTarget === 0 ? [0, 0, 0] : chaseTarget === 7 ? [real[2][0] + mg[0], real[2][1] + mg[1], real[2][2] + mg[2]] : real[chaseTarget - 1]
+              if (tp) {
+                targetAu = d(tp)
+                if (chaseTarget !== 0 && chaseTarget !== 3 && chaseTarget !== 7) want.bugs[3] = bugAt(targetAu, root.hudHighlight)
+              }
+            }
+            if (follow === 3 || follow === 7) want.gap = gapMoon()
+          }
+          want.units = [at ? "AU" : "", "RATE"]
+          want.readout = Dial.readout("system", { targetAu: targetAu, date: lapse ? Qt.formatDate(new Date(simMs), "d MMM yyyy").toUpperCase() : "", sunAu: at ? Math.hypot(at[0], at[1], at[2]) : 0 }, dialChars)
         }
       } else if (explore === "galaxy") {
         const cam = [gxCamPos.x, gxCamPos.y, gxCamPos.z]
@@ -2339,6 +2375,54 @@ Item {
             ]
             if (tl.math) rows.push({ label: "MATHEMATICS", value: "THE EXTENDED KERR SOLUTION, NOT OBSERVED PHYSICS  ·  PLUNGE AT 0.75 C" })
           }
+          const ev = dialRun.ev
+          if (ev.key !== (fallState ? "fall" : "galaxy")) { ev.key = fallState ? "fall" : "galaxy"; ev.near = {}; ev.side = {}; ev.disk = {}; ev.hor = {}; ev.hold = {} }
+          let event = false
+          if (fallState) {
+            // the fall: the radius on one signed-log scale from where it began
+            // to where it ends (lib/fall.js), a hairline at the photon orbit,
+            // redlines at the horizons; in mathematics mode the rim is dashed
+            // past the inner horizon and r = 0 has a mark. The time ring drains
+            // with the proper time left. No range scale: fall.js's speedAt is
+            // dr/dtau, not a speed anyone measures locally (it passes c inside)
+            const tl = fallState.tl, gOf = r => Dial.fallG(r, tl.r0, tl.rEnd)
+            want = dialWant("fall")
+            want.mode = 1; want.g = gOf(fallR)
+            want.red = [gOf(tl.rPlus), tl.a > 0 ? gOf(tl.rMinus) : -1]
+            want.hair = [gOf(tl.rPhoton), tl.math ? gOf(0) : -1]
+            if (tl.math) want.dash = gOf(tl.rMinus)
+            want.time = [2, tl.tauEnd > 0 ? Math.max(0, Math.min(1, fallLeft / tl.tauEnd)) : 0, -1, -1]
+            want.units = ["", "RS"]
+            want.readout = Dial.readout("fall", { r: fallR }, dialChars)
+            event = Dial.changed(ev.hor, fallR > tl.rPlus ? 0 : fallR > tl.rMinus ? 1 : fallR > 0 ? 2 : 3)
+          } else {
+            // the Galaxy: speed as a multiple of light (log, 10^5..10^13), on the
+            // pin while holding; how far the Sun, the centre, the target (or
+            // Andromeda) and the nearest place are (log ly); the height over
+            // the disk plane as the diamond (a decade a dot, hollow past 1 kpc)
+            const xc = lyPerS * 31557600, KPC = 3261.56
+            const bugAt = (dLy, color) => Object.assign(Dial.logG(dLy, 1, 1e7), { color: color })
+            const sgr = gxSel >= 0 && place(gxSel).name.startsWith("Sagittarius A")
+            const targetLy = gxSel >= 0 ? len(vec(hotspotPos(gxSel))) * ly : -1
+            want = dialWant("galaxy")
+            want.mode = 1; want.g = lyPerS < 0.01 ? 0 : Dial.logG(xc, 1e5, 1e13).g; want.majors = 8; want.minor = 1; want.long = 3 + 1 / 16
+            want.range = { mode: 1, n: 7, tape: 0 }
+            want.bugs[0] = bugAt(hl * ly, "#ffd27a")
+            want.bugs[1] = bugAt(len(cam) * ly, "#ffb070")
+            want.bugs[2] = gxSel >= 0 ? (sgr ? null : bugAt(targetLy, root.hudHighlight)) : bugAt(len(vec(m31)) * ly, "#fff0d8")
+            if (near >= 0 && near !== gxSel) want.bugs[3] = bugAt(nd * ly, "#fff0d8")
+            const hgt = Dial.signedLogG(cam[2] * ly, 1, KPC)
+            want.gap = { mode: 1, v: hgt.g, flag: hgt.hollow ? 1 : 0, pitch: Dial.signedLogPitch(1, KPC) }
+            want.units = ["LY", "× C"]
+            want.landmarks = [{ g: 1 / 8, text: "1M" }, { g: 4 / 8, text: "1G" }, { g: 7 / 8, text: "1T" }]
+            want.readout = Dial.readout("galaxy", { xc: lyPerS < 0.01 ? 0 : xc, targetLy: targetLy, sunLy: hl * ly }, dialChars)
+            // worth a glance: another place is the nearest, the disk plane
+            // crossed, the disk left or entered, a flight arrived
+            const e1 = Dial.changed(ev.near, near), e2 = Dial.changed(ev.side, cam[2] >= 0), e3 = Dial.changed(ev.disk, Math.abs(cam[2]) < 1)
+            const e4 = Dial.changed(ev.hold, lyPerS < 0.01) && lyPerS < 0.01 && gxSel >= 0
+            event = e1 || e2 || e3 || e4
+          }
+          if (event) Tx.touchZone(textModel, "dial")
         }
       } else if (explore === "sky") {
         const R = [skyRight.x, skyRight.y, skyRight.z], U = [skyUp.x, skyUp.y, skyUp.z], F = [skyFwd.x, skyFwd.y, skyFwd.z]
@@ -2353,6 +2437,14 @@ Item {
             { label: "SKY", value: "RA " + fmtRa(eq[0]) + "  DEC " + (eq[1] >= 0 ? "+" : "") + fmtNum(eq[1], 1) + "°" },
             { label: "FIELD", value: fmtNum(skyVfov, 0) + "° TALL" + (skyStaticMix > 0.5 ? "  ·  " + skyViews[skyView].name : "") }
           ]
+          // the sky: the field of view as an arc of its true angle; galactic
+          // longitude on a heading tape; latitude as the diamond (+-90, a dot every 30)
+          want = dialWant("sky")
+          want.mode = 3; want.g = skyVfov / 360
+          want.range = { mode: 2, n: 0, tape: l }
+          want.gap = { mode: 1, v: Math.max(-1, Math.min(1, skyB / 90)), flag: 0, pitch: 1 / 3 }
+          want.units = ["l °", "FIELD"]
+          want.readout = Dial.readout("sky", { ra: eq[0], dec: eq[1] }, dialChars)
         }
       } else if (refresh) rows = []
       // beacons pointing nearly the same way stack their labels
@@ -2362,6 +2454,17 @@ Item {
       }
       navBeacons = nb
       if (rows !== null) navRows = rows
+      if (refresh && !want) {
+        want = dialWant(explore === "system" ? "galactic" : explore)
+        if (explore === "flight") {
+          // the star layers have no physical unit: the throttle, relative, never a speed
+          const th = flightSpeed / 1.15
+          want.mode = 1; want.g = Math.min(1, Math.abs(th)); want.majors = 4; want.minor = 2
+          want.units = ["", "THRUST"]
+          want.readout = Dial.readout("flight", { thrust: th * 100 }, dialChars)
+        } else if (explore === "universe") want.gap = gapMoon()   // parked: the Moon as it is tonight
+      }
+      if (want) dialRun.want = want
       // where the beacons' words stand on the first screen (as the readout
       // places them, from estimated widths): scene names keep clear of them
       const words = []
@@ -2439,6 +2542,16 @@ Item {
     if (s.gpuKnown) { s.gpu = g[0] / 100; s.gpuWatts = g[1]; s.gpuTemp = g[2] }
     if (lines[4] && !isNaN(Number(lines[4]))) s.cpuTemp = Number(lines[4]) / 1000
     stats = s
+    {
+      // a machine event brings the machine labels up for a few seconds: the
+      // CPU over 85% for 5 s, the GPU over 80 C, memory over 90% (and each
+      // has to fall 5 points before it can fire again)
+      const ev = dialRun.ev, dtS = 2
+      const a = Dial.event(ev.cpu, s.cpu, 0.85, 0.80, dtS, Tx.EVENT_S, 5)
+      const b = Dial.event(ev.gpuT, s.gpuKnown ? s.gpuTemp : 0, 80, 75, dtS, Tx.EVENT_S, 0)
+      const c = Dial.event(ev.mem, s.memTotal > 0 ? s.memUsed / s.memTotal : 0, 0.90, 0.85, dtS, Tx.EVENT_S, 0)
+      if (a || b || c) Tx.touchZone(textModel, "sys")
+    }
     hudTemp = Qt.vector2d(s.cpuTemp > 0 ? Dial.tempG(s.cpuTemp) : -1, s.gpuKnown && s.gpuTemp > 0 ? Dial.tempG(s.gpuTemp) : -1)
     cpu = s.cpu
     gpu = s.gpu
@@ -2475,7 +2588,13 @@ Item {
   // IPC `hudDemo <view>`: fixed, invented values on the instrument, so every
   // element can be looked at without flying there; the hub says DEMO
   property string hudDemo: ""
-  readonly property var dialRun: ({ want: null, shown: null, needle: [0, 0], arc: 0, bugs: [-1, -1, -1, -1], gap: 0, fade: 1, pulse: [0, 0], side: [0, 0] })
+  readonly property var dialRun: ({ want: null, shown: null, needle: [0, 0], arc: 0, bugs: [-1, -1, -1, -1], gap: 0, fade: 1, pulse: [0, 0], side: [0, 0],
+                                    ev: { key: "", near: {}, side: {}, disk: {}, hor: {}, hold: {}, cpu: {}, gpuT: {}, mem: {} } })
+  // how many characters the hub's readout line holds on the first screen (11 at most)
+  readonly property int dialChars: {
+    const hb = Lay.hubLines(Lay.hudAt(lay0, null), lay0.tok)
+    return Math.max(6, Math.min(11, Math.floor((hb.readout.maxW - 6) / (lay0.tok.micro * (0.62 + lay0.tok.track.normal)))))
+  }
   // daylight at home today (lib/sun.js), found once a day
   property var sunToday: ({ key: "", rise: -1, set: -1 })
   function rgb3(c) {
