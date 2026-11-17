@@ -41,24 +41,43 @@ check("at names and at off the lines are still drawn", last("text names").rep.dr
 const gone = of("clock").filter(r => r.rep.presence === 0)
 check("left alone the lines fade on the idle clock, and no pass runs while they are away", gone.length > 4 && gone.every(r => !r.text.showing.includes("anatomy") && r.rep.passes === gone[0].rep.passes) && of("clock")[0].rep.presence === 1, gone.length + " rows faded, after " + (of("clock").findIndex(r => r.rep.presence === 0) / 4).toFixed(1) + " s")
 check("the next touch brings them back", of("betelgeuse").slice(0, 8).some(r => r.rep.presence === 1))
-// a subject none of whose lines suits any zoom the view reaches (a single star from 0.2 pc) still answers
+// a body too small for the stage (a single star from 0.2 pc) is drawn in the lens: the HUD's disc, its readouts dimmed, a leader to the star
 const star = last("betelgeuse")
-check("a star too far for its lines: nothing drawn, its name and headline said", star.rep.subject === "betelgeuse" && star.rep.drawn === "" && star.story === "ANATOMY  ·  Betelgeuse" && /red supergiant/.test(star.body), star.story)
+check("a star too small on the screen: drawn in the lens, to scale, its name and headline said", star.rep.subject === "betelgeuse" && star.rep.drawn === "betelgeuse" && star.rep.lens && ids(star).includes("surface") && of("betelgeuse").some(r => r.story === "ANATOMY  ·  Betelgeuse" && /red supergiant/.test(r.body)), ids(star).join(" ") + ", " + star.rep.span + " px on the screen")
+{
+  const g = star.rep.glass || {}, hud = star.text.screens[0].hud, inside = []
+  for (const x of star.rep.rows) if (x.box && [[x.box[0], x.box[1]], [x.box[2], x.box[3]], [x.box[0], x.box[3]], [x.box[2], x.box[1]]].some(p => Math.hypot(p[0] - g.cx, p[1] - g.cy) > g.d / 2 * 1.42)) inside.push(x.id)
+  const labels = star.rep.rows.filter(x => x.label)
+  check("the lens is the HUD's disc, its lines inside the rim, its labels in a column outside it", Math.abs(g.cx - hud.centre[0]) < 2 && Math.abs(g.cy - hud.centre[1]) < 2 && g.d < 2 * hud.radius && inside.length === 0 && labels.length > 0
+        && labels.every(x => Math.hypot(Math.max(x.label.x, Math.min(x.label.x + x.label.w, g.cx)) - g.cx, Math.max(x.label.y, Math.min(x.label.y + x.label.h, g.cy)) - g.cy) > g.d / 2), JSON.stringify(g) + " " + labels.length + " labels")
+  check("the HUD's readouts step back while its disc is the lens, and a leader goes to the star", of("betelgeuse").some(r => r.rep.lensMix >= 1 && r.rep.presence >= 1 && r.rep.hudYield <= 0.2) && !!g.aim, "hud x" + Math.min(...of("betelgeuse").map(r => r.rep.hudYield)) + ", star at " + (g.aim || []).slice(0, 2).join(","))
+}
+check("the scene's names step back while the anatomy is up, and return with it off", home.rep.nameYield <= 0.25 && last("off").rep.nameYield === 1 && last("clock").rep.nameYield === 1, "x" + home.rep.nameYield + " at the Galaxy's home")
+// the ways home: Esc at a place and 0 are the one flight, and both say where we are
+{
+  const esc = of("esc at a place"), zero = of("key 0 from a place")
+  const flown = s => s.some(r => /flying|home|return/i.test(r.status) || r.rep.mix < 0.5) && s.filter(r => !r.rep.parked).length >= 8
+  check("Esc at a place flies home (the view stays the Milky Way's, the camera travels) and says Back home", esc.every(r => /^galaxy/.test(r.status)) && flown(esc) && esc[esc.length - 1].story === "Back home" && /Orion Arm/.test(esc[esc.length - 1].body), esc.filter(r => !r.rep.parked).length / 4 + " s under way")
+  check("0 flies the same way and says the same", flown(zero) && zero.some(r => r.story === "Back home"), zero.filter(r => !r.rep.parked).length / 4 + " s under way")
+  check("the text level set before the journeys is the level after them", esc[esc.length - 1].text.level === "names" && zero[zero.length - 1].text.level === "names" && zero[zero.length - 1].text.shown === "names")
+}
 // the system view
 const earth = last("earth"), saturn = last("saturn"), sun = last("sun")
+check("Earth pinned is large enough: drawn on the body", !earth.rep.lens && earth.rep.span >= 0.15 * earth.text.screens[0].safe.y1, earth.rep.span + " px")
 check("Earth pinned: its cores and mantle", earth.rep.subject === "earth" && ["innerCore", "outerCore", "mantle"].every(i => ids(earth).includes(i)), ids(earth).join(" "))
 check("a pinned planet comes to rest (the body moves, the view of it does not) and its headline is said", earth.rep.still && earth.story === "ANATOMY  ·  Earth" && /Iron at the centre/.test(earth.body), earth.story)
 check("Saturn pinned: its cloud tops and rings", saturn.rep.subject === "saturn" && ids(saturn).includes("cloudTops") && ids(saturn).some(i => /^ring/.test(i)), ids(saturn).join(" "))
 check("the pick's flight fades the lines", of("saturn").some(r => r.rep.mix < 1))
-check("the Sun in the squeezed overview: nothing outside it is drawn", sun.rep.subject === "sun" && !ids(sun).some(i => ["alfven", "terminationShock", "heliopause"].includes(i)), ids(sun).join(" ") || "nothing at this zoom")
+check("the Sun in the overview is small: in the lens, its core, tachocline and photosphere", sun.rep.subject === "sun" && sun.rep.lens && ["core", "tachocline", "photosphere"].every(i => ids(sun).includes(i)) && !ids(sun).some(i => ["terminationShock", "heliopause"].includes(i)), ids(sun).join(" "))
+check("the stage and the lens cross-fade", of("sun").some(r => r.rep.lensMix > 0 && r.rep.lensMix < 1) || of("sun").some(r => r.rep.mix < 1))
 // Sky mode
 const sky = last("sky")
-check("Sky mode: the Milky Way from inside", sky.rep.subject === "milkyWay" && sky.rep.rows.length > 0, ids(sky).join(" "))
-// a frame of its own
-const dj = last("demo jupiter"), dor = last("demo orion")
-check("anatomyDemo jupiter: Jupiter's rows without flying there", dj.rep.demo === "jupiter" && ids(dj).includes("cloudTops"), ids(dj).join(" "))
-check("anatomyDemo orion 6: the Trapezium and the Bar", ids(dor).includes("trapezium") && ids(dor).includes("bar"), ids(dor).join(" "))
-check("ending the demo returns to the view's own subject", last("demo off").rep.demo === "" && last("demo off").rep.subject === "milkyWay")
+check("Sky mode: the Milky Way from inside, on the sky itself", sky.rep.subject === "milkyWay" && !sky.rep.lens && sky.rep.rows.length > 0, ids(sky).join(" "))
+// anatomyDemo is a visit: it goes to the body and turns the anatomy on
+const dj = last("demo jupiter"), dor = last("demo orion"), ds = last("demo sun")
+check("anatomyDemo jupiter: the system view pinned on Jupiter, the anatomy on, drawn on the body", dj.rep.on && /^system/.test(dj.status) && dj.rep.subject === "jupiter" && !dj.rep.lens && ids(dj).includes("cloudTops"), ids(dj).join(" "))
+check("anatomyDemo orion: flown to, the Trapezium and the Bar on the picture", /^galaxy/.test(dor.status) && dor.rep.subject === "orion" && !dor.rep.lens && ids(dor).includes("trapezium") && ids(dor).includes("bar"), ids(dor).join(" "))
+check("anatomyDemo sun: the Sun in the lens", /^system/.test(ds.status) && ds.rep.subject === "sun" && ds.rep.lens && ids(ds).includes("photosphere"), ids(ds).join(" "))
 // off, and the idle wallpaper
 check("off: nothing drawn, and the band says so", last("off").rep.on === false && last("off").rep.drawn === "" && of("off").some(r => /^ANATOMY OFF/.test(r.story)))
 check("the idle wallpaper draws nothing with the setting on", last("idle").rep.on && last("idle").rep.drawn === "" && !last("idle").text.showing.includes("anatomy"))
@@ -74,14 +93,14 @@ for (const r of rows) {
       const b = x.label
       if (b.x < safe.x0 - 1 || b.y < safe.y0 - 1 || b.x + b.w > safe.x1 + 1 || b.y + b.h > safe.y1 + 1) out.push(r.stage + ":" + x.id + " label")
       const nx = Math.max(b.x, Math.min(b.x + b.w, hud.centre[0])), ny = Math.max(b.y, Math.min(b.y + b.h, hud.centre[1]))
-      if (r.text.showing.includes("cockpit") && Math.hypot(nx - hud.centre[0], ny - hud.centre[1]) < hud.radius - 3) out.push(r.stage + ":" + x.id + " label in the disc")
+      if (r.text.showing.includes("cockpit") && Math.hypot(nx - hud.centre[0], ny - hud.centre[1]) < (r.rep.lens ? r.rep.glass.d / 2 : hud.radius - 3)) out.push(r.stage + ":" + x.id + " label in the disc")
     }
   }
   if (r.rep.rows.filter(x => x.label).length > 7) out.push(r.stage + ": labels")
 }
 check("every line and label inside the safe rect, labels out of the HUD's disc, six labels and the one told at most (" + n + " rows drawn)", out.length === 0, [...new Set(out)].slice(0, 6).join(", "))
 // what the pass costs, a stage at a time (this machine's CPU, the software backend's JavaScript)
-for (const st of ["galaxy home", "hole", "earth", "saturn", "sky"]) {
+for (const st of ["galaxy home", "hole", "betelgeuse", "earth", "saturn", "sun", "sky"]) {
   const s = of(st)
   if (s.length < 2) continue
   const n = s[s.length - 1].rep.passes - s[0].rep.passes, ms = s[s.length - 1].rep.passMs - s[0].rep.passMs

@@ -3,18 +3,21 @@
 // The table (every body has rows, every row a tag, words that fit and a
 // source), the hole's rows against lib/kerr.js, the shapes (a sphere's
 // outline is a circle from every angle), the rules (size, chain, scale,
-// fold, the six labels, mathematics rows with K only) and the room (lines
-// and labels inside the safe rect, out of the HUD's disc and the rail).
+// fold, the six labels, mathematics rows with K only), the room (lines and
+// labels inside the safe rect, out of the HUD's disc and the rail), where a
+// body is drawn (on itself from 18% of the screen's height, else in the
+// lens, with the labels' column beside either) and what a pass depends on
+// (a view that moved by less than a pixel draws the same).
 // With Background.qml given: every place of the views has a record.
 const fs = require("fs"), path = require("path")
 const dir = path.dirname(process.argv[2])
 const read = f => fs.readFileSync(path.join(dir, f), "utf8").replace(".pragma library", "").replace(/^\.import .*$/mg, "")
 const Kerr = new Function(read("kerr.js") + "\nreturn { M, horizons, photonOrbit, polarPhotonOrbit, isco, horizonOmega, gasOmega, ksPoint, ergoRadius, shadowOutline, shadowBasis, shadowClass, impactAt, gasLight }")()
-const Lay = new Function(read("layout.js") + "\nreturn { plan, placeLabels, labelBoxAt, hudDisc, railRect, storyRect, textW, intersects, hits, inSafe }")()
+const Lay = new Function(read("layout.js") + "\nreturn { plan, placeLabels, labelBoxAt, hudDisc, hudExtent, hudAt, railRect, storyRect, textW, intersects, hits, inSafe }")()
 const Tx = new Function(read("text.js") + "\nreturn { words, read, hold, HOLD_MAX_S }")()
 const Data = new Function("Kerr", read("anatomy-data.js") + "\nreturn { BODIES, LIMITS }")(Kerr)
 const A = new Function("Kerr", "Lay", "Data", fs.readFileSync(process.argv[2], "utf8").replace(".pragma library", "").replace(/^\.import .*$/mg, "")
-  + "\nreturn { MIN_PX, MAX_SCREENS, FOLD_PX, MAX_LABELS, TAGS, KINDS, DASH, records, limits, byId, bySys, byPlace, byAt, chain, labelOf, factOf, drawn, basisOf, project, hull, outline, clip, dash, allowed, compose, composeChain, hit, wordsOf, rowGeometry, holeView, frameKey, demoCam }")(Kerr, Lay, Data)
+  + "\nreturn { MIN_PX, MAX_SCREENS, FOLD_PX, MAX_LABELS, TAGS, KINDS, DASH, records, limits, byId, bySys, byPlace, byAt, chain, labelOf, factOf, drawn, basisOf, project, hull, outline, clip, allowed, compose, callouts, hit, wordsOf, rowGeometry, holeView, probe, probeMoved, reachOf, stageSpan, onStage, choose, lensPower, LENS_POWER, lensSpan, lensFrame, lensEnv, draw, STAGE_ON, STAGE_OFF, LENS_IN }")(Kerr, Lay, Data)
 let fails = 0
 function check(name, ok, info) { console.log((ok ? "ok   " : "FAIL ") + name + (info !== undefined ? "  " + info : "")); if (!ok) fails++ }
 
@@ -23,9 +26,10 @@ const ctx = rec => ({ a: SPIN, rsKpc: 4.11e-10, unitS: rec.unitKm / 299792.458, 
 // a screen and its room: the laptop-like 1920x1080 with the cockpit up and a rail standing
 const lay = Lay.plan(1920, 1080, [0, 26, 0, 0], 0)
 const disc = Lay.hudDisc(lay, [0.03, -0.02]), rail = Lay.railRect(lay, 320)
+function tokOf(l) { return { name: l.tok.anat, num: l.tok.anatNum, gap: l.tok.gap, row: l.tok.row } }
 function env(o) {
-  return Object.assign({ W: lay.W, H: lay.H, safe: lay.safe, obstacles: [rail, disc], tok: lay.tok, sides: {}, math: false, lit: "",
-                         textW: (t, small) => Lay.textW(t.length, small ? lay.tok.micro : lay.tok.label, 0.11) }, o || {})
+  return Object.assign({ W: lay.W, H: lay.H, safe: lay.safe, obstacles: [rail, disc], avoid: [], tok: tokOf(lay), math: false, lit: "",
+                         textW: (t, small) => Lay.textW(t.length, small ? lay.tok.anatNum : lay.tok.anat, 0.11) }, o || {})
 }
 // a frame: the body at the origin, one unit a world unit, seen from (yaw, pitch) at distance d with the given view height in units
 function frame(view, yaw, pitch, o) {
@@ -176,10 +180,11 @@ function frame(view, yaw, pitch, o) {
   // the hull
   const h = A.hull([[0, 0], [2, 0], [2, 2], [0, 2], [1, 1], [1, 0.5]])
   check("the hull keeps the corners and drops what is inside", h.length === 4)
-  // dashes
-  const ln = []; for (let i = 0; i <= 100; i++) ln.push([i * 3, 0])
-  const dm = A.dash(ln, A.DASH.model), dd = A.dash(ln, A.DASH.mathematics)
-  check("measured is a solid line, a model dashed, mathematics dotted", A.dash(ln, A.DASH.measured).length === 1 && dm.length === 25 && dm.every(s => Math.abs(s[s.length - 1][0] - s[0][0] - 7) < 1e-6) && dd.length === 50 && dd.every(s => Math.abs(s[s.length - 1][0] - s[0][0] - 1.5) < 1e-6), dm.length + " dashes, " + dd.length + " dots in 300 px")
+  // dashes: the pass hands whole lines over, each with its tag's pattern for the renderer to cut
+  const hl = A.compose(A.byId("sgrA"), frame(20, 0.4, 0), ctx(A.byId("sgrA")), env({ obstacles: [], math: true }))
+  check("measured is a solid line, a model dashed, mathematics dotted: the pattern rides the row, the line stays whole",
+        hl.rows.every(r => r.dash === A.DASH[r.tag]) && A.DASH.measured === null && A.DASH.model.join() === "7,5" && A.DASH.mathematics.join() === "1.5,4.5" && hl.rows.find(r => r.id === "noSpin").segs.length === 1,
+        hl.rows.reduce((n, r) => n + r.segs.length + r.marks.length, 0) + " strokes for " + hl.rows.length + " rows")
 }
 
 // ---- 5. the rules, on Earth at three zooms ----
@@ -208,11 +213,12 @@ function frame(view, yaw, pitch, o) {
   const sun = A.byAt("sun")
   const frameOf = view => r => ({ frame: frame(view * (r.id === "sun" ? 1 : r.id === "milkyWay" ? 1 / 5e-11 : 1e30), 0.6, 0.9, { axis: [0, 0, 1] }) })
   // (a frame per record: the same eye, each record in its own unit; here only the Sun's and the Galaxy's zoom are set)
-  const near = A.composeChain(sun, r => r.id === "sun" ? { frame: frame(8, 0.6, 0.3) } : null, ctx(sun), e)
-  check("beside the Sun: the Sun's rows", near.id === "sun" && near.rows.map(r => r.id).join(" ") === "photosphere tachocline core", near.rows.map(r => r.id).join(" "))
-  const out = A.composeChain(sun, r => r.id === "sun" ? { frame: frame(1e9, 0.6, 0.9) } : r.id === "milkyWay" ? { frame: frame(34, 0.6, 0.9) } : null, ctx(sun), e)
-  check("from 34 kpc: none of the Sun's rows suits, the Milky Way's do", out.id === "milkyWay" && out.rows.some(r => r.id === "fermi") && out.rows.some(r => r.id === "sunOrbit") && out.rows.some(r => r.id === "bar"), out.rows.map(r => r.id).join(" "))
-  check("and from nowhere at all, nothing", A.composeChain(sun, r => null, ctx(sun), e) === null)
+  const pick = of => { const sel = A.choose(sun, of, e, null); return sel ? A.draw(sel, of, e, A.lensEnv(e, 400, null)) : null }
+  const near = pick(r => r.id === "sun" ? { frame: frame(8, 0.6, 0.3), c: ctx(sun) } : null)
+  check("beside the Sun: the Sun's rows", near.id === "sun" && !near.lens && near.rows.map(r => r.id).join(" ") === "photosphere tachocline core", near.rows.map(r => r.id).join(" "))
+  const out = pick(r => r.id === "sun" ? { frame: frame(1e9, 0.6, 0.9), c: ctx(sun) } : r.id === "milkyWay" ? { frame: frame(34, 0.6, 0.9), c: ctx(sun) } : null)
+  check("from 34 kpc: none of the Sun's rows suits, the Milky Way's do", out.id === "milkyWay" && !out.lens && out.rows.some(r => r.id === "fermi") && out.rows.some(r => r.id === "sunOrbit") && out.rows.some(r => r.id === "bar"), out.rows.map(r => r.id).join(" "))
+  check("and from nowhere at all, nothing", A.choose(sun, r => null, e, null) === null)
 }
 
 // ---- 6. every row that has a place can be drawn at some zoom, in its room ----
@@ -220,7 +226,7 @@ function frame(view, yaw, pitch, o) {
 const SCREENS = [["1920x1080", lay, disc, rail]].concat([["the box, 5120x2160", Lay.plan(5120, 2160, [0, 43, 0, 0], 0)], ["the laptop, 1728x1117 with its notch", Lay.plan(1728, 1117, [0, 32, 0, 0], 32)]]
   .map(([n, l]) => [n, l, Lay.hudDisc(l, [0.03, -0.02]), Lay.railRect(l, 0.3 * l.H)]))
 for (const [screen, lay, disc, rail] of SCREENS) {
-  const e = { W: lay.W, H: lay.H, safe: lay.safe, obstacles: [rail, disc], tok: lay.tok, sides: {}, math: true, lit: "", textW: (t, small) => Lay.textW(t.length, small ? lay.tok.micro : lay.tok.label, 0.11) }
+  const e = { W: lay.W, H: lay.H, safe: lay.safe, obstacles: [rail, disc], avoid: [Lay.hudExtent(lay)], tok: tokOf(lay), math: true, lit: "", textW: (t, small) => Lay.textW(t.length, small ? lay.tok.anatNum : lay.tok.anat, 0.11) }
   const never = [], outside = [], stacked = [], many = []
   let nRows = 0, nSegs = 0, nLabels = 0
   for (const rec of A.records()) {
@@ -237,6 +243,7 @@ for (const [screen, lay, disc, rail] of SCREENS) {
         nLabels++
         if (!Lay.inSafe(r.lab, e.safe) || Lay.hits(r.lab, disc) || Lay.hits(r.lab, rail)) outside.push(rec.id + "." + r.id + " (label)")
         for (const q of shown) if (q !== r && Lay.intersects(q.lab, r.lab)) stacked.push(rec.id + "." + r.id)
+        if (!r.lead || r.lab.h < 12 * 1.5 || lay.tok.anatNum < 12) stacked.push(rec.id + "." + r.id + " (leader or size)")
       }
     }
     for (const r of rec.rows) { if (r.shape) { nRows++; if (!seen[r.id]) never.push(rec.id + "." + r.id) } }
@@ -259,10 +266,16 @@ for (const [screen, lay, disc, rail] of SCREENS) {
   check("and keeps the last one while it glides on", glide.g.bright === rest.g.bright)
   // between two workings-out the last shape serves, scaled with the distance: the width it measures barely moves
   check("while it glides the last shape serves, scaled with the distance", Math.abs(glide.g.width - rest.g.width) < 0.02 && Math.abs(glide.rows.find(r => r.id === "shadow").size / rest.rows.find(r => r.id === "shadow").size - 17 / 17.2) < 0.01, glide.g.width.toFixed(3) + " " + rest.g.width.toFixed(3))
-  check("a frame's key: the same for the same view, another for another", A.frameKey(rec, f, c) === A.frameKey(rec, frame(17, 1.1, 0.3), c) && A.frameKey(rec, f, c) !== A.frameKey(rec, f2, c) && A.frameKey(rec, f, c) !== A.frameKey(rec, f, Object.assign({}, c, { a: 0.2 })))
-  const fd = frame(1, 0, 0); fd.cam = A.demoCam(fd, 12)
-  const demo = A.compose(rec, fd, c, env({ obstacles: [] }))
-  check("a frame of its own: the body in the middle of the screen, 12 units to the screen's height", !!demo && Math.abs(A.project(fd.cam, [0, 0, 0], env())[0] - lay.W / 2) < 1e-6 && Math.abs(Math.hypot(...fd.cam.C) - 12) < 1e-9, demo.rows.map(r => r.id).join(" "))
+  // the probe: what a pass depends on, in pixels
+  const E = env(), p0 = A.probe(f, c, E)
+  const creep = frame(17 * (1 + 2e-4), 1.1, 0.3), turn = frame(17, 1.1 + 2 / lay.H, 0.3), zoom = frame(17 * 1.004, 1.1, 0.3)
+  check("the same view probes the same; a camera creeping in by a fifth of a pixel is not a move", !A.probeMoved(p0, A.probe(frame(17, 1.1, 0.3), c, E), 0.75) && !A.probeMoved(p0, A.probe(creep, c, E), 0.75))
+  check("a turn of two pixels is a move, and so is a zoom of two", A.probeMoved(p0, A.probe(turn, c, E), 0.75) && A.probeMoved(p0, A.probe(zoom, c, E), 0.75) && A.probeMoved(null, p0, 0.75))
+  // a view the probe calls the same draws the same lines, to the pixel
+  let worst = 0
+  { const a = A.compose(rec, f, c, env({ obstacles: [] })), b = A.compose(rec, creep, c, env({ obstacles: [] }))
+    a.rows.forEach((r, i) => r.segs.forEach((s, j) => s.forEach((q, k) => { const w = b.rows[i].segs[j][k]; worst = Math.max(worst, Math.hypot(q[0] - w[0], q[1] - w[1])) }))) }
+  check("and a view within the probe's pixel draws its lines within a pixel", worst < 1, worst.toFixed(2) + " px")
 }
 
 // ---- 7. clipping, the row being told, pointing ----
@@ -278,13 +291,119 @@ for (const [screen, lay, disc, rail] of SCREENS) {
   const rec = A.byId("sgrA"), c = ctx(rec), f = frame(20, 0.4, 0)
   const plain = A.compose(rec, f, c, env({ obstacles: [] }))
   const last = plain.rows[plain.rows.length - 1]
-  check("six labels, the largest rows that find room", plain.rows.filter(r => r.lab.show).length === 6 && plain.rows[0].lab.show && plain.rows.every((r, i) => i === 0 || r.size <= plain.rows[i - 1].size), plain.rows.filter(r => r.lab.show).map(r => r.id).join(" "))
+  const lab = plain.rows.filter(r => r.lab.show)
+  check("six labels, the largest rows", lab.length === 6 && plain.rows.slice(0, 6).every(r => r.lab.show) && plain.rows.every((r, i) => i === 0 || r.size <= plain.rows[i - 1].size), lab.map(r => r.id).join(" "))
+  // the column: beside the drawing, outside it, one row a label, each with a leader from its own line
+  const all = plain.rows.flatMap(r => r.seen), x1 = Math.max(...all.map(q => q[0]))
+  check("the labels stand in one column outside the drawing, none on another, each led from its own line",
+        lab.every(r => r.lab.side === lab[0].lab.side && r.lab.x > x1 && r.lead && (r.at ? r.lead[0][0] === r.at[0] : r.seen.some(q => q[0] === r.lead[0][0] && q[1] === r.lead[0][1])))
+        && lab.every(r => lab.every(q => q === r || !Lay.intersects(q.lab, r.lab))), "x " + lab.map(r => Math.round(r.lab.x)).join(" ") + ", drawing to " + Math.round(x1))
+  const ys = lab.slice().sort((a, b) => a.lab.y - b.lab.y)
+  check("in the order of their anchors, so leaders do not cross", ys.every((r, i) => i === 0 || r.lead[0][1] >= ys[i - 1].lead[0][1]))
   const told = A.compose(rec, f, c, env({ obstacles: [], lit: last.id }))
   check("the row being told has its label too", told.rows.find(r => r.id === last.id).lab.show, last.id)
   // pointing at a line
   const sh = plain.rows.find(r => r.id === "shadow"), p = sh.segs[0][0]
   check("pointing at a line finds its row; pointing at nothing finds none", A.hit(plain, p[0] + 1, p[1] + 1, 6) !== "" && A.hit(plain, 3, 3, 6) === "" && A.hit(null, 0, 0, 6) === "")
   check("the words on screen, for the idle clock", Tx.words(A.wordsOf(plain)) > 6 && A.wordsOf(null) === "")
+}
+
+// ---- 8. where a body is drawn: on itself, or in the lens ----
+{
+  const big = Lay.plan(5120, 2160, [0, 43, 0, 0], 0)
+  const e = { W: big.W, H: big.H, lensD: 2 * 0.232 * big.hud.s * big.H, safe: big.safe, obstacles: [], avoid: [Lay.hudExtent(big)], tok: tokOf(big), math: false, lit: "", textW: (t, small) => Lay.textW(t.length, small ? big.tok.anatNum : big.tok.anat, 0.11) }
+  check("the stage from 18% of the screen's height, kept down to 15%", A.onStage(0.18 * 2160, 2160, false) && !A.onStage(0.17 * 2160, 2160, false) && A.onStage(0.16 * 2160, 2160, true) && !A.onStage(0.14 * 2160, 2160, true))
+  // the estimate the choice reads is the size the drawing has, wherever the choice is made (from 8% to 40% of the height)
+  const off = []
+  let nEst = 0
+  for (const rec of A.records()) for (let lg = 0; lg <= 5; lg += 0.1) {
+    if (rec.axis === "sight" || rec.rows.some(r => r.shape && r.shape.s === "seg")) continue   // (their frames here are not the view's: an ellipse on the sky seen askew, a bridge to a made-up place)
+    const c = ctx(rec), R = typeof rec.radius === "function" ? rec.radius(c) : rec.radius, f = frame(R * Math.pow(10, lg), 0.6, 0.35)
+    const est = A.stageSpan(rec, f, c, e)
+    if (est < 0.08 * e.H || est > 0.4 * e.H) continue
+    const o = A.compose(rec, f, c, e), got = o ? Math.max(...o.rows.map(r => r.size)) : 0
+    if (got > 1.2 * e.H) continue   // (a row at the edge of the size rule, 1.5 screens: the estimate may drop it a step sooner)
+    nEst++
+    if (Math.abs(est - got) > 0.12 * Math.max(est, got, 1)) off.push(rec.id + "@" + lg.toFixed(1) + " " + Math.round(est) + "/" + Math.round(got))
+  }
+  check("the size the choice reads is the drawing's largest row, within 12% (" + nEst + " views)", off.length === 0, off.slice(0, 8).join(", "))
+  // Earth: pinned small it goes to the lens, large it is drawn on itself; a held record takes the stage first
+  const earth = A.byId("earth"), ce = ctx(earth)
+  const at = (px, oneScale) => r => r.id === "earth" ? { frame: frame(6371 * 2 * big.H / px, 0.6, 0.35, { oneScale: oneScale }), c: ce } : null
+  const small = A.choose(earth, at(120, false), e, null), large = A.choose(earth, at(700, false), e, null), mid = at(0.165 * 2160, false)
+  check("Earth 120 px across in the squeezed overview: the lens; 700 px across: on the body", small.lens && small.id === "earth" && !large.lens && large.id === "earth", Math.round(small.span) + " px, " + Math.round(large.span) + " px")
+  check("between 15% and 18% the choice stays what it was", A.choose(earth, mid, e, null).lens && !A.choose(earth, mid, e, { id: "earth", lens: false }).lens)
+  const sun = A.byAt("sun"), home = r => r.id === "sun" ? { frame: frame(1e9, 0.6, 0.9), c: ctx(sun) } : r.id === "milkyWay" ? { frame: frame(34, 0.6, 0.9), c: ctx(sun) } : null
+  check("the Sun from 34 kpc is beyond the lens: its Galaxy answers, on the stage", (s => !s.lens && s.id === "milkyWay")(A.choose(sun, home, e, null)) && A.lensPower(sun, frame(1e9, 0.6, 0.9), ctx(sun), e) > A.LENS_POWER)
+  const star = lg => r => r.id === "sun" ? { frame: frame(Math.pow(10, lg), 0.6, 0.9), c: ctx(sun) } : r.id === "milkyWay" ? { frame: frame(Math.pow(10, lg) * 2.25e-11, 0.6, 0.9), c: ctx(sun) } : null
+  check("a star from a hundredth of a parsec: the star itself, in the lens, though its Galaxy has a line on the screen", (s => s.lens && s.id === "sun")(A.choose(sun, star(5.6), e, null)), "x" + A.lensPower(sun, frame(Math.pow(10, 5.6), 0.6, 0.9), ctx(sun), e).toExponential(1))
+  check("a drawing that came out empty stands aside: the next answer", (s => s && s.lens && s.id === "earth")(A.choose(earth, at(700, false), e, null, { "earth|S": true })) && A.choose(earth, at(700, false), e, null, { "earth|S": true, "earth|L": true }) === null)
+  // the lens: the same eye through a telescope, the body in the middle, to scale, inside the rim
+  const D = 2 * 0.232 * big.hud.s * big.H, h0 = Lay.hudAt(big, [0, 0]), to = [big.W / 2 - h0.cx + D / 2, big.H / 2 - h0.cy + D / 2]
+  const bad = [], spans = []
+  for (const rec of A.records()) {
+    const c = ctx(rec)
+    if (rec.id === "sgrDwarf") c.place = { rh: 2587, ell: 0.64, pa: 102 }
+    const R = typeof rec.radius === "function" ? rec.radius(c) : rec.radius
+    const f = frame(R * 300, 0.6, 0.35)
+    f.resolve = spec => spec === "sun" || spec.place || spec.toPlace ? null : [0.3 * R, 0.2 * R, 0.1 * R]   // a place of its own inside the body
+    const lf = A.lensFrame(rec, f, c, false), le = A.lensEnv(e, D, to)
+    const o = A.compose(rec, lf, c, le), mid = A.project(lf.cam, f.C, le)
+    if (lf.cam.C !== f.cam.C || Math.abs(mid[0] - D / 2) > 1e-6 || Math.abs(mid[1] - D / 2) > 1e-6) bad.push(rec.id + " (not the same eye, or the body is off the middle)")
+    if (!rec.rows.some(r => r.shape)) continue
+    if (!o) { bad.push(rec.id + " (nothing in the lens)"); continue }
+    if (!o.lens) bad.push(rec.id + " (not marked)")
+    spans.push(rec.id + " " + (A.lensSpan(rec, c, false) / R).toFixed(1))
+    for (const r of o.rows) {
+      for (const s of r.segs.concat(r.marks)) for (const q of s) if (Math.hypot(q[0] - D / 2, q[1] - D / 2) > A.LENS_IN * D / 2 + 0.01) bad.push(rec.id + "." + r.id + " (outside the rim)")
+      if (!r.lab.show) continue
+      // the label: outside the rim, on the subject's side, off the leader to the subject
+      const nx = Math.max(r.lab.x, Math.min(r.lab.x + r.lab.w, D / 2)), ny = Math.max(r.lab.y, Math.min(r.lab.y + r.lab.h, D / 2))
+      if (Math.hypot(nx - D / 2, ny - D / 2) < D / 2 + 2 * e.tok.gap || r.lab.side !== (to[0] > D / 2 ? 1 : -1)) bad.push(rec.id + "." + r.id + " (label in the lens or on the far side)")
+      const m = (to[1] - D / 2) / (to[0] - D / 2)
+      for (const x of [r.lab.x, r.lab.x + r.lab.w]) { const y = D / 2 + m * (x - D / 2); if ((x - to[0]) * (x - D / 2) < 0 && y > r.lab.y && y < r.lab.y + r.lab.h) bad.push(rec.id + "." + r.id + " (label on the leader)") }
+      for (const q of o.rows) if (q !== r && q.lab.show && Lay.intersects(q.lab, r.lab)) bad.push(rec.id + "." + r.id + " (labels stacked)")
+    }
+  }
+  check("every body in the lens: the same eye, the body in the middle, lines inside the rim, labels in a column outside it, clear of the leader", bad.length === 0, [...new Set(bad)].slice(0, 6).join(", "))
+  // the column keeps to the real screen: with the subject on the side where the screen ends, it stands on the other (the box, the laptop under its notch, 4:3)
+  {
+    const off = []
+    for (const l of [big, Lay.plan(1728, 1117, [0, 32, 0, 0], 32), Lay.plan(1600, 1200, [0, 26, 0, 0], 0)]) {
+      const d = 2 * 0.232 * l.hud.s * l.H, h = Lay.hudAt(l, [0, 0]), x0 = h.cx - d / 2, sway = l.hud.driftX * l.H
+      const el = Object.assign({}, e, { W: l.W, H: l.H, lensD: d, safe: l.safe, tok: tokOf(l), math: true, textW: (t, small) => Lay.textW(t.length, small ? l.tok.anatNum : l.tok.anat, 0.11) })
+      for (const aim of [[l.W / 2, l.H / 2], [l.W - 40, l.H / 2], null]) for (const rec of A.records()) {
+        const c = ctx(rec), R = typeof rec.radius === "function" ? rec.radius(c) : rec.radius
+        const o = A.compose(rec, A.lensFrame(rec, frame(R * 300, 0.6, 0.35), c, true), c, A.lensEnv(el, d, aim ? [aim[0] - x0, aim[1] - h.cy + d / 2] : null, { x0: l.safe.x0 - x0 + sway, x1: l.safe.x1 - x0 - sway }))
+        for (const r of o ? o.rows : []) if (r.lab.show && !(r.lab.x + x0 - sway >= l.safe.x0 && r.lab.x + r.lab.w + x0 + sway <= l.safe.x1 && r.lab.y + h.cy - d / 2 >= l.safe.y0 && r.lab.y + r.lab.h + h.cy - d / 2 <= l.safe.y1)) off.push(l.W + "x" + l.H + " " + rec.id + "." + r.id)
+      }
+    }
+    check("the lens's labels stay on the screen wherever the subject is and wherever the HUD drifts, on the box, the laptop and 4:3", off.length === 0, [...new Set(off)].slice(0, 5).join(", "))
+  }
+  const earthL = A.compose(earth, A.lensFrame(earth, frame(6371 * 300, 0.6, 0.35), ce, false), ce, A.lensEnv(e, D, to)), ids = earthL.rows.map(r => r.id)
+  const crust = earthL.rows.find(r => r.id === "crust") || earthL.rows.find(r => r.id === "mantle")
+  check("Earth in the lens, to scale: cores, mantle and the inner belt, the surface a third of the way to the rim's line", ["innerCore", "outerCore", "mantle", "innerBelt"].every(i => ids.includes(i)) && Math.abs(crust.size / D - 6371 * 0.8 / 19371) < 0.02, ids.join(" ") + "; Earth " + Math.round(crust.size) + " px of " + Math.round(D))
+  console.log("     the lens shows, in radii across: " + spans.join(", "))
+  // on the body, a planet's own surface lies on the limb the picture has (a ball of its mean radius); the lens shows the true flattening
+  {
+    const sat = A.byId("saturn"), cs = ctx(sat), fs = frame(58232 * 6, 0.6, 0.0, { focal: 1 }); fs.limb = sat.radius
+    const span = pts => [Math.max(...pts.map(q => q[0])) - Math.min(...pts.map(q => q[0])), Math.max(...pts.map(q => q[1])) - Math.min(...pts.map(q => q[1]))]
+    const on = span(A.rowGeometry(sat.rows.find(r => r.id === "cloudTops"), fs, cs, e).curves[0].pts), R = 2 * 58232 / Math.sqrt(36 * 58232 * 58232 - 58232 * 58232) * e.H
+    const inL = span(A.rowGeometry(sat.rows.find(r => r.id === "cloudTops"), A.lensFrame(sat, fs, cs, false), cs, A.lensEnv(e, D, to)).curves[0].pts)
+    check("Saturn's cloud tops on the body: the rendered ball's limb, to the pixel; in the lens: flattened by a tenth", Math.abs(on[0] - R) < 1 && Math.abs(on[1] - R) < 1 && Math.abs(inL[1] / inL[0] - 54364 / 60268) < 0.01, on.map(v => v.toFixed(1)).join(" x ") + " for " + R.toFixed(1) + "; lens " + (inL[1] / inL[0]).toFixed(3))
+  }
+  // and it stays the body's own line where the view squeezes distances (the overview's scale): only what is outside the ball waits
+  {
+    for (const id of ["jupiter", "saturn"]) {
+      const rec = A.byId(id), c = ctx(rec), f = frame(rec.radius * 4, 0.6, 0.2, { oneScale: false }); f.limb = rec.radius
+      const o = A.compose(rec, f, c, e), ids = o ? o.rows.map(r => r.id) : [], top = o ? o.rows.find(r => r.id === "cloudTops") : null
+      check(id + " in a squeezed view: its cloud tops are drawn, on the limb, and are the size the choice reads; nothing outside the ball is",
+            !!top && Math.abs(A.stageSpan(rec, f, c, e) - top.size) < 0.02 * top.size && !ids.some(i => /ring|torus|magnetopause/i.test(i)), ids.join(" ") + "; " + (top ? Math.round(top.size) : 0) + " px, read " + Math.round(A.stageSpan(rec, f, c, e)))
+    }
+  }
+  // the hole through the telescope: the shadow this eye sees, magnified
+  const hole = A.byId("sgrA"), ch = ctx(hole), fh = frame(400, 1.1, 0.3), oh = A.compose(hole, A.lensFrame(hole, fh, ch, false), ch, A.lensEnv(e, D, to))
+  check("the hole from 400 Rs in the lens: its shadow, horizon and spin axis", !!oh && ["shadow", "horizon", "spinAxis"].every(i => oh.rows.some(r => r.id === i)), oh ? oh.rows.map(r => r.id).join(" ") : "")
 }
 
 console.log(fails ? fails + " FAILED" : "all passed")

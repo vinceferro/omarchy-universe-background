@@ -220,12 +220,36 @@ view and for every body, from one table and one set of rules
 | Milky Way | the chosen place; at the Sun's place or in free flight, the Galaxy itself |
 | Sky mode | the Milky Way, seen from inside |
 
-When none of the subject's parts suits the zoom, the record that holds it
-takes over: beside the Sun you see the Sun's layers, from 100,000 light-years
-the Galaxy's bar, the Sun's orbit and the Fermi bubbles, from further still
-the Local Group. Where no line of the subject or of what holds it suits the
-zoom, `C` still answers: the story band names the subject and, at `full`,
-says its headline. Flight has no body, so nothing is drawn there.
+**Where it is drawn** follows from the subject's size on the screen, by one
+rule for every body (`choose()` in `lib/anatomy.js`):
+
+| The subject's largest line | Where | How |
+|---|---|---|
+| 18% of the screen's height or more | on the body | the lines lie on the picture, in the view's own projection: they hug the limb, the rings, the shadow |
+| smaller | in the lens | the HUD's disc becomes a lens: it shows the body from the same eye through a telescope, to scale, with the body's own layers and the rings or belts within four of its radii |
+
+In the lens the HUD's readouts dim to make room, the rim stays, and a thin
+leader runs from the rim to a small ring round the body itself. The two
+places cross-fade as the body grows or shrinks; once on the body, a drawing
+stays there down to 15%. The lens magnifies up to ten million times, enough
+for a Sun-like star from a parsec. Where that does not reach the subject,
+the record that holds it answers by the same rule: from the Galaxy's home
+the Sun is far beyond the lens, so you see the Galaxy's bar, the Sun's orbit
+and the Fermi bubbles on the picture, and from a million and a half
+light-years out its halo. (The Local Group's own lines answer only where
+neither the subject nor its Galaxy can be drawn, which no view inside the
+zoom's limit reaches today.) A drawing whose lines are all cut away or off
+the screen stands aside for the next answer, without a flicker, until the
+view moves. A subject with no line that can be drawn anywhere is still named in
+the story band, with its headline at `full`. Flight has no body, so nothing
+is drawn there.
+
+The labels stand in one column beside the drawing, outside the body and
+outside the lens's rim, each joined to its own line by a thin leader. Beside
+the lens the column stands on the subject's side, or on the other where the
+screen ends first (the laptop's corner HUD, a subject right of the disc).
+They are sized from the screen like the rest of the text: names 27 px and numbers
+23 px on a 2160 px screen, never under 14 and 12.
 
 **How a line tells you what it is.** One legend for every body:
 
@@ -245,9 +269,13 @@ says its headline. Flight has no body, so nothing is drawn there.
   only what is inside the body is drawn. Pin a planet, or use the chase
   view, and its surroundings appear at true scale.
 - At most six labels show at once: the part being told, then the largest
-  parts that find room.
+  parts.
 - Lines and labels stay inside the safe rect and out of the rail, the
-  caption, the HUD's disc and a story caption.
+  caption, the HUD's disc and a story caption; in the lens the lines end at
+  its rim.
+- While the anatomy is up, the scene's names (places, planets, markers)
+  step back to a fifth of their brightness, in every view, so the drawing
+  owns the picture. The card keeps the subject's name.
 
 **It uses what the text already has** ([Text](#text)). The lines show at
 every level, like the orbit lines; the names are `names`; the numbers are
@@ -257,8 +285,29 @@ fact is up. Any key ends that walk. Pointing at a line says its fact. Lines
 and labels sit on the idle clock like every other text: they fade after
 their reading time and any key or pointer movement brings them back, so a
 parked view keeps nothing lit. A flight to a place, the fall and the way
-home fade the lines; they return on arrival. The setting is remembered
+home fade the lines and take back what the band had still to say about the
+body left behind; the lines return on arrival. The setting is remembered
 across restarts.
+
+**What it costs.** Nothing while it is off, faded or away on a journey. While
+it is up, a drawing is worked out again only when its view moved by a pixel
+or what it shows changed: at most a fifth of the time while the view moves,
+and once more when the view has rested for 150 ms (the hole's exact shadow
+and the gas's light wait for that). The HUD's slow drift moves the lens as
+one item and the lines' room in steps of 8 px, and the renderer cuts the
+dashes. The measured numbers are under [Tests](#tests).
+
+**The planets' limbs.** The system view draws every planet as a ball of its
+mean radius. On the body, a planet's own surface line (Jupiter's and
+Saturn's cloud tops) lies on that ball's limb, so the line hugs the picture;
+its label gives the measured radii, and the lens, a drawing to scale, shows
+the true flattening. It is the body's own line: it stays drawn while the
+view squeezes distances (a planet a little way out of its pinned framing),
+where only what lies outside the ball waits. Saturn's rings are drawn where
+they are measured: the
+Cassini Division and the A ring's edge lie on the rendered ones, while the D
+and F rings and the C ring's inner edge are lines over rings the picture
+does not paint.
 
 **Sagittarius A\*.** The dark shape is the shadow, drawn where the render
 itself puts its edge (`shadowOutline()` in `lib/kerr.js` uses the shader's
@@ -283,10 +332,10 @@ its words in the table and is not drawn: ten of the 126 today.
 
 **What this build cannot show yet.**
 
-- The five single stars (Betelgeuse, Vega, Sirius, Alpha Centauri, Polaris)
-  have rows, but the Milky Way view cannot come closer to a place than
-  0.2 pc, far too far to see a star's surface. There `C` says the star's
-  name and headline; `anatomyDemo` shows the lines.
+- Alpha Centauri's two rows have no checked place yet, so `C` there names
+  the star and says its headline. The other single stars (Betelgeuse, Vega,
+  Sirius, Polaris) are drawn in the lens: the Milky Way view comes no closer
+  to a place than 0.2 pc, and the lens covers the rest.
 - The Sun's termination shock and heliopause need a view about 300 AU
   tall at true scale. The chase view from the Sun stops at 14 AU, so today
   it reaches the edge of the corona and no further.
@@ -424,7 +473,7 @@ angular size, north up. Near the Sun the model blends into the real sky.
 | `W` `A` `S` `D` | fly freely, level with the disk |
 | `[` `]` | time-lapse: the Galaxy turns (100,000 years/s up to 20 million years/s) |
 | `N` | back to now |
-| `Esc` | back to the universe |
+| `Esc` | from a place, a viewpoint or free flight: home, by the same flight as `0`; at home: back to the universe (or to the solar system, when the view was entered from it) |
 
 The time-lapse turns the disk around the Galactic Centre at the Sun's angular
 speed, one lap in about 203 million years, with the Sun bobbing through the
@@ -437,7 +486,9 @@ Home is one pose: the Sun in the middle of the screen with its Galaxy around
 it, marked SUN · YOU ARE HERE, its card in the rail. The view opens on it,
 and every return lands on it by the same flight (`gxHome` in
 `Background.qml`, scripted by `lib/camera.js`): `0`, a click on the Sun,
-`fly sun`, Esc during a fall and the end of both falls.
+`fly sun`, Esc at any place of the view or during a fall, and the end of
+both falls. Each of them ends with the same sentence in the story band; it
+is said at home only (leaving again before it has come up takes it back).
 
 Travel in this view is one law (`lib/camera.js` `Voyage`): the focus glides
 to the chosen place on a critically damped spring and the camera's distance
@@ -455,9 +506,10 @@ low over the disk, and once the picture is half back the same flight leaves
 from there: out along the disk to the Sun's place, the camera pulling back
 from 1.2 to 34 kpc and rising, the Centre on screen from the first frame to
 the last and the Sun's place in frame within two seconds. Seven seconds
-later it has landed: the Sun's marker and card come up, and after a fall the
-story band says "Back home: the Sun, one star in the Orion Arm, 26,600
-light-years from the black hole we just left". After a realistic fall the
+later it has landed: the Sun's marker and card come up, and the story band
+says "Back home: the Sun, one star in the Orion Arm, 26,600 light-years from
+the centre of the Milky Way", as it does after every return (0, a click on
+the Sun, `fly sun`, Esc at any place of the view). After a realistic fall the
 key hints then open with the invitation to the other ending (`K`, then `B`).
 The whole timeline is checked in `tests/test_camera.js` (continuity, what is
 in frame, the same at 60 and 165 Hz) and run for real by the headless fall.
@@ -735,8 +787,8 @@ Everything is reachable through the shell's IPC, `omarchy-shell background <func
 | `fallLook <yaw> <pitch>` | falling into the hole: look this many degrees right and up from the scripted view, held until the next drag or arrow (for tests and filming) |
 | `mathMode <true/false>` | mathematics mode: the fall follows the extended Kerr solution through the inner horizon and the ring into the other universe (not physics); takes effect at the next fall |
 | `anatomy <on/off/toggle>` | the anatomy layer, the `C` key (see [Anatomy](#anatomy)); remembered across restarts |
-| `anatomyDemo <body> <span>` | any body's anatomy without flying there, for checks: a record's id (`sgrA`, `sun`, `earth`, `saturn`, `orion`, `milkyWay` ...; `anatomyReport` lists them) in a frame of its own, the body in the middle of the screen seen from 20 degrees above its equator, `span` of its units to the screen's height (0: twelve of its radii). No captions; `anatomyDemo "" 0` ends it |
-| `anatomyReport` | prints, as JSON: the setting, the subject, the record drawn and every row of it (tag, size, strokes, label and where it stands, in the first screen's pixels), what the drawing measured (the shadow's width, the bright side's factor), how many passes were worked out and their milliseconds, and the table's ids |
+| `anatomyDemo <body>` | goes to a body of the table and turns its anatomy on: a record's id (`sgrA`, `sun`, `earth`, `saturn`, `orion`, `milkyWay` ...; `anatomyReport` lists them). A planet or the Sun is pinned in the system view, a place of the Milky Way view is flown to, the Milky Way and the Local Group go home (the Sun in its Galaxy, where the Milky Way's lines are drawn). What is drawn, and where, is the anatomy's own rule: on the body when it is large, in the lens when it is small |
+| `anatomyReport` | prints, as JSON: the setting, the subject, the record drawn and where (`lens`, with the lens's centre and width and the body's place on the screen), every row of it (tag, size, strokes, label and where it stands, in the first screen's pixels), what the drawing measured (the shadow's width, the bright side's factor), how far the names and the HUD have stepped back, how many passes were worked out and their milliseconds, and the table's ids |
 | `sky` | Sky mode, at the last view |
 | `skyView <1-7>` | Sky mode at a named view |
 | `text <level>` | the text level: `off`, `names` or `full`; `next` and `prev` cycle it (the `T` key); `toggle` is `toggleHud`. Remembered across restarts (see [Text](#text)) |
@@ -1101,12 +1153,52 @@ tracer running behind), and prints how much of the picture is white. `time=N`
 on `hole_layer.py` times the layer's draw.
 
 `tests/harness/anatomy.sh` runs the anatomy layer the same headless way
-(about three minutes): the views one after another with the layer on, checked
+(about four minutes): the views one after another with the layer on, checked
 by `anatomy_check.js` for JavaScript errors, the subject of each view, the
 fade on a journey and on the idle clock, the text levels, `K`, the walk
-through the story band, a
-star too far for its lines (named all the same) and the room the lines and
+through the story band, a star and the Sun in the lens (the disc, the rim,
+the labels' column, the HUD and the names stepping back), a pinned planet on
+the body, the ways home (Esc at a place and 0: the same flight, "Back home",
+the text level kept), `anatomyDemo`'s visits and the room the lines and
 labels keep. It also prints what a pass costs.
+
+`tests/harness/anatomy_cost.sh` measures what the layer costs a frame (about
+six minutes). It is the same headless run on the real scene graph with Qt's
+Null device (`QT_QUICK_BACKEND=rhi QSG_RHI_BACKEND=null`): Shape's curve
+renderer, the text and the batching do their CPU work, and nothing reaches a
+GPU or a screen. `anatomy_cost.qml` goes through the views with the layer off
+and on, at rest, arriving after a flight and orbiting, on the body and in
+the lens; `anatomy_cost.js` prints for each stage how many frames ran a
+pass, the pass time spread over every frame, its mean and longest time, the
+strokes and points handed to the renderer, the scene graph's time a frame,
+what every frame pays with nothing to redraw (the frames, the room, the
+choice, the probe) and one pass part by part (the geometry with its four
+dearest rows, fold, clip, labels, and at the hole the shadow's outline and
+the gas's light). It measures CPU time on the machine it runs on; the GPU's
+own time is outside it. Measured on the 5K box (i7-10700K, a 5120x2160
+screen), text level `full`, before (16 November 2026) and after (17
+November) the pass was tied to the view instead of the room:
+
+| View at rest | Passes a second, before | after | One pass, before | after | Strokes handed over, before | after |
+|---|---|---|---|---|---|---|
+| Sagittarius A* at 20 Rs | 10 to 22 | 0.3 | 5.1 to 5.9 ms | 4.0 ms | 667 | 26 |
+| Saturn pinned | 9 to 16 | 0.7 | 6.3 ms | 3.6 ms | 118 | 13 |
+| Earth pinned | 24 | 0.8 | 3.7 ms | 3.7 ms | 9 | 9 |
+| The Galaxy's home | 9 to 16 | 1.1 | 1.3 ms | 1.3 ms | 7 | 7 |
+| The Sun in the lens | (no lens) | 0 | | 0.9 ms | | 3 |
+| Sky mode | 3 | 0.6 | 0.8 ms | 0.7 ms | 2 | 2 |
+
+At rest the pass time spread over every frame is 0.02 to 0.06 ms (it was
+1.0 to 1.8 ms at the hole and at Saturn on the harness's 62 frames a
+second); what every frame pays with nothing to redraw is 0.05 to 0.11 ms.
+The few passes left at rest follow the HUD's drift in 8 px steps and the
+story band coming and going. Arriving at the hole, the 40 s after the flight
+(the camera settling, the walk through the lines) ran 706 passes before and
+72 after. Orbiting the hole, a pass ran on 41% of the frames at 6.7 ms
+before and runs about 30 times a second at 3.7 ms after (a line drawn with
+half its points while the view turns), 11% of the time; on a 165 Hz screen
+that is 0.7 ms a frame on average. With the layer off, faded on the idle
+clock or away on a journey no pass runs.
 
 `tests/harness/fall.sh [--math] [--esc <s>] [--gpu <driver>]` runs a whole fall headless
 (`--esc 30`: Esc thirty screen seconds in, and the way home from there):

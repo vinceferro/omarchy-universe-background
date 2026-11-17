@@ -9,7 +9,7 @@
 # every view draws its own subject, that a journey fades the lines and the
 # arrival brings them back, the idle clock fades them too, the text levels, K, the walk through the story
 # band, and that the lines and labels keep to the room the screen's plan
-# leaves. About three minutes. Needs qmlscene6 (qt6-declarative) and node.
+# leaves. About four minutes. Needs qmlscene6 (qt6-declarative) and node.
 set -e
 H=$(dirname "$(readlink -f "$0")"); WT=${WT:-$(dirname "$(dirname "$H")")}
 keep=""
@@ -24,5 +24,5 @@ ln -s "$WT/lib" "$RUN/run/lib"; ln -s "$WT/textures" "$RUN/run/textures"; for f 
 cp "$H/anatomy.qml" "$RUN/run/main.qml"
 cd "$RUN/run"
 QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 QML_IMPORT_PATH="$RUN/stub" \
-  timeout 300 qmlscene6 -I "$RUN/stub" main.qml > "$RUN/log" 2>&1 || true
+  timeout 420 qmlscene6 -I "$RUN/stub" main.qml > "$RUN/log" 2>&1 || true
 node "$H/anatomy_check.js" "$RUN/log"
