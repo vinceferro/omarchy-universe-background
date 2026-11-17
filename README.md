@@ -235,8 +235,12 @@ stays there down to 15%. The lens magnifies up to ten million times, enough
 for a Sun-like star from a parsec. Where that does not reach the subject,
 the record that holds it answers by the same rule: from the Galaxy's home
 the Sun is far beyond the lens, so you see the Galaxy's bar, the Sun's orbit
-and the Fermi bubbles on the picture, and from further still the Local
-Group. A subject with no line that can be drawn anywhere is still named in
+and the Fermi bubbles on the picture, and from a million and a half
+light-years out its halo. (The Local Group's own lines answer only where
+neither the subject nor its Galaxy can be drawn, which no view inside the
+zoom's limit reaches today.) A drawing whose lines are all cut away or off
+the screen stands aside for the next answer, without a flicker, until the
+view moves. A subject with no line that can be drawn anywhere is still named in
 the story band, with its headline at `full`. Flight has no body, so nothing
 is drawn there.
 
@@ -781,7 +785,7 @@ Everything is reachable through the shell's IPC, `omarchy-shell background <func
 | `fallLook <yaw> <pitch>` | falling into the hole: look this many degrees right and up from the scripted view, held until the next drag or arrow (for tests and filming) |
 | `mathMode <true/false>` | mathematics mode: the fall follows the extended Kerr solution through the inner horizon and the ring into the other universe (not physics); takes effect at the next fall |
 | `anatomy <on/off/toggle>` | the anatomy layer, the `C` key (see [Anatomy](#anatomy)); remembered across restarts |
-| `anatomyDemo <body>` | goes to a body of the table and turns its anatomy on: a record's id (`sgrA`, `sun`, `earth`, `saturn`, `orion`, `milkyWay` ...; `anatomyReport` lists them). A planet or the Sun is pinned in the system view, a place of the Milky Way view is flown to, the Milky Way and the Local Group are shown from home. What is drawn, and where, is the anatomy's own rule: on the body when it is large, in the lens when it is small |
+| `anatomyDemo <body>` | goes to a body of the table and turns its anatomy on: a record's id (`sgrA`, `sun`, `earth`, `saturn`, `orion`, `milkyWay` ...; `anatomyReport` lists them). A planet or the Sun is pinned in the system view, a place of the Milky Way view is flown to, the Milky Way and the Local Group go home (the Sun in its Galaxy, where the Milky Way's lines are drawn). What is drawn, and where, is the anatomy's own rule: on the body when it is large, in the lens when it is small |
 | `anatomyReport` | prints, as JSON: the setting, the subject, the record drawn and where (`lens`, with the lens's centre and width and the body's place on the screen), every row of it (tag, size, strokes, label and where it stands, in the first screen's pixels), what the drawing measured (the shadow's width, the bright side's factor), how far the names and the HUD have stepped back, how many passes were worked out and their milliseconds, and the table's ids |
 | `sky` | Sky mode, at the last view |
 | `skyView <1-7>` | Sky mode at a named view |

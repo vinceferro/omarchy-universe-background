@@ -210,7 +210,7 @@ Item {
   // size has to fall to 15% to go back. The lens magnifies up to ten
   // million times; where that does not reach the subject, the record that
   // holds it answers by the same rule (the Sun from the Galaxy's home: its
-  // Galaxy, then the Local Group).
+  // Galaxy).
   //
   // It joins what the text already has, with no rule of its own: the lines
   // are a drawing (shown at every level, like the orbit lines), the names
@@ -286,7 +286,7 @@ Item {
       let i = -1
       if (rec.place !== undefined) i = placeIndex(rec.place)
       else if (rec.dwarf) { for (let j = hotspots.length + 1; j <= hotspots.length + dwarfPlaces.length && i < 0; j++) if (Anat.byPlace(place(j).name, true) === rec) i = j }
-      gxFlyTo(i)                                  // the Milky Way and the Local Group: from home
+      gxFlyTo(i)                                  // the Milky Way and the Local Group: home, where the rule draws the Milky Way
     }
     setAnatomy("on")
   }
@@ -428,10 +428,13 @@ Item {
     const env = { W: L0.W, H: L0.H, lensD: D, safe: L0.safe, obstacles: room.obstacles, avoid: room.avoid, key: "S|" + room.key + "|" + mode, math: mathMode, lit: anatLit, still: true,
                   tok: { name: L0.tok.anat, num: L0.tok.anatNum, gap: L0.tok.gap, row: L0.tok.row }, textW: anatTextW }
     // the choice: on the body or in the lens (a few multiplications a row)
-    // (a drawing that came out empty, its lines all cut away, stands aside for two seconds)
-    const first = !R.sel, skip = {}
-    for (const k in R.blank) { if (R.blank[k] > now) skip[k] = true; else delete R.blank[k] }
-    const sel = Anat.choose(rec, frameOf, env, R.sel, skip)
+    // (a drawing that came out empty, its lines all cut away, stands aside
+    // for half a second, and for as long after as the view of the one that
+    // answers in its place has not moved: a view at rest is not tried again,
+    // and a try that comes out empty again changes nothing on the screen)
+    const first = !R.sel, skip = {}, was = R.sel, up = was ? (was.lens ? R.glass : R.stage) : null
+    for (const k in R.blank) { const b = R.blank[k]; if (b.until > now || (up && up.key !== "" && up.movedAt < b.at && b.mode === mode)) skip[k] = true; else delete R.blank[k] }
+    const sel = Anat.choose(rec, frameOf, env, was, skip)
     R.sel = sel
     mix.lens.g = sel && sel.lens ? 1 : 0
     if (first || m < 0.02) mix.lens.set(mix.lens.g)
@@ -458,7 +461,11 @@ Item {
     const gl = anatKeep(R.glass, anatGlass, inLens, frameOf, env, lensE, now)
     if (gl !== anatGlass) anatGlass = gl
     const out = sel ? (sel.lens ? gl : st) : null
-    if (sel && !out && (sel.lens ? R.glass : R.stage).key !== "") R.blank[sel.id + (sel.lens ? "|L" : "|S")] = now + 2000
+    if (sel && !out && (sel.lens ? R.glass : R.stage).key !== "") {
+      R.blank[sel.id + (sel.lens ? "|L" : "|S")] = { at: now, until: now + 500, mode: mode }
+      // the drawing that is up stays: the next tick chooses again without this one
+      if (anatOut && was && (was.id !== sel.id || was.lens !== sel.lens)) { R.sel = was; mix.lens.g = was.lens ? 1 : 0; return }
+    }
     if (out !== anatOut) {
       anatOut = out
       anatWords = Tx.words(Anat.wordsOf(out))
@@ -3595,8 +3602,9 @@ Item {
     // go to a body of the table (a record's id: anatomyReport lists them)
     // and turn its anatomy on: a planet or the Sun is pinned in the system
     // view, a place of the Milky Way view is flown to, the Milky Way and the
-    // Local Group are shown from home. What is then drawn, and where, is
-    // the anatomy's one rule: on the body when it is large, else in the lens
+    // Local Group go home (the Sun in its Galaxy, where the Milky Way's lines
+    // are drawn). What is then drawn, and where, is the anatomy's one rule:
+    // on the body when it is large, else in the lens
     function anatomyDemo(body: string): void {
       root.anatGo(body)
     }
