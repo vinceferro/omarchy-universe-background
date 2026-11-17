@@ -207,7 +207,10 @@ Item {
   // itself, in the view's own projection (anatStage); smaller, it is drawn
   // in the lens (anatGlass): the HUD's disc shows it through a telescope
   // from the same eye, to scale, the HUD's readouts dimmed, a leader from
-  // the rim to where the body is. The two cross-fade (anatLens), and the
+  // the rim to where the body is. The lens is the anatomy's, not the
+  // cockpit's: with the cockpit off (`names`, `off`) it stands alone in the
+  // disc's place of the plan (Lay.hudAt), glass, rim, lines and leader with
+  // no gauge, and the scene's names keep out of it as they do of the disc. The two cross-fade (anatLens), and the
   // size has to fall to 15% to go back. The lens magnifies up to ten
   // million times; where that does not reach the subject, the record that
   // holds it answers by the same rule (the Sun from the Galaxy's home: its
@@ -244,12 +247,13 @@ Item {
   property string anatLit: ""                     // the row being told
   property var anatPointer: null                  // the pointer, in the first screen's pixels
   function anatSlot() { return { key: "", probe: null, movedAt: 0, still: true, at: 0, last: 0, sel: null } }
-  readonly property var anatRun: ({ sel: null, stage: anatSlot(), glass: anatSlot(), blank: ({}), said: "", subject: "", walk: null, hover: "", c: null, readoutUntil: 0, passes: 0, ms: 0 })
+  readonly property var anatRun: ({ sel: null, stage: anatSlot(), glass: anatSlot(), blank: ({}), said: "", subject: "", walk: null, hover: "", c: null, readoutUntil: 0, passes: 0, ms: 0, arrived: false })
   readonly property real anatLevel: Math.min(0.75, hudBrightness * 1.8)   // the lines' brightness: the hints'
   // the scene's names while the anatomy is up: one rule for every view
   readonly property real nameYield: 1 - 0.8 * anatMix * presAnat
-  // the HUD's readouts while its disc is the lens
-  readonly property real lensYield: 1 - 0.85 * anatMix * presAnat * anatLens
+  // how far the lens is up, and the HUD's readouts while its disc is the lens
+  readonly property real lensUp: anatMix * presAnat * anatLens
+  readonly property real lensYield: 1 - 0.85 * lensUp
   readonly property var anatHint: ["C", "anatomy: show / hide what it is made of"]
   // the lens on a screen: the dial's rim
   function anatLensD(l) { return 2 * Lay.DIAL.RIM * l.hud.s * l.H }
@@ -276,7 +280,11 @@ Item {
     stdout: StdioCollector { onStreamFinished: if (String(text || "").trim() === "on") root.anatomy = true }
   }
   // IPC anatomyDemo: go to a body of the table and turn its anatomy on (the
-  // rule above then draws it on the body or in the lens, as for any visit)
+  // rule above then draws it on the body or in the lens, as for any visit).
+  // It returns at once; the drawing comes when the visit has landed: the
+  // whole flight (about 11 s from home to the hole), the view at rest, then
+  // the headline. About 20 s in all: a script polls anatomyReport for
+  // `parked`, `still` and `drawn` rather than sleeping.
   function anatGo(id) {
     const rec = Anat.byId(String(id || "").trim())
     if (!rec || !emptyWorkspace) return
@@ -409,7 +417,7 @@ Item {
     const R = anatRun
     const rec = anatomy && liveBackground ? anatSubject() : null
     const parked = rec && anatParked() ? 1 : 0
-    if (parked && mix.anat.g === 0) Tx.touchZone(textModel, "anat")   // an arrival brings the lines back, like a key
+    if (parked && mix.anat.g === 0) { Tx.touchZone(textModel, "anat"); R.arrived = true }   // an arrival brings the lines back, like a key
     if (anatomy && !parked && mix.anat.g === 1) gone("anatomy")       // a journey begins: the body left behind is said no more, and its caption up goes at once
     mix.anat.g = parked
     const m = mix.anat.step(dt)
@@ -474,6 +482,10 @@ Item {
       anatWords = Tx.words(Anat.wordsOf(out))
       R.c = out ? frameOf(Anat.byId(out.id)).c : null
     }
+    // like a key: the drawing an arrival brings stays a glance and its
+    // labels' reading time, however long the flight ran the idle clock down
+    // (at `names` and `off` no walk through the story band holds it up)
+    if (R.arrived && out) { R.arrived = false; Tx.touchZone(textModel, "anat", Tx.hold(anatWords)) }
     const settled = sel ? (sel.lens ? R.glass.still : R.stage.still) : true
     // what it says, at `full`: the body's headline when the drawing becomes
     // another body's (where no line of it can be drawn, the subject's own,
@@ -2184,8 +2196,10 @@ Item {
     if (railNow > 0) keep.push(Lay.railRect(l, railNow))
     if (captionUp) keep.push(Lay.captionRect(l, l.caption.maxH))
     const cover = keep.slice()   // where a dot hides too: the rail, the caption
+    // the disc's place in the plan is taken by the cockpit, or by the
+    // anatomy's lens alone when the cockpit is off: names keep out of both
     let disc = null
-    if (gateCockpit > 0.01) {
+    if (gateCockpit > 0.01 || lensUp > 0.01) {
       disc = Lay.hudDisc(l, [hudDrift.x, hudDrift.y])
     }
     return { keep: keep, cover: cover, disc: disc,
@@ -4811,14 +4825,14 @@ Item {
       }
       Loader {
         id: anatGlassLayer
-        active: panel.live && !!root.anatGlass && root.anatMix * root.presAnat * root.anatLens > 0.004
+        active: panel.live && !!root.anatGlass && root.lensUp > 0.004
         sourceComponent: Component {
           Item {
             id: glass
             readonly property real d: root.anatLensD(panel.lay)
             readonly property real k: d / root.anatLensD(root.lay0)
             x: panel.hudCx - d / 2; y: panel.hudCy - d / 2; width: d; height: d
-            opacity: root.anatMix * root.presAnat * root.anatLens
+            opacity: root.lensUp
             // the glass: the scene dimmed inside the rim, so the lines read as a drawing
             Rectangle { anchors.fill: parent; radius: glass.d / 2; color: Qt.rgba(0, 0, 0, 0.6); border.width: 1.2; border.color: Qt.alpha(Color.foreground, root.anatLevel * 0.8) }
             AnatDrawing { out: root.anatGlass; host: panel.under; tok: panel.tok; kx: glass.k; ky: glass.k }

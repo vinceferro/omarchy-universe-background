@@ -52,6 +52,15 @@ check("a star too small on the screen: drawn in the lens, to scale, its name and
         && labels.every(x => Math.hypot(Math.max(x.label.x, Math.min(x.label.x + x.label.w, g.cx)) - g.cx, Math.max(x.label.y, Math.min(x.label.y + x.label.h, g.cy)) - g.cy) > g.d / 2), JSON.stringify(g) + " " + labels.length + " labels")
   check("the HUD's readouts step back while its disc is the lens, and a leader goes to the star", of("betelgeuse").some(r => r.rep.lensMix >= 1 && r.rep.presence >= 1 && r.rep.hudYield <= 0.2) && !!g.aim, "hud x" + Math.min(...of("betelgeuse").map(r => r.rep.hudYield)) + ", star at " + (g.aim || []).slice(0, 2).join(","))
 }
+// the lens is the anatomy's own: with the cockpit off (the level `names`) it stands alone in the disc's place of the plan,
+// and the arrival holds it up for a glance and its labels' reading time, as a key would (5 s + at least 3 s)
+{
+  const s = of("betelgeuse at names"), up = s.filter(r => r.rep.parked && r.rep.lens && r.rep.drawn === "betelgeuse" && r.rep.lensMix >= 1 && r.rep.mix >= 1 && r.rep.presence >= 1)
+  const one = up[up.length - 1] || last("nothing"), g = one.rep.glass || {}, hud = one.text.screens[0] ? one.text.screens[0].hud : { centre: [0, 0], radius: 0 }
+  check("the cockpit off (names): the lens is drawn all the same, alone, with the star's lines and labels", up.length > 0 && up.every(r => r.text.shown === "names" && !r.text.showing.includes("cockpit") && r.text.showing.includes("anatomy") && r.rep.rows.some(x => x.id === "surface" && x.strokes > 0) && r.rep.rows.some(x => x.label)), up.length + " rows, showing " + (one.text.showing || []).join(" "))
+  check("in the disc's place of the plan, a leader to the star", Math.abs(g.cx - hud.centre[0]) < 2 && Math.abs(g.cy - hud.centre[1]) < 2 && g.d > 0 && g.d < 2 * hud.radius && !!g.aim, JSON.stringify(g))
+  check("an arrival holds the lens up for a glance and its reading time (8 s or more), then the idle clock takes it", up.length / 4 >= 7.5 && s[s.length - 1].rep.presence === 0, up.length / 4 + " s")
+}
 check("the scene's names step back while the anatomy is up, and return with it off", home.rep.nameYield <= 0.25 && last("off").rep.nameYield === 1 && last("clock").rep.nameYield === 1, "x" + home.rep.nameYield + " at the Galaxy's home")
 // the ways home: Esc at a place and 0 are the one flight, and both say where we are
 {

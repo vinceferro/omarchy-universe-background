@@ -9,7 +9,8 @@
 # every view draws its own subject, that a journey fades the lines and the
 # arrival brings them back, the idle clock fades them too, the text levels, K, the walk through the story
 # band, and that the lines and labels keep to the room the screen's plan
-# leaves. About four minutes. Needs qmlscene6 (qt6-declarative) and node.
+# leaves, and that the lens stands alone in the disc's place with the cockpit
+# off. About three minutes. Needs qmlscene6 (qt6-declarative) and node.
 set -e
 H=$(dirname "$(readlink -f "$0")"); WT=${WT:-$(dirname "$(dirname "$H")")}
 keep=""
