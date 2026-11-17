@@ -285,7 +285,8 @@ fact is up. Any key ends that walk. Pointing at a line says its fact. Lines
 and labels sit on the idle clock like every other text: they fade after
 their reading time and any key or pointer movement brings them back, so a
 parked view keeps nothing lit. A flight to a place, the fall and the way
-home fade the lines; they return on arrival. The setting is remembered
+home fade the lines and take back what the band had still to say about the
+body left behind; the lines return on arrival. The setting is remembered
 across restarts.
 
 **What it costs.** Nothing while it is off, faded or away on a journey. While
@@ -486,7 +487,8 @@ it, marked SUN · YOU ARE HERE, its card in the rail. The view opens on it,
 and every return lands on it by the same flight (`gxHome` in
 `Background.qml`, scripted by `lib/camera.js`): `0`, a click on the Sun,
 `fly sun`, Esc at any place of the view or during a fall, and the end of
-both falls. Each of them ends with the same sentence in the story band.
+both falls. Each of them ends with the same sentence in the story band; it
+is said at home only (leaving again before it has come up takes it back).
 
 Travel in this view is one law (`lib/camera.js` `Voyage`): the focus glides
 to the chosen place on a critically damped spring and the camera's distance

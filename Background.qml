@@ -408,6 +408,7 @@ Item {
     const rec = anatomy && liveBackground ? anatSubject() : null
     const parked = rec && anatParked() ? 1 : 0
     if (parked && mix.anat.g === 0) Tx.touchZone(textModel, "anat")   // an arrival brings the lines back, like a key
+    if (rec && !parked && mix.anat.g === 1) say("anatomy", "", "")    // a journey begins: nothing more about the body left behind comes up
     mix.anat.g = parked
     const m = mix.anat.step(dt)
     if (m !== anatMix) anatMix = m
@@ -944,7 +945,7 @@ Item {
     keysDown = ({})
     touchText()   // a view entered from a script or a binding brings its text up like a key does
     Hyprland.refreshMonitors()   // the bar may have come or gone: the safe rect follows
-    if (explore !== "galaxy") { gxRateIndex = 0; fallReset() }
+    if (explore !== "galaxy") { gxRateIndex = 0; fallReset(); say("home", "", "") }
     if (explore !== "system") {
       chasing = false
       galactic = false
@@ -1275,6 +1276,7 @@ Item {
     if (fallState) return
     const v = gxViews[i]
     const o = LG.viewFrom(hotspotPos(gxIndex(v.from)), v.at, v.standoff)
+    say("home", "", "")
     gxFallArmed = false
     gxSel = -2
     gxFree = v.at.slice()
@@ -1596,6 +1598,7 @@ Item {
   function gxFlyTo(i) {
     if (fallState) return   // below the horizon, or on the way: nothing steers
     if (i === -1) { gxHome(); return }
+    say("home", "", "")     // leaving again: "Back home" is said at home only
     gxFallArmed = false
     gxView = -1
     touchText()
@@ -2457,7 +2460,7 @@ Item {
       if (inView && !fallState) {
         const mv = [key("d") - key("a"), key("w") - key("s")]
         if (mv[0] !== 0 || mv[1] !== 0) {
-          if (gxSel !== -2) { gxFree = gxTarget.slice(); gxSel = -2 }
+          if (gxSel !== -2) { gxFree = gxTarget.slice(); gxSel = -2; say("home", "", "") }
           gxView = -1
           const fh = Math.hypot(fwd.x, fwd.y) > 1e-3 ? [fwd.x / Math.hypot(fwd.x, fwd.y), fwd.y / Math.hypot(fwd.x, fwd.y)] : [up.x, up.y]
           const v = gxDist * 0.9 * dt
