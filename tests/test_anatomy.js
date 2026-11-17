@@ -392,6 +392,15 @@ for (const [screen, lay, disc, rail] of SCREENS) {
     const inL = span(A.rowGeometry(sat.rows.find(r => r.id === "cloudTops"), A.lensFrame(sat, fs, cs, false), cs, A.lensEnv(e, D, to)).curves[0].pts)
     check("Saturn's cloud tops on the body: the rendered ball's limb, to the pixel; in the lens: flattened by a tenth", Math.abs(on[0] - R) < 1 && Math.abs(on[1] - R) < 1 && Math.abs(inL[1] / inL[0] - 54364 / 60268) < 0.01, on.map(v => v.toFixed(1)).join(" x ") + " for " + R.toFixed(1) + "; lens " + (inL[1] / inL[0]).toFixed(3))
   }
+  // and it stays the body's own line where the view squeezes distances (the overview's scale): only what is outside the ball waits
+  {
+    for (const id of ["jupiter", "saturn"]) {
+      const rec = A.byId(id), c = ctx(rec), f = frame(rec.radius * 4, 0.6, 0.2, { oneScale: false }); f.limb = rec.radius
+      const o = A.compose(rec, f, c, e), ids = o ? o.rows.map(r => r.id) : [], top = o ? o.rows.find(r => r.id === "cloudTops") : null
+      check(id + " in a squeezed view: its cloud tops are drawn, on the limb, and are the size the choice reads; nothing outside the ball is",
+            !!top && Math.abs(A.stageSpan(rec, f, c, e) - top.size) < 0.02 * top.size && !ids.some(i => /ring|torus|magnetopause/i.test(i)), ids.join(" ") + "; " + (top ? Math.round(top.size) : 0) + " px, read " + Math.round(A.stageSpan(rec, f, c, e)))
+    }
+  }
   // the hole through the telescope: the shadow this eye sees, magnified
   const hole = A.byId("sgrA"), ch = ctx(hole), fh = frame(400, 1.1, 0.3), oh = A.compose(hole, A.lensFrame(hole, fh, ch, false), ch, A.lensEnv(e, D, to))
   check("the hole from 400 Rs in the lens: its shadow, horizon and spin axis", !!oh && ["shadow", "horizon", "spinAxis"].every(i => oh.rows.some(r => r.id === i)), oh ? oh.rows.map(r => r.id).join(" ") : "")

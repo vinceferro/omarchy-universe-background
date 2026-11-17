@@ -296,7 +296,10 @@ dashes. The measured numbers are under [Tests](#tests).
 mean radius. On the body, a planet's own surface line (Jupiter's and
 Saturn's cloud tops) lies on that ball's limb, so the line hugs the picture;
 its label gives the measured radii, and the lens, a drawing to scale, shows
-the true flattening. Saturn's rings are drawn where they are measured: the
+the true flattening. It is the body's own line: it stays drawn while the
+view squeezes distances (a planet a little way out of its pinned framing),
+where only what lies outside the ball waits. Saturn's rings are drawn where
+they are measured: the
 Cassini Division and the A ring's edge lie on the rendered ones, while the D
 and F rings and the C ring's inner edge are lines over rings the picture
 does not paint.
