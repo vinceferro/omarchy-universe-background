@@ -366,6 +366,20 @@ for (const [screen, lay, disc, rail] of SCREENS) {
     }
   }
   check("every body in the lens: the same eye, the body in the middle, lines inside the rim, labels in a column outside it, clear of the leader", bad.length === 0, [...new Set(bad)].slice(0, 6).join(", "))
+  // the column keeps to the real screen: with the subject on the side where the screen ends, it stands on the other (the box, the laptop under its notch, 4:3)
+  {
+    const off = []
+    for (const l of [big, Lay.plan(1728, 1117, [0, 32, 0, 0], 32), Lay.plan(1600, 1200, [0, 26, 0, 0], 0)]) {
+      const d = 2 * 0.232 * l.hud.s * l.H, h = Lay.hudAt(l, [0, 0]), x0 = h.cx - d / 2, sway = l.hud.driftX * l.H
+      const el = Object.assign({}, e, { W: l.W, H: l.H, lensD: d, safe: l.safe, tok: tokOf(l), math: true, textW: (t, small) => Lay.textW(t.length, small ? l.tok.anatNum : l.tok.anat, 0.11) })
+      for (const aim of [[l.W / 2, l.H / 2], [l.W - 40, l.H / 2], null]) for (const rec of A.records()) {
+        const c = ctx(rec), R = typeof rec.radius === "function" ? rec.radius(c) : rec.radius
+        const o = A.compose(rec, A.lensFrame(rec, frame(R * 300, 0.6, 0.35), c, true), c, A.lensEnv(el, d, aim ? [aim[0] - x0, aim[1] - h.cy + d / 2] : null, { x0: l.safe.x0 - x0 + sway, x1: l.safe.x1 - x0 - sway }))
+        for (const r of o ? o.rows : []) if (r.lab.show && !(r.lab.x + x0 - sway >= l.safe.x0 && r.lab.x + r.lab.w + x0 + sway <= l.safe.x1 && r.lab.y + h.cy - d / 2 >= l.safe.y0 && r.lab.y + r.lab.h + h.cy - d / 2 <= l.safe.y1)) off.push(l.W + "x" + l.H + " " + rec.id + "." + r.id)
+      }
+    }
+    check("the lens's labels stay on the screen wherever the subject is and wherever the HUD drifts, on the box, the laptop and 4:3", off.length === 0, [...new Set(off)].slice(0, 5).join(", "))
+  }
   const earthL = A.compose(earth, A.lensFrame(earth, frame(6371 * 300, 0.6, 0.35), ce, false), ce, A.lensEnv(e, D, to)), ids = earthL.rows.map(r => r.id)
   const crust = earthL.rows.find(r => r.id === "crust") || earthL.rows.find(r => r.id === "mantle")
   check("Earth in the lens, to scale: cores, mantle and the inner belt, the surface a third of the way to the rim's line", ["innerCore", "outerCore", "mantle", "innerBelt"].every(i => ids.includes(i)) && Math.abs(crust.size / D - 6371 * 0.8 / 19371) < 0.02, ids.join(" ") + "; Earth " + Math.round(crust.size) + " px of " + Math.round(D))

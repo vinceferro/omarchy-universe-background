@@ -447,7 +447,8 @@ Item {
     }
     if (!aim ? !!anatAim : !anatAim || Math.hypot(aim[0] - anatAim[0], aim[1] - anatAim[1]) > 0.5 || Math.abs(aim[2] - anatAim[2]) > 0.5) anatAim = aim
     const to = aim ? [Math.round((aim[0] - h0.cx + D / 2) / 16) * 16, Math.round((aim[1] - h0.cy + D / 2) / 16) * 16] : null
-    const lensE = Anat.lensEnv(env, D, to)
+    const x0 = h0.cx - D / 2, sway = L0.hud.driftX * L0.H      // the lens's corner, and how far the drift carries it
+    const lensE = Anat.lensEnv(env, D, to, { x0: L0.safe.x0 - x0 + sway, x1: L0.safe.x1 - x0 - sway })
     lensE.key = "L|" + Math.round(D) + "|" + (to ? to.join(",") : "") + "|" + mode
     // the drawings: the chosen one, and the one it replaces while that fades
     const onStage = sel && !sel.lens ? sel : sel && lens < 0.99 ? R.stage.sel : null

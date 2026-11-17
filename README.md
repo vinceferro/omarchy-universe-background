@@ -241,8 +241,10 @@ the story band, with its headline at `full`. Flight has no body, so nothing
 is drawn there.
 
 The labels stand in one column beside the drawing, outside the body and
-outside the lens's rim, each joined to its own line by a thin leader. They
-are sized from the screen like the rest of the text: names 27 px and numbers
+outside the lens's rim, each joined to its own line by a thin leader. Beside
+the lens the column stands on the subject's side, or on the other where the
+screen ends first (the laptop's corner HUD, a subject right of the disc).
+They are sized from the screen like the rest of the text: names 27 px and numbers
 23 px on a 2160 px screen, never under 14 and 12.
 
 **How a line tells you what it is.** One legend for every body:
