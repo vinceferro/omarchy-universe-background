@@ -191,6 +191,7 @@ Item {
     textLower = st.lower
     if (st.level !== textLevel) { textLevel = st.level; saveText() }
     touchText()
+    gone("text")                         // the level named a moment ago is not the level any more
     say("text", st.level === "off" ? "TEXT OFF  ·  T BRINGS IT BACK" : "TEXT  ·  " + st.level.toUpperCase(), "")
   }
   // ---- Anatomy (C, IPC `anatomy <on|off|toggle>`; lib/anatomy.js) ----
@@ -259,6 +260,7 @@ Item {
     touchText()
     anatRun.said = ""; anatRun.subject = ""
     anatRun.walk = to ? { pending: true } : null
+    gone("anatomy")                      // what the band was saying about the body belongs to the lines that were up
     if (!to) { say("anatomy", "ANATOMY OFF  ·  C BRINGS IT BACK", ""); if (anatLit !== "") anatLit = "" }
     if (to === anatomy) return
     anatomy = to
@@ -408,7 +410,7 @@ Item {
     const rec = anatomy && liveBackground ? anatSubject() : null
     const parked = rec && anatParked() ? 1 : 0
     if (parked && mix.anat.g === 0) Tx.touchZone(textModel, "anat")   // an arrival brings the lines back, like a key
-    if (rec && !parked && mix.anat.g === 1) say("anatomy", "", "")    // a journey begins: nothing more about the body left behind comes up
+    if (anatomy && !parked && mix.anat.g === 1) gone("anatomy")       // a journey begins: the body left behind is said no more, and its caption up goes at once
     mix.anat.g = parked
     const m = mix.anat.step(dt)
     if (m !== anatMix) anatMix = m
@@ -484,6 +486,7 @@ Item {
       R.subject = rec.id
       R.readoutUntil = now + 4000
       Tx.touchZone(textModel, "dial")
+      gone("anatomy")                    // another body's caption yields at once
       say("anatomy", "ANATOMY  ·  " + named.title, guide ? named.headline : "")
       if (R.walk && R.walk.pending) R.walk = guide && out ? { told: ({}) } : null
     }
@@ -522,7 +525,9 @@ Item {
   // film's script (IPC `caption`: "script"). One caption at a time, each up
   // for at least its reading time, later ones waiting their turn; it shows
   // at every text level. A script's caption stays until the script says
-  // something else; every other one leaves once read.
+  // something else; every other one leaves once read. The reading time
+  // holds a caption against others about the same thing; a caption about
+  // what is no longer on the screen goes at once (gone).
   //
   // Film mode (IPC `film true`): for recording. It is the level `off` for as
   // long as it is on, reached over the same 1.5 s: the cockpit, key hints,
@@ -540,6 +545,9 @@ Item {
     if (film && who !== "script") return
     Tx.say(story, who, title, body, !!stay)
   }
+  // what `who` was speaking about has left the screen (a journey began, the
+  // subject or the setting changed): its caption goes at once, read or not
+  function gone(who) { Tx.storyLeft(story, who) }
   // Legibility, one rule for every text (scrim.frag): a soft black backing
   // behind the words, feathered to nothing, as strong as the picture under
   // it is bright (read from the screen's own picture at low resolution, the
@@ -945,7 +953,7 @@ Item {
     keysDown = ({})
     touchText()   // a view entered from a script or a binding brings its text up like a key does
     Hyprland.refreshMonitors()   // the bar may have come or gone: the safe rect follows
-    if (explore !== "galaxy") { gxRateIndex = 0; fallReset(); say("home", "", "") }
+    if (explore !== "galaxy") { gxRateIndex = 0; fallReset(); gone("home") }
     if (explore !== "system") {
       chasing = false
       galactic = false
@@ -1276,7 +1284,7 @@ Item {
     if (fallState) return
     const v = gxViews[i]
     const o = LG.viewFrom(hotspotPos(gxIndex(v.from)), v.at, v.standoff)
-    say("home", "", "")
+    gone("home")
     gxFallArmed = false
     gxSel = -2
     gxFree = v.at.slice()
@@ -1598,7 +1606,7 @@ Item {
   function gxFlyTo(i) {
     if (fallState) return   // below the horizon, or on the way: nothing steers
     if (i === -1) { gxHome(); return }
-    say("home", "", "")     // leaving again: "Back home" is said at home only
+    gone("home")            // leaving again: "Back home" is said at home only, and goes with it
     gxFallArmed = false
     gxView = -1
     touchText()
@@ -2460,7 +2468,7 @@ Item {
       if (inView && !fallState) {
         const mv = [key("d") - key("a"), key("w") - key("s")]
         if (mv[0] !== 0 || mv[1] !== 0) {
-          if (gxSel !== -2) { gxFree = gxTarget.slice(); gxSel = -2; say("home", "", "") }
+          if (gxSel !== -2) { gxFree = gxTarget.slice(); gxSel = -2; gone("home") }
           gxView = -1
           const fh = Math.hypot(fwd.x, fwd.y) > 1e-3 ? [fwd.x / Math.hypot(fwd.x, fwd.y), fwd.y / Math.hypot(fwd.x, fwd.y)] : [up.x, up.y]
           const v = gxDist * 0.9 * dt

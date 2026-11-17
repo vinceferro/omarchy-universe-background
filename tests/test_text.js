@@ -1,7 +1,7 @@
 // checks for text.js, the text level and its idle clock (run with node; strips the QML pragma)
 const fs = require("fs")
 const src = fs.readFileSync(process.argv[2], "utf8").replace(".pragma library", "")
-const Tx = new Function(src + "\nreturn { LEVELS, GROUPS, READ_BASE_S, READ_WORD_S, READ_MIN_S, GLANCE_S, STORY_IN_S, STORY_OUT_S, HOLD_MAX_S, FADE_IN_S, FADE_OUT_S, LEVEL_S, DIAL_WORDS, EVENT_S, DWELL_S, DWELL_HOLD_S, UNITS_S, touchZone, dwell, parseLevel, next, prev, apply, migrate, effective, shows, words, read, hold, storyCreate, say, storyOnly, storyDue, storyStep, storyOpacity, storyWho, create, touch, wanted, step, snap, ease, gate, presence, mix };")()
+const Tx = new Function(src + "\nreturn { LEVELS, GROUPS, READ_BASE_S, READ_WORD_S, READ_MIN_S, GLANCE_S, STORY_IN_S, STORY_OUT_S, STORY_CUT_S, HOLD_MAX_S, FADE_IN_S, FADE_OUT_S, LEVEL_S, DIAL_WORDS, EVENT_S, DWELL_S, DWELL_HOLD_S, UNITS_S, touchZone, dwell, parseLevel, next, prev, apply, migrate, effective, shows, words, read, hold, storyCreate, say, storyLeft, storyOnly, storyDue, storyStep, storyOpacity, storyWho, create, touch, wanted, step, snap, ease, gate, presence, mix };")()
 let fails = 0
 function check(name, ok, info) { console.log((ok ? "ok   " : "FAIL ") + name + (info !== undefined ? "  " + info : "")); if (!ok) fails++ }
 const run = (m, s, hz, level, zones) => { for (let i = 0; i < Math.round(s * hz); i++) Tx.step(m, 1 / hz, level, zones) }
@@ -224,6 +224,73 @@ check("a touch brings the dial zone up with the names", Tx.presence(dz, "dial") 
   // frame rate: the same timeline at 30 and 165 Hz
   const total = hz => { const Q = Tx.storyCreate(); Tx.say(Q, "a", "One two three", "four five six seven eight nine ten"); let n = 0; do { Tx.storyStep(Q, 1 / hz); n++ } while (Q.moving && n < 1e5); return n / hz }
   check("the same timeline at 30 and 165 Hz", Math.abs(total(30) - total(165)) < 0.12 && Math.abs(total(165) - (Tx.STORY_IN_S + Tx.read(10) + Tx.STORY_OUT_S)) < 0.05, total(30).toFixed(2) + " " + total(165).toFixed(2))
+}
+
+// the story band: a caption whose subject left the screen goes at once
+{
+  const HZ = 60, dt = 1 / HZ
+  let S = Tx.storyCreate(), log = [], t = 0
+  const run = s => { for (let i = 0; i < Math.round(s * HZ); i++) { Tx.storyStep(S, dt); t += dt; log.push([t, Tx.storyWho(S), S.cur ? S.cur.title : "", Tx.storyOpacity(S)]) } }
+  const fresh = () => { S = Tx.storyCreate(); log = []; t = 0 }
+  const firstUp = title => (log.find(r => r[2] === title && r[3] === 1) || [Infinity])[0]
+  const lastSeen = title => { let x = -1; for (const r of log) if (r[2] === title && r[3] > 0) x = r[0]; return x }
+  const smooth = () => log.every((r, i) => i === 0 || Math.abs(r[3] - log[i - 1][3]) < 0.2)
+  const HOLE = ["ANATOMY  \u00b7  Sagittarius A*", "Four million Suns in a region smaller than Mercury's orbit: the black hole the Galaxy turns around."]
+  const JUP = ["ANATOMY  \u00b7  Jupiter", "Hydrogen and helium all the way down, round a diluted core."]
+  // the walkthrough: the hole's headline two seconds up, a journey begins, Jupiter's headline is said on arrival
+  Tx.say(S, "anatomy", HOLE[0], HOLE[1]); run(2)
+  check("(a long caption: " + Tx.read(Tx.words(HOLE.join(" "))).toFixed(1) + " s to read, 1.2 s of it read)", S.cur.need > 5 && S.cur.age < 1.5)
+  const t0 = t
+  Tx.storyLeft(S, "anatomy"); run(0.1)
+  check("its subject left the screen: the caption is going at once, unread", Tx.storyOpacity(S) < 1 && Tx.storyOpacity(S) > 0 && S.cur.title === HOLE[0])
+  run(0.2)
+  check("and is gone in 0.25 s, the band empty", Tx.storyWho(S) === "" && Math.abs(lastSeen(HOLE[0]) - t0 - Tx.STORY_CUT_S) <= 2 * dt, (lastSeen(HOLE[0]) - t0).toFixed(2))
+  run(0.5); Tx.storyStep(S, dt)
+  check("the band is still with nothing to say", !S.moving)
+  Tx.say(S, "anatomy", JUP[0], JUP[1]); run(20)
+  check("the next caption, said later, comes up as any other (0.8 s) and stands its reading time", Math.abs(log.filter(r => r[2] === JUP[0] && r[3] === 1).length / HZ - Tx.read(Tx.words(JUP.join(" ")))) <= 2 * dt && smooth())
+  // the subject changed with no journey between: the new caption is said in the same tick
+  fresh()
+  Tx.say(S, "anatomy", HOLE[0], HOLE[1]); run(2)
+  const t1 = t
+  Tx.storyLeft(S, "anatomy"); Tx.say(S, "anatomy", JUP[0], JUP[1]); run(20)
+  check("the body in front became another: the old caption yields at once and the new one is fully up 0.5 s later", Math.abs(firstUp(JUP[0]) - t1 - 2 * Tx.STORY_CUT_S) <= 3 * dt && lastSeen(HOLE[0]) - t1 <= Tx.STORY_CUT_S + 2 * dt, (firstUp(JUP[0]) - t1).toFixed(2))
+  check("one caption at a time through the change, and no jump in opacity", smooth() && log.every(r => r[2] !== HOLE[0] || r[0] <= t1 + Tx.STORY_CUT_S + 2 * dt))
+  check("the new caption stands its own reading time", Math.abs(log.filter(r => r[2] === JUP[0] && r[3] === 1).length / HZ - Tx.read(Tx.words(JUP.join(" ")))) <= 4 * dt && Tx.storyWho(S) === "")
+  // what the speaker had waiting about the old subject is taken back
+  fresh()
+  Tx.say(S, "anatomy", HOLE[0], HOLE[1]); run(2); Tx.say(S, "anatomy", "SHADOW", "Ten Schwarzschild radii across."); Tx.storyLeft(S, "anatomy"); run(10)
+  check("what was waiting about the subject left behind is never shown", !log.some(r => r[2] === "SHADOW") && Tx.storyWho(S) === "")
+  // another speaker's waiting caption comes up at once too, and keeps its own time
+  fresh()
+  Tx.say(S, "anatomy", HOLE[0], HOLE[1]); run(2); Tx.say(S, "home", "Back home", "The Sun."); run(0.5)
+  check("(before: the other speaker waits behind the caption being read)", S.cur.title === HOLE[0] && Tx.storyOpacity(S) === 1)
+  const t2 = t
+  Tx.storyLeft(S, "anatomy"); run(10)
+  check("a caption about what is gone yields to whoever waits", Math.abs(firstUp("Back home") - t2 - 2 * Tx.STORY_CUT_S) <= 3 * dt && Math.abs(log.filter(r => r[2] === "Back home" && r[3] === 1).length / HZ - Tx.read(5)) <= 4 * dt)
+  // the hold still protects a caption against others about the same subject
+  fresh()
+  Tx.say(S, "anatomy", HOLE[0], HOLE[1]); run(2); Tx.say(S, "anatomy", "SHADOW", "Ten Schwarzschild radii across."); run(1)
+  check("the same subject's next caption (a line of the walk) waits for the reading time as before", S.cur.title === HOLE[0] && Tx.storyOpacity(S) === 1 && S.line.length === 1)
+  run(30)
+  check("and both stood their whole time", Math.abs(log.filter(r => r[2] === HOLE[0] && r[3] === 1).length / HZ - Tx.read(Tx.words(HOLE.join(" ")))) <= 2 * dt && Math.abs(log.filter(r => r[2] === "SHADOW" && r[3] === 1).length / HZ - Tx.read(5)) <= 2 * dt)
+  // another speaker's caption is not touched
+  fresh()
+  Tx.say(S, "fall", "Event horizon", "Crossed."); run(1.5); Tx.storyLeft(S, "anatomy"); run(0.5)
+  check("only the speaker whose subject left is cut", S.cur.title === "Event horizon" && Tx.storyOpacity(S) === 1 && !S.cur.gone)
+  // back at the same subject before the caption is gone: the same words bring it back
+  fresh()
+  Tx.say(S, "anatomy", HOLE[0], HOLE[1]); run(2); Tx.storyLeft(S, "anatomy"); run(0.1); Tx.say(S, "anatomy", HOLE[0], HOLE[1]); run(1)
+  check("the same caption said again while it goes comes back up and is kept", S.cur.title === HOLE[0] && Tx.storyOpacity(S) === 1 && S.line.length === 0 && !S.cur.gone)
+  // a setting's name: the level changed twice in a second
+  fresh()
+  Tx.say(S, "text", "TEXT  \u00b7  NAMES", ""); run(1); const t3 = t
+  Tx.storyLeft(S, "text"); Tx.say(S, "text", "TEXT  \u00b7  FULL", ""); run(6)
+  check("a level named and changed again: the new name is up in half a second", firstUp("TEXT  \u00b7  FULL") - t3 <= 2 * Tx.STORY_CUT_S + 3 * dt && Tx.storyWho(S) === "")
+  check("the cut's constant is named", Tx.STORY_CUT_S === 0.25)
+  // frame rate
+  const total = hz => { const Q = Tx.storyCreate(); Tx.say(Q, "a", "One", "two three"); for (let i = 0; i < 2 * hz; i++) Tx.storyStep(Q, 1 / hz); Tx.storyLeft(Q, "a"); Tx.say(Q, "a", "Four", "five"); let n = 0; do { Tx.storyStep(Q, 1 / hz); n++ } while (Q.moving && n < 1e5); return n / hz }
+  check("the same change at 30 and 165 Hz", Math.abs(total(30) - total(165)) < 0.15 && Math.abs(total(165) - (2 * Tx.STORY_CUT_S + 3 + Tx.STORY_OUT_S)) < 0.06, total(30).toFixed(2) + " " + total(165).toFixed(2))
 }
 
 if (fails) { console.log(fails + " failed"); process.exit(1) }
