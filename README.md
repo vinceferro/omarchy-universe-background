@@ -107,8 +107,13 @@ Three rules hold for every word on the screen, each written once
   time: it comes up in 0.8 s, stands for at least its reading time and goes;
   what is said meanwhile waits its turn (a speaker's newer caption takes its
   older waiting one's place). A script's caption stays until the script says
-  something else, every other one leaves once read. It shows at every level,
-  `off` included; in film mode only the script speaks.
+  something else, every other one leaves once read. The reading time holds
+  a caption against others about the same thing only: a caption whose
+  subject has left the screen (a journey began, the anatomy's body became
+  another or was turned off, home was left, the level it names changed
+  again) goes at once, in a quarter of a second, and the caption waiting
+  behind it comes up as fast (`storyLeft`). It shows at every level, `off`
+  included; in film mode only the script speaks.
 - **Legibility.** Every text has a soft black backing behind it, feathered
   to nothing at its edge, exactly as strong as the picture under it is
   bright: the screen's own picture (the full pass, without the words) is
@@ -229,7 +234,11 @@ rule for every body (`choose()` in `lib/anatomy.js`):
 | smaller | in the lens | the HUD's disc becomes a lens: it shows the body from the same eye through a telescope, to scale, with the body's own layers and the rings or belts within four of its radii |
 
 In the lens the HUD's readouts dim to make room, the rim stays, and a thin
-leader runs from the rim to a small ring round the body itself. The two
+leader runs from the rim to a small ring round the body itself. The lens is
+the anatomy's, not the cockpit's: with the cockpit off (the levels `names`
+and `off`, key `H`) it stands alone in the disc's place of the screen's
+plan, glass, rim, lines and leader with no gauge, and the scene's names keep
+out of it as they do of the disc. The two
 places cross-fade as the body grows or shrinks; once on the body, a drawing
 stays there down to 15%. The lens magnifies up to ten million times, enough
 for a Sun-like star from a parsec. Where that does not reach the subject,
@@ -285,8 +294,12 @@ fact is up. Any key ends that walk. Pointing at a line says its fact. Lines
 and labels sit on the idle clock like every other text: they fade after
 their reading time and any key or pointer movement brings them back, so a
 parked view keeps nothing lit. A flight to a place, the fall and the way
-home fade the lines and take back what the band had still to say about the
-body left behind; the lines return on arrival. The setting is remembered
+home fade the lines, and the band's caption about the body left behind goes
+with them at once, with what it had still to say; the lines return on
+arrival and stay as after a key, a glance and their labels' reading time
+(8 s or more), however long the flight was. At `names` and `off` no walk
+holds them longer: a lens seen 20 s after a flight landed has already faded,
+and any key or pointer movement brings it back. The setting is remembered
 across restarts.
 
 **What it costs.** Nothing while it is off, faded or away on a journey. While
@@ -787,7 +800,7 @@ Everything is reachable through the shell's IPC, `omarchy-shell background <func
 | `fallLook <yaw> <pitch>` | falling into the hole: look this many degrees right and up from the scripted view, held until the next drag or arrow (for tests and filming) |
 | `mathMode <true/false>` | mathematics mode: the fall follows the extended Kerr solution through the inner horizon and the ring into the other universe (not physics); takes effect at the next fall |
 | `anatomy <on/off/toggle>` | the anatomy layer, the `C` key (see [Anatomy](#anatomy)); remembered across restarts |
-| `anatomyDemo <body>` | goes to a body of the table and turns its anatomy on: a record's id (`sgrA`, `sun`, `earth`, `saturn`, `orion`, `milkyWay` ...; `anatomyReport` lists them). A planet or the Sun is pinned in the system view, a place of the Milky Way view is flown to, the Milky Way and the Local Group go home (the Sun in its Galaxy, where the Milky Way's lines are drawn). What is drawn, and where, is the anatomy's own rule: on the body when it is large, in the lens when it is small |
+| `anatomyDemo <body>` | goes to a body of the table and turns its anatomy on: a record's id (`sgrA`, `sun`, `earth`, `saturn`, `orion`, `milkyWay` ...; `anatomyReport` lists them). A planet or the Sun is pinned in the system view, a place of the Milky Way view is flown to, the Milky Way and the Local Group go home (the Sun in its Galaxy, where the Milky Way's lines are drawn). What is drawn, and where, is the anatomy's own rule: on the body when it is large, in the lens when it is small. The call returns at once and the drawing comes when the visit has landed: the flight (about 11 s from home to Sagittarius A*, 5 s to a star), then the view at rest, then the headline; allow about 20 s before reading `anatomyReport` or looking for the lines, and poll `anatomyReport` for `parked`, `still` and `drawn` instead of sleeping |
 | `anatomyReport` | prints, as JSON: the setting, the subject, the record drawn and where (`lens`, with the lens's centre and width and the body's place on the screen), every row of it (tag, size, strokes, label and where it stands, in the first screen's pixels), what the drawing measured (the shadow's width, the bright side's factor), how far the names and the HUD have stepped back, how many passes were worked out and their milliseconds, and the table's ids |
 | `sky` | Sky mode, at the last view |
 | `skyView <1-7>` | Sky mode at a named view |
@@ -1118,7 +1131,7 @@ table (`lib/dwarfs.js`) with `node tests/test_dwarfs.js lib/dwarfs.js`; the
 Local Group's geometry, hand-off and photometry (`lib/localgroup.js`, and the
 dwarf texture against the table) with `node tests/test_localgroup.js
 lib/localgroup.js`; the text level, its groups, the reading-time rule, the
-idle clock and the story band (`lib/text.js`) with `node tests/test_text.js lib/text.js`; the
+idle clock and the story band, a caption's reading time and the cut of one whose subject left the screen (`lib/text.js`) with `node tests/test_text.js lib/text.js`; the
 zones, the HUD's disc, the words in its gap and hub, beacon labels, markers
 and the label pass (`lib/layout.js`, on a 5120x2160 and a notched 1728x1117
 screen among others; with the shader given, its ring radii against
@@ -1153,11 +1166,13 @@ tracer running behind), and prints how much of the picture is white. `time=N`
 on `hole_layer.py` times the layer's draw.
 
 `tests/harness/anatomy.sh` runs the anatomy layer the same headless way
-(about four minutes): the views one after another with the layer on, checked
+(about three minutes): the views one after another with the layer on, checked
 by `anatomy_check.js` for JavaScript errors, the subject of each view, the
 fade on a journey and on the idle clock, the text levels, `K`, the walk
 through the story band, a star and the Sun in the lens (the disc, the rim,
-the labels' column, the HUD and the names stepping back), a pinned planet on
+the labels' column, the HUD and the names stepping back), the same star at
+`names` (the lens alone in the disc's place with the cockpit off, held up
+for 8 s after the arrival), a pinned planet on
 the body, the ways home (Esc at a place and 0: the same flight, "Back home",
 the text level kept), `anatomyDemo`'s visits and the room the lines and
 labels keep. It also prints what a pass costs.
@@ -1216,7 +1231,7 @@ landing.
 
 The text's timing is in `lib/text.js` (the reading rule: `READ_BASE_S`,
 `READ_WORD_S`, `READ_MIN_S`, `HOLD_MAX_S`; a zone's glance `GLANCE_S`; the
-story band's `STORY_IN_S` and `STORY_OUT_S`;
+story band's `STORY_IN_S`, `STORY_OUT_S` and `STORY_CUT_S`;
 the fades, and the HUD's own: `DIAL_WORDS`, `EVENT_S`, `DWELL_S`), its
 backing in `scrim.frag` (`LUM_LO`, `LUM_HI`; `strength` and `feather` on
 `Scrim` in `Background.qml`), the way home in `lib/camera.js` (`HOME_S`, `HOME_DARK_S`,

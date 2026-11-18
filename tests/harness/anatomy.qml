@@ -24,6 +24,7 @@ Window {
     { name: "esc at a place", go: () => { ipc.text("names"); bg.back() }, until: r => r.subject === "sun" && r.parked && bg.storyTitle === "Back home" && bg.storyShow > 0, max: 120 },
     { name: "to the Orion Nebula", go: () => ipc.fly("Orion"), until: r => r.subject === "orion" && r.parked && r.drawn === "orion" && since > 8, max: 200 },
     { name: "key 0 from a place", go: () => bg.gxFlyTo(-1), until: r => r.subject === "sun" && r.parked && bg.storyTitle === "Back home" && since > 20, max: 120 },
+    { name: "betelgeuse at names", go: () => ipc.fly("Betelgeuse"), until: r => r.subject === "betelgeuse" && r.parked && r.lens && r.presence === 0 && since > 40, max: 280 },
     { name: "earth", go: () => { ipc.text("full"); ipc.focus(3) }, until: r => r.drawn === "earth" && r.mix >= 1 && r.still && /Earth/.test(bg.storyTitle), max: 160 },
     { name: "saturn", go: () => ipc.focus(6), until: r => r.drawn === "saturn" && r.mix >= 1 && since > 12, max: 120 },
     { name: "sun", go: () => ipc.focus(0), until: r => r.parked && r.drawn === "sun" && r.lensMix >= 1 && r.still && since > 30, max: 120 },
