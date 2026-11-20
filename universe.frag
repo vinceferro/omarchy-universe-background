@@ -111,6 +111,7 @@ layout(std140, binding = 0) uniform buf {
     vec3 holeUp;
     float holeOver;  // the layer's field of view over the screen's (hole.frag's `over`)
     float gxHoleExp; // the hole's picture's exposure: 1 hovering; the falling eye's adaptation (lib/fall.js)
+    vec3 holeCam;    // and the position it was drawn from, in Rs from the hole (holeReproject)
 };
 
 // NASA maps, equirectangular: Blue Marble (day), Black Marble (night lights),
@@ -1365,6 +1366,34 @@ vec2 holeUV(vec3 d, float fz) {
     vec2 pp = vec2(dot(d, holeRight), -dot(d, holeUp)) / fz;
     return pp / (vec2(resolution.x / resolution.y, 1.0) * holeOver) + 0.5;
 }
+// The camera's position matters too: the layer was traced from holeCam, and
+// a camera that has moved since (an orbit drag, a flight, the fall) sees the
+// picture turned and grown with it. Read in place, a direction found the
+// ray the old camera had there, beside the hole instead of on it: the
+// shadow's edge (worked out here, from the camera now) and the traced gas,
+// ring and lensed sky came apart by the step, and the picture jumped back
+// at every trace, a trail of copies of the hole while the camera moved.
+// So the direction is first carried to where the tracer saw the same ray
+// (lib/kerr.js reproject, with its tests): turned by the shortest rotation
+// from the camera's direction from the hole to holeCam's (exact for any
+// rotation at a = 0, and about the spin axis at any spin), and its angle
+// from the hole rescaled for a change of distance, tan(theta / 2) times
+// rNow / rThen (the same impact parameter, one smooth map of the sphere).
+// The bend vector needs nothing: it is written in a basis made of the look
+// direction and the hole, which turns with them. A camera that has not
+// moved reads every direction where it is.
+vec3 holeReproject(vec3 rd, vec3 camPos) {
+    float rn = length(camPos), rt = length(holeCam);
+    vec3 a = camPos / rn, b = holeCam / rt;
+    float c = dot(a, b);
+    vec3 ax = cross(a, b);
+    vec3 x = rd * c + cross(ax, rd) + ax * (dot(ax, rd) / max(1.0 + c, 1e-6));
+    vec3 h = -b;
+    float k = rn / rt, cs = dot(x, h);
+    vec3 w = h * ((1.0 + cs) * (1.0 + cs) - k * k * (1.0 - cs * cs)) + (x - h * cs) * (2.0 * k * (1.0 + cs));
+    float wl = length(w);
+    return wl < 1e-12 ? x : w / wl;
+}
 
 // what the sky holds in direction d: our Galaxy's stars, far galaxies
 vec3 gxSky(vec3 d) {
@@ -1454,13 +1483,15 @@ vec3 holePixel(vec3 rd, vec3 camPos, float sheet, bool falling) {
     if (rCam > rPlus) xs = radialClass(E, Lz, Kc, a, rCam, rdot > 0.0, rPlus);
     else if (rCam > rMinus) xs = radialClass(E, Lz, Kc, a, rPlus, true, rPlus);
     else xs = 1.0;
-    // in the tracer's layer, the sky lies away from the hole's position (with
-    // the hole behind that camera the projection flips)
+    // in the tracer's layer (this direction carried to where the tracer saw
+    // it, and the hole where it was then), the sky lies away from the hole's
+    // position (with the hole behind that camera the projection flips)
     vec3 toHole = -camPos;
-    vec2 uv = holeUV(rd, max(dot(rd, holeFwd), 1e-4));
-    float fz = dot(normalize(toHole), holeFwd);
+    vec3 rq = holeReproject(rd, camPos);
+    vec2 uv = holeUV(rq, max(dot(rq, holeFwd), 1e-4));
+    float fz = dot(normalize(-holeCam), holeFwd);
     fz = abs(fz) < 1e-6 ? 1e-6 : fz;
-    vec2 cuv = holeUV(normalize(toHole), fz);
+    vec2 cuv = holeUV(normalize(-holeCam), fz);
     vec2 outward = normalize(uv - cuv + 1e-9) * sign(fz);
     vec2 texel = 1.0 / holeRes;
     // the tracer runs at a half or a third of the resolution; the edge is

@@ -5,7 +5,7 @@
 // march, the gas's orbits, the axis fall, and the mathematics mode's rays
 const fs = require("fs")
 const src = fs.readFileSync(process.argv[2], "utf8").replace(".pragma library", "")
-const K = new Function(src + "\nreturn { M, horizons, photonOrbit, polarPhotonOrbit, isco, horizonOmega, ksRadius, ksMetric, sheetAt, lower, gdot, frame, staticObserver, axisInfaller, axisEnergyFromRest, axisSpeed, axisEscapeEnergy, cameraRay, motion, carterK, carterKAxis, radialClass, traceRay, pixelRay, bendBasis, bendEncode, bendDecode, gasOmega, gasVelocity, gasShift, axisFall, tableR, tableTau , ergoRadius, ksPoint, shadowClass, shadowOutline, impactAt, gasLight };")()
+const K = new Function(src + "\nreturn { M, horizons, photonOrbit, polarPhotonOrbit, isco, horizonOmega, ksRadius, ksMetric, sheetAt, lower, gdot, frame, staticObserver, axisInfaller, axisEnergyFromRest, axisSpeed, axisEscapeEnergy, cameraRay, motion, carterK, carterKAxis, radialClass, traceRay, pixelRay, bendBasis, bendEncode, bendDecode, gasOmega, gasVelocity, gasShift, axisFall, tableR, tableTau , ergoRadius, ksPoint, shadowClass, shadowOutline, impactAt, gasLight, reproject };")()
 let fails = 0
 function check(name, ok, info) { console.log((ok ? "ok   " : "FAIL ") + name + (info !== undefined ? "  " + info : "")); if (!ok) fails++ }
 const M = K.M, RS_C = 2 * 4.925490947e-6 * 4.15e6
@@ -550,6 +550,65 @@ function verlet(x0, v0) {
     check("gasLight from " + name + ": brighter beside the flat edge than beside the round one", In > 3 * If && If > 0, (In / If).toFixed(1) + " times")
   }
   check("gasLight: none along the axis toward the sky", K.gasLight([0, 0, 30], A94, [0, 0, 1]) === 0)
+}
+
+// reproject: the tracer's layer read from a camera that has moved since it
+// was traced (universe.frag's holeReproject). Rays around the hole from the
+// camera now, marched; the same rays looked up in a trace from the camera
+// then, as the shader does it, and decoded about the look direction now.
+// The look-up by the plain direction (what universe.frag did) is the
+// reference: the picture dragged with the camera, the ghost of the hole.
+{
+  const rot = (p, k, ang) => {
+    const c = Math.cos(ang), s = Math.sin(ang), kd = k[0] * p[0] + k[1] * p[1] + k[2] * p[2]
+    const cr = [k[1] * p[2] - k[2] * p[1], k[2] * p[0] - k[0] * p[2], k[0] * p[1] - k[1] * p[0]]
+    return [0, 1, 2].map(i => p[i] * c + cr[i] * s + k[i] * kd * (1 - c))
+  }
+  const escape = (x, a, v) => {
+    const m = K.ksMetric(x, a, 1), u = K.staticObserver(m), pr = K.pixelRay(x, a, 1, u, v)
+    const t = K.traceRay(x, pr.k, a, 1, pr.E, {})
+    return t.out === "sky" ? t.dir : null
+  }
+  const median = L => L.slice().sort((p, q) => p - q)[Math.floor((L.length - 1) / 2)]
+  const compare = (now, then, a) => {
+    const toH = now.map(c => -c / norm(now))
+    let e1 = [toH[1], -toH[0], 0]
+    e1 = norm(e1) > 1e-3 ? e1.map(c => c / norm(e1)) : [1, 0, 0]
+    const e2 = [toH[1] * e1[2] - toH[2] * e1[1], toH[2] * e1[0] - toH[0] * e1[2], toH[0] * e1[1] - toH[1] * e1[0]]
+    const rep = [], plain = []
+    for (let th = 0.02; th < 0.6; th *= 1.12) for (let ph = 0; ph < 2 * Math.PI; ph += Math.PI / 6) {
+      const v = [0, 1, 2].map(i => toH[i] * Math.cos(th) + (e1[i] * Math.cos(ph) + e2[i] * Math.sin(ph)) * Math.sin(th))
+      const d = escape(now, a, v)
+      if (!d) continue
+      const B = K.bendBasis(now, v)
+      const errs = [K.reproject(now, then, v), v].map(w => {
+        const dt = escape(then, a, w)
+        if (!dt) return 180
+        const Bt = K.bendBasis(then, w)
+        return angle(K.bendDecode(v, B.n1, B.n2, K.bendEncode(w, Bt.n1, Bt.n2, dt)), d)
+      })
+      rep.push(errs[0]); plain.push(errs[1])
+    }
+    return { n: rep.length, worst: Math.max(...rep), med: median(rep), mean: rep.reduce((p, q) => p + q, 0) / rep.length,
+             plainMed: median(plain), plainMean: plain.reduce((p, q) => p + q, 0) / plain.length }
+  }
+  const v0 = [0.3, -0.9, 0.2].map(c => c / norm([0.3, -0.9, 0.2]))
+  check("reproject: an unmoved camera reads each direction where it is", angle(K.reproject([0, 20, 0], [0, 20, 0], v0), v0) < 1e-6)
+  check("reproject: a turned camera too (the position alone matters)", angle(K.reproject([3, 19, 2], [3, 19, 2], [0, 0, 1]), [0, 0, 1]) < 1e-6)
+  const c0 = [0, 20, 0], two = 2 * Math.PI / 180
+  for (const [label, now, then, a] of [["a = 0, orbited 2 deg", c0, rot(c0, [1, 0, 0], two), 0],
+                                       ["a/M = 0.94, orbited 2 deg about the spin axis", c0, rot(c0, [0, 0, 1], two), A94]]) {
+    const r = compare(now, then, a)
+    check("reproject, " + label + ": every ray exact (a symmetry; acos rounding aside), against a median " + r.plainMed.toFixed(1) + " deg read in place", r.worst < 1e-4 && r.plainMed > 1, r.n + " rays, worst " + r.worst.toExponential(1) + " deg")
+  }
+  const ci = [0, 20 * Math.sin(1.05), 20 * Math.cos(1.05)]
+  for (const [label, now, then, a, med] of [["a/M = 0.94 at 60 deg, orbited 2 deg in inclination", ci, rot(ci, [1, 0, 0], two), A94, 0.1],
+                                            ["a/M = 0.94 at 60 deg, 2% closer", ci, ci.map(c => c * 1.02), A94, 0.05],
+                                            ["a = 0 at 6 Rs, 2% closer", [0, 6, 0], [0, 6.12, 0], 0, 0.05]]) {
+    const r = compare(now, then, a)
+    check("reproject, " + label + ": median under " + med + " deg, mean a tenth of reading in place", r.med < med && r.mean < r.plainMean / 10,
+      r.n + " rays, median " + r.med.toFixed(3) + " deg, mean " + r.mean.toFixed(3) + " (in place " + r.plainMed.toFixed(2) + ", " + r.plainMean.toFixed(2) + ")")
+  }
 }
 
 console.log(fails ? fails + " FAILED" : "all passed")
