@@ -2636,8 +2636,9 @@ Item {
       }
       // near the hole its tracer (holePass, one per screen) is offered this
       // frame's camera; it takes it at its own rate, the faster one while
-      // the camera moves. (A view that only turns needs no new trace:
-      // universe.frag reads the layer by direction.)
+      // the camera moves. (Between two traces universe.frag reads the layer
+      // by direction, carried from this camera to the tracer's: a view that
+      // has turned or moved since is drawn where it is, not dragged along.)
       if (gxHoleNear) holeSync(moved)
       // the Milky Way's own stars thin out once we are outside it
       const outside = Math.max(Math.hypot(cam[0], cam[1]) - 15, Math.abs(cam[2]) - 0.5, 0)
@@ -4009,7 +4010,9 @@ Item {
               // only re-renders when they change. A draw is milliseconds of
               // GPU time, so it is not every frame; universe.frag reads the
               // layer by direction (holeFwd/holeRight/holeUp below are this
-              // camera), so a view that has turned since is still exact
+              // camera, holeCam its position), so a view that has turned
+              // since is still exact and one that has moved is carried to
+              // where this camera saw each ray (holeReproject)
               property vector3d camPos: Qt.vector3d(0, 1e6, 0)
               property vector3d camFwd: Qt.vector3d(0, -1, 0)
               property vector3d camRight: Qt.vector3d(1, 0, 0)
@@ -4168,6 +4171,7 @@ Item {
               property vector3d holeRight: holePass.camRight
               property vector3d holeUp: holePass.camUp
               property real holeOver: holePass.over
+              property vector3d holeCam: holePass.camPos
               property real gxHoleExp: root.gxHoleExp
               property var skyFull: skyFullTex
               property vector4d gxPhoto: root.gxPhoto
