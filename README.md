@@ -1007,8 +1007,22 @@ and rate per screen; `qualityInfo` prints the choice.
   position: the bend vector is written about the look direction itself, so
   a view that has turned since the last trace still finds each direction's
   own ray (the layer covers 4% more than the screen for what a turn brings
-  in at the edge). A new trace is only needed as the camera moves and as the
-  gas flows. NVIDIA: the largest whole fraction of the refresh rate that
+  in at the edge). A camera that has moved since is handled the same way
+  (`holeReproject`; `reproject` in `lib/kerr.js`): each direction is
+  carried to where the tracer's camera (`holeCam`) saw the same ray, turned
+  by the shortest rotation between the two cameras' directions from the
+  hole, and its angle from the hole rescaled by the change of distance
+  (tan(theta/2) times rNow/rThen). Moving round the hole is a symmetry at
+  a = 0, and about the spin axis at any spin, so an orbit drag is exact
+  between traces; `tests/test_kerr.js` marches the rays and finds a median
+  0.06 degrees for 2 degrees of inclination at a/M 0.94 and 0.01 to 0.03
+  for 2% closer, where reading in place was off by a median 0.8 to 3
+  degrees. Read in place, as it was until 2026-11-20, the traced gas, ring
+  and lensed sky were drawn where the camera had been while the shadow's
+  edge (worked out per pixel) was where it is: a trail of copies of the
+  hole behind an orbit drag, jumping back at every trace. A new trace
+  brings in what moving changes beyond that (the gas seen from a new angle,
+  the fall) and the gas's flow. NVIDIA: the largest whole fraction of the refresh rate that
   keeps the tracer within a third of the GPU's time while the camera moves
   (33 Hz at 5120x2160 and 165 Hz; every frame where a draw is cheap enough,
   as at 1920x1080) and within a fifth while only the gas flows (21 Hz).
@@ -1124,7 +1138,7 @@ the way home too); the fall's trajectory, timeline,
 ending and story, played through the story band (`lib/fall.js`, with `lib/text.js` beside it) with `node tests/test_fall.js lib/fall.js`; the pointer
 gesture (`lib/drag.js`: click or drag, the release velocity, the sky's
 angular grab) with `node tests/test_drag.js lib/drag.js lib/camera.js`; the Kerr hole's
-numbers, metric, frames, march, shadow edge, gas orbits and axis fall
+numbers, metric, frames, march, shadow edge, gas orbits, axis fall and the tracer read from a moved camera
 (`lib/kerr.js`, what the shaders port) with `node tests/test_kerr.js
 lib/kerr.js`; the dwarf galaxy
 table (`lib/dwarfs.js`) with `node tests/test_dwarfs.js lib/dwarfs.js`; the
