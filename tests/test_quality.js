@@ -1,7 +1,7 @@
 // checks for quality.js, the adaptive render scale and idle pacing (run with node; strips the QML pragma)
 const fs = require("fs")
 const src = fs.readFileSync(process.argv[2], "utf8").replace(".pragma library", "")
-const Q = new Function(src + "\nreturn { SCALE_MIN, AUTO_MIN, IDLE_FULL, IDLE_SLOW, LEVELS, BUDGET, gpuClass, parseProbe, screenGpu, parseLevel, autoScale, choose, idleDue, perfCreate, perfFrame, perfTake, perfLine, describe, isStill, STILL_WARM_MS, HOLE_NS, HOLE_FULL_MS, HOLE_DUTY_MOVE, HOLE_DUTY_IDLE, HOLE_HZ, HOLE_HZ_MIN, HOLE_OVER, holeRate, holeChoose, holeDue, holeDescribe };")()
+const Q = new Function(src + "\nreturn { SCALE_MIN, AUTO_MIN, IDLE_FULL, IDLE_SLOW, LEVELS, BUDGET, gpuClass, parseProbe, screenGpu, parseLevel, autoScale, choose, idleDue, LAYER_MS, layerDue, tickCost, perfCreate, perfFrame, perfTake, perfLine, describe, isStill, STILL_WARM_MS, HOLE_NS, HOLE_FULL_MS, HOLE_DUTY_MOVE, HOLE_DUTY_IDLE, HOLE_HZ, HOLE_HZ_MIN, HOLE_OVER, holeRate, holeChoose, holeDue, holeDescribe };")()
 let fails = 0
 function check(name, ok, info) { console.log((ok ? "ok   " : "FAIL ") + name + (info !== undefined ? "  " + info : "")); if (!ok) fails++ }
 const show = c => Q.describe(c)
@@ -98,6 +98,35 @@ check("30: every second firing", Math.abs(paced(30, false, false) - 31.25) < 0.0
 check("30 with +-2 ms of timer jitter: still 28-32 fps", paced(30, false, true) > 28 && paced(30, false, true) < 32, paced(30, false, true).toFixed(2))
 check("lively: the full rate whatever the cap", Math.abs(paced(30, true, true) - paced(60, false, true)) < 1e-9)
 check("a long stall is due", Q.idleDue(500, 30, false))
+
+// 6b. what the parked sky really draws: the tick redraws the layers every
+// LAYER_MS (the soft sky, the text backing's picture), and Qt presents one
+// more frame after each; drawn straight to the screen that frame is a second
+// full pass, so the clock counts it (tickCost) and idleFps holds in draws,
+// not only in ticks. Before, the box drew about 140 frames a second at
+// "idle 60": every tick twice, the gauges' easing and the nebula's own timer between them
+function drawn(idleFps, direct, jitter) {
+  let last = -1e9, lastLayer = -1e9, cost = 1, draws = 0, layers = 0, t = 0
+  for (let i = 0; i < 6000; i++) {
+    t += 16 + (jitter ? ((i * 7) % 5) - 2 : 0)
+    if (!Q.idleDue(t - last, idleFps, false, cost)) continue
+    last = t
+    const l = Q.layerDue(t - lastLayer)
+    if (l) { lastLayer = t; layers++ }
+    cost = Q.tickCost(l, direct)
+    draws += cost
+  }
+  return { draws: draws / (t / 1000), layers: layers / (t / 1000) }
+}
+for (const fps of [60, 30]) for (const direct of [true, false]) for (const jitter of [false, true]) {
+  const d = drawn(fps, direct, jitter)
+  check(fps + " fps, " + (direct ? "direct" : "through a texture") + (jitter ? ", jittery timer" : "") + ": the full pass draws at most idleFps a second",
+        d.draws <= fps * 1000 / 960 + 0.6 && d.draws >= fps * 0.75, d.draws.toFixed(1))
+  check(fps + " fps, " + (direct ? "direct" : "texture") + (jitter ? ", jitter" : "") + ": the layers still keep their pace", d.layers > 7.5 && d.layers <= 1000 / (Q.LAYER_MS - 8) + 0.01, d.layers.toFixed(1))
+}
+check("a tick that redraws no layer costs one draw anywhere", Q.tickCost(false, true) === 1 && Q.tickCost(false, false) === 1 && Q.tickCost(true, false) === 1 && Q.tickCost(true, true) === 2)
+check("a tick of cost two waits two intervals, a lively one does not", !Q.idleDue(20, 60, false, 2) && Q.idleDue(30, 60, false, 2) && Q.idleDue(1, 60, true, 2))
+check("60 is no exception: the same rule as every level", !Q.idleDue(8, 60, false, 1) && Q.idleDue(16, 60, false, 1))
 
 // 7. the frame-time meter
 const st = Q.perfCreate()

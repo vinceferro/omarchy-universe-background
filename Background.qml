@@ -60,12 +60,22 @@ Item {
   // frame (165 Hz here), so camera motion never steps in an uneven 2-3-2-3
   // cadence. The idle wallpaper moves slowly and keeps the cheaper 60 Hz
   // timer, which also stands in as a watchdog if the compositor stops asking
-  // for frames. On a GPU that needs the rest (idleFps below 60, see the
-  // quality section) the settled idle sky skips every second firing; while
+  // for frames. Parked, the sky draws its full pass at most idleFps times a
+  // second, on every GPU (lib/quality.js idleDue: 60 on the reference
+  // machine, every second firing on a GPU that needs the rest), and nothing
+  // else may draw it between the ticks: every binding the scene reads moves
+  // with the tick (the shader's time, the gauges, the clock, the start-up
+  // fade, the machine's figures), and the layers (the soft sky, the text
+  // backing's picture) are drawn again by the tick every LAYER_MS, the
+  // extra frame Qt presents after that counted in the tick's cost. While
   // anything eases (idleBusy: the pointer's parallax, a view fading out) it
-  // has all of them, so no transition steps.
+  // has every firing, so no transition steps, and the first move of the
+  // pointer ticks at once instead of waiting for the next firing.
   property real lastFrameAt: 0
   property bool idleBusy: true
+  property int tickCost: 1                           // the full passes the last tick drew (Q.tickCost)
+  property real lastLayersAt: 0
+  signal layersDue()                                 // the parked tick asks each screen to draw its layers again
 
   // ---- JARVIS navigation ----
   // While exploring, the HUD's instrument reads where you are (refreshed 5
@@ -120,21 +130,18 @@ Item {
     onTriggered: {
       const now = Date.now()
       if (root.explore !== "universe") { if (now - root.lastFrameAt > 120) root.tick() }
-      else if (Q.idleDue(now - root.lastTick, root.idleFps, root.idleBusy || root.viewTarget.x !== root.view.x || root.viewTarget.y !== root.view.y)) root.tick()
+      else if (Q.idleDue(now - root.lastTick, root.idleFps, root.idleBusy || root.viewTarget.x !== root.view.x || root.viewTarget.y !== root.view.y, root.tickCost)) root.tick()
     }
   }
+  // the pointer wakes a settled sky at once: the parallax starts on this
+  // event, not on the clock's next firing (after that it is lively, and has
+  // every firing)
+  onViewTargetChanged: if (animate && explore === "universe" && !idleBusy) tick()
 
-  // The soft nebula layer drifts slowly, so it re-renders ~10 times a second.
-  // Under an idle cap the tick itself moves it on (every third 32 ms tick):
-  // a timer on its own phase would present extra frames between the capped ones.
+  // The soft nebula layer drifts slowly, so it re-renders about ten times a
+  // second (every frame in flight), moved on by the tick itself: a timer on
+  // its own phase would present extra frames between the ticks.
   property real nebulaTime: 0
-  property real lastNebulaAt: 0
-  Timer {
-    interval: root.navigating ? 16 : 100
-    running: root.animate && (root.navigating || root.idleFps >= Q.IDLE_FULL)
-    repeat: true
-    onTriggered: root.nebulaTime = root.shaderTime
-  }
 
   // The text level (lib/text.js): one setting for every word and line the
   // wallpaper draws over the scene. T cycles off, names, full while exploring
@@ -803,6 +810,9 @@ Item {
   }
   // one clock for every screen that is drawn: the slowest idle rate any of them asks for
   readonly property int idleFps: Math.min(Q.IDLE_FULL, ...Quickshell.screens.map(s => qualityOf(s)).filter(q => !q.still).map(q => q.idleFps))
+  // a screen draws its full pass straight to the screen: there the frame Qt
+  // adds after a layer is drawn is a second full pass (Q.tickCost)
+  readonly property bool idleDirect: Quickshell.screens.some(s => { const q = qualityOf(s); return !q.still && !q.layered })
   // the hole's tracer on one screen: its layer's size, format and rates
   // (lib/quality.js, holeChoose). holeScale (IPC `holeScale`, not
   // remembered): the layer's scale, to compare on screen; 0: automatic
@@ -2161,8 +2171,8 @@ Item {
     return !!ws && !!ws.toplevels && ws.toplevels.values.length === 0
   }
   property real exposure: 1
-  property real bootLevel: 0
-  NumberAnimation on bootLevel { from: 0; to: 1; duration: 3000; easing.type: Easing.InOutQuad }
+  property real bootLevel: 0                      // the start-up fade, 3 s in-out on the tick (it was a NumberAnimation, at the display's rate)
+  readonly property real bootAt: Date.now()
 
   function key(name) { return keysDown[name] ? 1 : 0 }
 
@@ -2219,7 +2229,18 @@ Item {
     lastTick = now
     let subjectInRing = false   // the chosen or hovered thing is inside the HUD's ring (set by the label pass)
     shaderTime = ((now - shaderEpoch) / 1000) % 600
-    if (idleFps < Q.IDLE_FULL && !navigating && now - lastNebulaAt >= 90) { nebulaTime = shaderTime; lastNebulaAt = now }
+    // the layers: every frame in flight, else on their own pace off this
+    // clock; parked, each screen draws its text backing's picture again with
+    // them (live while the frame clock runs), and the frame Qt adds after
+    // a layer is drawn is counted in what this tick cost
+    const layers = navigating || Q.layerDue(now - lastLayersAt)
+    if (layers) { nebulaTime = shaderTime; lastLayersAt = now; if (explore === "universe") layersDue() }
+    tickCost = Q.tickCost(layers, idleDirect)
+    // the start-up fade, the clock (a new second) and the machine's figures
+    // move with the tick too
+    if (bootLevel < 1) { const u = Math.min(1, (now - bootAt) / 3000); bootLevel = u < 0.5 ? 2 * u * u : 1 - 2 * (1 - u) * (1 - u) }
+    if (Math.floor(now / 1000) !== Math.floor(root.now.getTime() / 1000)) root.now = new Date(now)
+    if (statsOut !== "") { const o = statsOut; statsOut = ""; parseStats(o) }
 
     const thrust = navigating ? key("w") - key("s") : 0
     mix.speed.g = navigating ? 0.25 + thrust * 0.9 : 0
@@ -3140,18 +3161,24 @@ Item {
     idleBusy = bootLevel < 1 || sys > 0 || galaxyMix > 0 || skyMix > 0 || navMix > 0 || galMix > 0 || fallFade > 0 || sysCam.flying()
       || mix.viewX.moving() || mix.viewY.moving() || mix.hover.moving() || mix.exposure.moving()
       || mix.speed.moving() || mix.strafeX.moving() || mix.strafeY.moving() || textModel.moving || story.moving || mix.yield.moving() || mix.anat.moving() || (anatMix > 0 && anatBusy())
-    gauges = Qt.vector3d(cpu, gpu, mem)
+    {
+      // the gauges ease toward the figures on the tick (an out-curve of
+      // about 0.9 s), so they never draw the scene between ticks
+      const k = 1 - Math.exp(-dt / 0.3), g = gauges
+      const gx = g.x + (cpu - g.x) * k, gy = g.y + (gpu - g.y) * k, gz = g.z + (mem - g.z) * k
+      if (Math.abs(gx - g.x) + Math.abs(gy - g.y) + Math.abs(gz - g.z) > 1e-4) gauges = Qt.vector3d(gx, gy, gz)
+      else if (g.x !== cpu || g.y !== gpu || g.z !== mem) gauges = Qt.vector3d(cpu, gpu, mem)
+    }
   }
 
-  // Live system stats for the HUD gauges, read every 2 s while it animates.
+  // Live system stats for the HUD gauges, read every 2 s while it animates
+  // and taken in by the next tick (statsOut), like everything the scene reads.
   property real cpu: 0
   property real gpu: 0
   property real mem: 0
-  Behavior on cpu { NumberAnimation { duration: 900; easing.type: Easing.OutCubic } }
-  Behavior on gpu { NumberAnimation { duration: 900; easing.type: Easing.OutCubic } }
-  Behavior on mem { NumberAnimation { duration: 900; easing.type: Easing.OutCubic } }
-  // the gauges as of the last tick: under an idle cap the shader reads these,
-  // or the 0.9 s easing above would redraw it at the display's rate
+  property string statsOut: ""
+  // what the shader's gauges show: eased toward cpu, gpu, mem by the tick
+  // (a NumberAnimation would redraw the whole screen at the display's rate)
   property vector3d gauges: Qt.vector3d(0, 0, 0)
   property var stats: ({ cpu: 0, cpuTemp: 0, gpu: 0, gpuKnown: false, gpuWatts: 0, gpuTemp: 0, memUsed: 0, memTotal: 0 })
   property var lastCpu: null
@@ -3163,7 +3190,7 @@ Item {
       "nvidia-smi --query-gpu=utilization.gpu,power.draw,temperature.gpu --format=csv,noheader,nounits 2>/dev/null || echo; " +
       "for h in /sys/class/hwmon/hwmon*; do [[ $(<$h/name) == coretemp ]] && cat $h/temp1_input && break; done"]
     stdout: StdioCollector {
-      onStreamFinished: root.parseStats(String(text || ""))
+      onStreamFinished: root.statsOut = String(text || "") || "\n"
     }
   }
 
@@ -3365,13 +3392,7 @@ Item {
 
   // The HUD's second colour: the accent hue turned like the shader's highlight.
   readonly property color hudHighlight: Qt.hsva((Math.max(0, Color.accent.hsvHue) + 0.38) % 1, 0.85, 1, 1)
-  property date now: new Date()
-  Timer {
-    interval: 1000
-    running: root.animate && root.liveBackground && root.hudLevel > 0
-    repeat: true
-    onTriggered: root.now = new Date()
-  }
+  property date now: new Date()                   // the clock: a new second is taken by the tick
 
   // GPU-animated backgrounds: a file named "*-live.webp" is rendered by the
   // universe shader at native refresh rate instead of being shown as an image.
@@ -3899,10 +3920,17 @@ Item {
         id: sceneLuma
         width: 1; height: 1
         sourceItem: sceneLoader.item ? sceneLoader.item.picture : null
-        live: true
+        // live while the frame clock runs; parked, drawn again with the
+        // layers by the tick (a live layer of a changing pass makes Qt
+        // present every frame twice: tests/harness/idle.sh)
+        live: root.explore !== "universe"
         hideSource: false
         smooth: true
         textureSize: Qt.size(96, Math.max(8, Math.round(96 * panel.height / Math.max(1, panel.width))))
+      }
+      Connections {
+        target: root
+        function onLayersDue() { if (sceneLuma.sourceItem) sceneLuma.scheduleUpdate() }
       }
       Loader {
         id: sceneLoader
@@ -4101,9 +4129,9 @@ Item {
               property vector2d hudCenter: Qt.vector2d((panel.hudCx - panel.lay.W / 2) / panel.lay.H, panel.hudCy / panel.lay.H - 0.5)
               property real hudScale: panel.lay.hud.s
               property real flight: root.flight
-              property real cpu: root.idleFps < Q.IDLE_FULL ? root.gauges.x : root.cpu
-              property real gpu: root.idleFps < Q.IDLE_FULL ? root.gauges.y : root.gpu
-              property real mem: root.idleFps < Q.IDLE_FULL ? root.gauges.z : root.mem
+              property real cpu: root.gauges.x
+              property real gpu: root.gauges.y
+              property real mem: root.gauges.z
               property real secs: (root.now.getSeconds() + root.now.getMilliseconds() / 1000) / 60
               property real hudSway: root.hudSway
               property vector4d timeRing: root.hudTimeRing
