@@ -957,11 +957,52 @@ resolution. The full pass is recreated whenever it changes between direct
 and textured. Below one texel per logical pixel the shaders' `resolution`
 shrinks too, so stars grow instead of flickering. The idle cap only holds
 while nothing eases: moving the pointer or leaving a view gets 60 fps until
-it settles, and exploring always runs at the display's rate.
+it settles (the pointer's first move draws at once, not on the clock's next
+firing), and exploring always runs at the display's rate.
+
+### The idle clock
+
+Parked, the sky draws its full pass at most "idle" times a second, on every
+GPU and level alike: one clock (a 16 ms timer) moves everything the scene
+reads. The shader's time, the HUD's drift and sway, the gauges (eased by
+the tick, no longer a NumberAnimation), the clock's second, the start-up
+fade and the machine's figures from `nvidia-smi` and `/proc` all change on
+a tick and never between two. The layers (the soft sky's, and the small
+picture the text's backing reads, `sceneLuma`) are drawn again by the tick
+every 100 ms (`LAYER_MS`), not by timers of their own.
+
+One thing in Qt Quick costs a frame of its own: after any frame in which a
+layer (a ShaderEffectSource or `layer.enabled`) was drawn again, the window
+presents one more. A live layer of a pass that changes every tick therefore
+doubled every frame: until 25 November 2026 the text backing's picture was
+live, and with the gauges' easing and the soft sky's own timer between the
+ticks the box drew about 140-153 frames a second while `qualityInfo` said
+idle 60 (`tests/harness/idle.sh` measured 125 off a 62.5 Hz clock with no
+vsync). Now that picture is live only while exploring (the frame clock
+runs then anyway) and the clock counts the extra frame where it costs a
+full pass (`tickCost`: drawn straight to the screen, a tick that drew the
+layers waits two firings). At "idle 60" that is about 52 ticks and 10 such
+frames a second, about 62 in all (measured headless; on the box `perf true`
+tells). Through a texture (scale
+below 1) the frame after each tick only lays the held texture out again,
+no full pass, so the window presents about twice the idle rate while the
+full pass draws at it.
+
+The idle sky could draw less often still. What moves in it, at 5120x2160:
+the star layers drift up to 12 px a second (0.2 px a frame at 60 fps, 0.4
+at 30), the stars twinkle under a quarter of a cycle a second and the HUD
+drifts about 3 px a second: at 30 fps or even 20 none of that steps. Two
+things do: a satellite's 2 px dot crosses at about 110 px a second (2 px a
+frame at 60, 4 at 30: a visible stutter) and a shooting star at 540 to 850
+px a second (9 to 14 px a frame at 60). So 60 stays the reference machine's
+rate; 30 (what `balanced` gives) would halve the parked GPU work again,
+paid in the satellite's and the shooting star's smoothness, a few seconds
+in every two minutes.
 
 `perf true` times the interval between presented frames, not the GPU's work
-on one: under the idle cap it reads about 33 ms however light the frame is,
-so headroom only shows while exploring, as a rate below the display's. The
+on one. Parked on the box it reads about 62 fps; through a texture about
+twice the idle rate (every second frame is the layout above). Headroom only
+shows while exploring, as a rate below the display's. The
 interval is taken when the shell's main thread hears of the frame, so a busy
 moment there can lengthen a peak.
 
@@ -983,8 +1024,10 @@ To compare on a new machine (`perf` logs through the shell, e.g.
    rate it found.
 2. `omarchy-shell background perf true`, then `quality full` (how it ran
    before) for 20 s idle and 20 s in the Milky Way view; note fps, avg, peak.
-3. `quality auto` and the same again. Idle should read about 30 fps with a
-   peak near 33 ms; exploring, the display's rate. The sky must still drift
+3. `quality auto` and the same again. Idle should read about 62 fps on
+   NVIDIA (60 draws and the layers' frames), 30 on another GPU drawing
+   straight to the screen and about 60 through a texture (30 draws, each
+   followed by a layout); exploring, the display's rate. The sky must still drift
    after each change of level (the full pass is recreated).
 4. Still short while exploring: `quality low` or a number (`quality 0.4`).
    Too soft and fast enough: `quality high` or `quality 0.75`.
@@ -1154,7 +1197,7 @@ HUD instrument's scales, bugs, needle spring, events and figures
 (`lib/dial.js`) with `node tests/test_dial.js lib/dial.js`; sunrise, sunset
 and the Moon's lit side (`lib/sun.js`) with `node tests/test_sun.js
 lib/sun.js`; the render scale, GPU probe, still screens,
-idle pacing and frame meter (`lib/quality.js`) with `node
+idle pacing (the draws a parked second costs, the layers' pace) and frame meter (`lib/quality.js`) with `node
 tests/test_quality.js lib/quality.js`; the anatomy's table (every body has
 rows, every row a tag, a label, a fact and a source, words within their
 limits, a record for every place of the views), the hole's rows against
@@ -1228,6 +1271,20 @@ before and runs about 30 times a second at 3.7 ms after (a line drawn with
 half its points while the view turns), 11% of the time; on a 165 Hz screen
 that is 0.7 ms a frame on average. With the layer off, faded on the idle
 clock or away on a journey no pass runs.
+
+`tests/harness/idle.sh` measures what the parked wallpaper draws (about a
+minute): the same headless run on Qt's Null device, where the offscreen
+platform has no vsync, so a frame is presented whenever anything in the
+window asks for one. `idle.qml` lets the sky settle, with the machine's
+figures changing as on a desk, and counts frames, ticks, draws of the full
+pass and the uniforms that change between ticks, parked straight to the
+screen (NVIDIA, idle 60) and through a texture (`balanced`, idle 30); it
+moves the pointer over the settled sky and explores. `idle_check.js` checks
+that the window presents at most idle-rate frames (62.5 at "60" off the
+16 ms clock; through a texture one layout more per draw), that no uniform
+of the full pass or the soft sky changes between ticks, that the pointer's
+first move ticks at once and that exploring is not capped. Before the idle
+clock was made whole it failed with 125 frames a second.
 
 `tests/harness/fall.sh [--math] [--esc <s>] [--gpu <driver>]` runs a whole fall headless
 (`--esc 30`: Esc thirty screen seconds in, and the way home from there):
